@@ -1,7 +1,6 @@
 export const SPREADSHEET_ID = '1RNhMNI3nM3dZisuP8vo2w6FYnx33Lvnvpe_UnHdGz4o';
 
-// Set your Google OAuth2 Client ID here (see SETUP.md)
-export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+export const GOOGLE_CLIENT_ID = '805285942411-qc6m89f2lm4tc3sn8l0jnkn786i611qj.apps.googleusercontent.com';
 
 export const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 
