@@ -8,6 +8,7 @@ import Transactions from './pages/Transactions';
 import Commissions from './pages/Commissions';
 import MonthlyDetail from './pages/MonthlyDetail';
 import Summary from './pages/Summary';
+import GasPrices from './pages/GasPrices';
 import Nav from './components/Nav';
 
 export default function App() {
@@ -18,7 +19,6 @@ export default function App() {
   return (
     <HashRouter>
       <div className="min-h-screen bg-slate-950 text-white">
-        {/* Top bar */}
         <header className="sticky top-0 z-30 bg-slate-950/90 backdrop-blur border-b border-slate-800 px-4 py-3 flex justify-between items-center">
           <span className="font-bold text-white text-sm">💰 Finance</span>
           <button
@@ -31,12 +31,13 @@ export default function App() {
 
         <main className="max-w-lg mx-auto">
           <Routes>
-            <Route path="/"                          element={<Dashboard    token={token} />} />
-            <Route path="/budget"                    element={<Budget       token={token} />} />
-            <Route path="/transactions"              element={<Transactions token={token} />} />
-            <Route path="/commissions"               element={<Commissions  token={token} />} />
-            <Route path="/summary"                   element={<Summary       token={token} />} />
-            <Route path="/month/:sheetId/:month"     element={<MonthlyDetail token={token} />} />
+            <Route path="/"                      element={<Dashboard     token={token} />} />
+            <Route path="/budget"                element={<Budget        token={token} />} />
+            <Route path="/summary"               element={<Summary       token={token} />} />
+            <Route path="/transactions"          element={<Transactions  token={token} />} />
+            <Route path="/commissions"           element={<Commissions   token={token} />} />
+            <Route path="/gas"                   element={<GasPrices />} />
+            <Route path="/month/:sheetId/:month" element={<MonthlyDetail token={token} />} />
           </Routes>
         </main>
 
