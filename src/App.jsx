@@ -7,6 +7,7 @@ import Budget from './pages/Budget';
 import Transactions from './pages/Transactions';
 import Commissions from './pages/Commissions';
 import MonthlyDetail from './pages/MonthlyDetail';
+import Summary from './pages/Summary';
 import Nav from './components/Nav';
 
 export default function App() {
@@ -34,6 +35,7 @@ export default function App() {
             <Route path="/budget"                    element={<Budget       token={token} />} />
             <Route path="/transactions"              element={<Transactions token={token} />} />
             <Route path="/commissions"               element={<Commissions  token={token} />} />
+            <Route path="/summary"                   element={<Summary       token={token} />} />
             <Route path="/month/:sheetId/:month"     element={<MonthlyDetail token={token} />} />
           </Routes>
         </main>

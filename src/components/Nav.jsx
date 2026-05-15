@@ -1,10 +1,11 @@
 import { NavLink } from 'react-router-dom';
 
 const tabs = [
-  { to: '/',             label: 'Dashboard',    icon: '◈' },
-  { to: '/budget',       label: 'Budget',       icon: '◉' },
-  { to: '/transactions', label: 'Transactions', icon: '⇅' },
-  { to: '/commissions',  label: 'Commissions',  icon: '✦' },
+  { to: '/',             label: 'Home',    icon: '⌂'  },
+  { to: '/budget',       label: 'Budget',  icon: '◉'  },
+  { to: '/summary',      label: 'Summary', icon: '📈' },
+  { to: '/transactions', label: 'Log',     icon: '⇅'  },
+  { to: '/commissions',  label: 'Art',     icon: '✦'  },
 ];
 
 export default function Nav() {
@@ -17,13 +18,13 @@ export default function Nav() {
             to={to}
             end={to === '/'}
             className={({ isActive }) =>
-              `flex-1 flex flex-col items-center py-3 gap-0.5 text-xs transition-colors ${
+              `flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs transition-colors ${
                 isActive ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'
               }`
             }
           >
-            <span className="text-lg leading-none">{icon}</span>
-            <span>{label}</span>
+            <span className="text-base leading-none">{icon}</span>
+            <span className="text-[10px]">{label}</span>
           </NavLink>
         ))}
       </div>
