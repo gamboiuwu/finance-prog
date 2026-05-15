@@ -44,7 +44,7 @@ function calcDeposits(expenses, income) {
     .sort((a, b) => a.priority - b.priority || b.deposit - a.deposit);
 }
 
-export default function ProcessIncome({ expenses, token, onClose }) {
+export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose }) {
   const [income, setIncome]     = useState('');
   const [source, setSource]     = useState('');
   const [logging, setLogging]   = useState(false);
@@ -52,9 +52,12 @@ export default function ProcessIncome({ expenses, token, onClose }) {
   const [logError, setLogError] = useState(null);
   const [copied, setCopied]     = useState(false);
 
-  const amount   = parseFloat(income) || 0;
-  const deposits = useMemo(() => calcDeposits(expenses, amount), [expenses, amount]);
+  const amount         = parseFloat(income) || 0;
+  const deposits       = useMemo(() => calcDeposits(expenses, amount), [expenses, amount]);
   const totalAllowance = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+  const totalCovered   = alreadyProcessed + amount;
+  const stillNeeded    = Math.max(0, totalAllowance - totalCovered);
+  const coveragePct    = totalAllowance > 0 ? (totalCovered / totalAllowance) * 100 : 0;
 
   // Group by account
   const byAccount = useMemo(() => {
@@ -170,8 +173,8 @@ export default function ProcessIncome({ expenses, token, onClose }) {
           {amount > 0 && (
             <div className="flex justify-between items-center text-xs">
               <span className="text-slate-500">Monthly goal: <span className="text-slate-300">{fmt(totalAllowance)}</span></span>
-              <span className={`font-semibold ${amount >= totalAllowance ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {((amount / totalAllowance) * 100).toFixed(0)}% of goal
+              <span className={`font-semibold ${coveragePct >= 100 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {coveragePct.toFixed(0)}% covered{alreadyProcessed > 0 ? ' (incl. prior)' : ''}
               </span>
             </div>
           )}
@@ -219,21 +222,34 @@ export default function ProcessIncome({ expenses, token, onClose }) {
           {amount > 0 && (
             <div className="bg-slate-800 rounded-2xl p-4 border border-slate-600 space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">Total allocated</span>
+                <span className="text-slate-400">This deposit</span>
                 <span className="text-white font-bold">{fmt(amount)}</span>
               </div>
-              {amount < totalAllowance && (
+              {alreadyProcessed > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">Previously processed</span>
+                  <span className="text-slate-300">{fmt(alreadyProcessed)}</span>
+                </div>
+              )}
+              {alreadyProcessed > 0 && (
+                <div className="flex justify-between text-sm border-t border-slate-700 pt-2">
+                  <span className="text-slate-400">Total covered</span>
+                  <span className="text-white font-bold">{fmt(totalCovered)}</span>
+                </div>
+              )}
+              {stillNeeded > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">Still needed for goal</span>
-                  <span className="text-amber-400 font-bold">{fmt(totalAllowance - amount)}</span>
+                  <span className="text-amber-400 font-bold">{fmt(stillNeeded)}</span>
                 </div>
               )}
               <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
                 <div className="h-2 rounded-full transition-all" style={{
-                  width: `${Math.min((amount / totalAllowance) * 100, 100)}%`,
-                  background: amount >= totalAllowance ? '#10b981' : '#3b82f6',
+                  width: `${Math.min(coveragePct, 100)}%`,
+                  background: coveragePct >= 100 ? '#10b981' : '#3b82f6',
                 }} />
               </div>
+              <p className="text-slate-500 text-xs text-right">{coveragePct.toFixed(0)}% of {fmt(totalAllowance)} monthly goal</p>
             </div>
           )}
 

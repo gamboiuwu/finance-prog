@@ -9,22 +9,18 @@ function pm(val) {
   const n = parseFloat(String(val).replace(/[$,\s%]/g, ''));
   return isNaN(n) ? null : n;
 }
-
 function fmt(n, dec = 2) {
   if (n === null || n === undefined || isNaN(n)) return '—';
   return `$${Number(n).toFixed(dec)}`;
 }
-
 function fmtN(n, dec = 2) {
   if (n === null || n === undefined || isNaN(n)) return '—';
   return Number(n).toFixed(dec);
 }
-
-function fmtPct(n) {
+function fmtPct(n, mult = true) {
   if (n === null || n === undefined || isNaN(n)) return '—';
-  return `${(Number(n) * 100).toFixed(1)}%`;
+  return `${(mult ? Number(n) * 100 : Number(n)).toFixed(1)}%`;
 }
-
 function close(a, b, tol = 0.02) {
   if (a === null || b === null) return null;
   const bv = pm(b);
@@ -34,39 +30,20 @@ function close(a, b, tol = 0.02) {
   return Math.abs((a - bv) / bv) <= tol;
 }
 
-// ─── Expense Summary parser ──────────────────────────────────────────────────
-// Sheet layout (column indices, 0-based):
-//   A=0, B=1  → left labels + values
-//   I=8, J=9  → deposit accounts + amounts; expense categories + amounts
-//   K=10      → expense category percentages
-//   L=11, M=12 → right labels + values (time/work calculations)
-//   O=14, P=15 → priority labels + sums
+// ─── Parser ─────────────────────────────────────────────────────────────────
 
 function extractSV(rows) {
   const v = {};
   const DEPOSIT_ACCOUNTS = ['Checking','Outside Payment','Cash','Savings','Business Tax','Subscription'];
   const CATEGORIES = ['Essentials','Discretionary','Savings','Stability','Subscription'];
-  const SKIP = ['Account Deposit Summary','[Expense Summary]','Credit','Spending Amount Daily (checking)'];
 
   rows.forEach(row => {
     const cell = (i) => (row[i] !== undefined && row[i] !== null && row[i] !== '') ? row[i] : null;
-
-    // Left side
     if (cell(0) && cell(1) !== null) v[String(row[0]).trim()] = row[1];
-
-    // Right side
     if (cell(11) && cell(12) !== null) v[String(row[11]).trim()] = row[12];
-
-    // Priority rows (O=14, P=15)
     if (cell(14) && cell(15) !== null) v[String(row[14]).trim()] = row[15];
-
-    // Deposit accounts (I=8, J=9)
     const acct = cell(8) ? String(row[8]).trim() : '';
-    if (DEPOSIT_ACCOUNTS.includes(acct) && cell(9) !== null && !SKIP.includes(acct)) {
-      v[`dep_${acct}`] = row[9];
-    }
-
-    // Expense categories (I=8, J=9, K=10)
+    if (DEPOSIT_ACCOUNTS.includes(acct) && cell(9) !== null) v[`dep_${acct}`] = row[9];
     if (CATEGORIES.includes(acct) && cell(9) !== null) {
       v[`cat_${acct}_amt`] = row[9];
       if (cell(10) !== null) v[`cat_${acct}_pct`] = row[10];
@@ -75,9 +52,9 @@ function extractSV(rows) {
   return v;
 }
 
-// ─── Independent computation ─────────────────────────────────────────────────
+// ─── Computation ─────────────────────────────────────────────────────────────
 
-function computeAll(expenses, sv, allocSummary) {
+function computeAll(expenses, sv, allocRows) {
   const now = new Date();
   const today = now.getDate();
   const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -86,7 +63,6 @@ function computeAll(expenses, sv, allocSummary) {
   const weeksInMo = Math.round((dim / 7) * 100) / 100;
 
   const totalAllowance = expenses.reduce((s, e) => s + (pm(e['Monthly Allowance ($)']) || 0), 0);
-
   const pi = pm(sv['Processed Income for Month (PI)']) || 0;
   const ci = pm(sv['Claimable Income (CI)']) || 0;
   const ciDays = pm(sv['CI Days Applicable']) || 14;
@@ -108,32 +84,25 @@ function computeAll(expenses, sv, allocSummary) {
   const shiftsNeeded = Math.ceil(hrsPerWeek / 7);
   const moneyPerShift = 7 * adjHourly;
 
-  // Spending daily (checking) = sum of checking balances / ciDays
-  const checkingDeposit = expenses
+  const checkingAllowance = expenses
     .filter(e => e['Account'] === 'Checking')
-    .reduce((s, e) => s + (pm(e['Balance to Deposit']) || (totalAllowance > 0 ? (pm(e['Monthly Allowance ($)']) || 0) / totalAllowance * ci : 0)), 0);
+    .reduce((s, e) => s + (pm(e['Monthly Allowance ($)']) || 0), 0);
+  const checkingDeposit = totalAllowance > 0 ? (checkingAllowance / totalAllowance) * ci : 0;
   const spendingDaily = ciDays > 0 ? checkingDeposit / ciDays : 0;
 
-  // Gas
   const gasPerGal = pm(sv['Current Average $/gal']) || 4.09;
   const mpg = pm(sv['Average mpg']) || 23.5;
-
-  // Claimable Gas from allocation summary (Gas row, balance)
   const claimableGas = (() => {
-    const gasRow = allocSummary.find(r => r[0] === 'Gas');
+    const gasRow = allocRows.find(r => r[0] === 'Gas');
     return gasRow ? (pm(gasRow[1]) || 0) : (pm(sv['Claimable Gas']) || 0);
   })();
-
   const gallonsLeft = gasPerGal > 0 ? claimableGas / gasPerGal : 0;
   const estMiles = gallonsLeft * mpg;
   const milesPerDay = daysLeft > 0 ? estMiles / daysLeft : 0;
   const qcPerDay = milesPerDay / 28.3;
   const totalQC = estMiles / 28.3;
-
-  // Budget for 2 QC trips/day for full month
   const budgetFor2QC = ((56.6 / mpg) * gasPerGal) * dim - claimableGas;
 
-  // Deposits by account (formula: pct * CI for each expense in that account)
   const deposits = {};
   ['Checking','Outside Payment','Cash','Savings','Business Tax','Subscription'].forEach(acct => {
     deposits[acct] = expenses
@@ -144,23 +113,17 @@ function computeAll(expenses, sv, allocSummary) {
       }, 0);
   });
 
-  // Priorities
   const priorities = { 1: 0, 2: 0, 3: 0 };
   expenses.forEach(e => {
     const p = parseInt(e['Priority']);
     if (p >= 1 && p <= 3) priorities[p] += pm(e['Monthly Allowance ($)']) || 0;
   });
 
-  // Categories
   const cats = {};
   expenses.forEach(e => {
     const cat = e['Expense'] || 'Other';
     cats[cat] = (cats[cat] || 0) + (pm(e['Monthly Allowance ($)']) || 0);
   });
-
-  // Emergency fund targets (based on Essentials monthly spend)
-  const essentials3mo = (cats['Essentials'] || 0) * 3;
-  const essentials6mo = (cats['Essentials'] || 0) * 6;
 
   return {
     now, today, dim, daysLeft, daysInYear, weeksInMo,
@@ -170,87 +133,133 @@ function computeAll(expenses, sv, allocSummary) {
     hoursLeft, hrsPerWeek, shiftsNeeded, moneyPerShift,
     gasPerGal, mpg, claimableGas, gallonsLeft, estMiles,
     milesPerDay, qcPerDay, totalQC, budgetFor2QC,
-    deposits, priorities, cats, essentials3mo, essentials6mo,
+    deposits, priorities, cats,
   };
 }
 
-// ─── UI components ────────────────────────────────────────────────────────────
+// ─── UI atoms ────────────────────────────────────────────────────────────────
 
-function Section({ title, accent = 'border-slate-700', children }) {
+function MetricTile({ label, value, sub, detail, color = 'text-white', verify, wide }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="bg-slate-800 rounded-2xl overflow-hidden">
-      <div className={`px-4 py-3 border-b ${accent}`}>
-        <h2 className="text-white font-semibold text-sm tracking-wide">{title}</h2>
-      </div>
-      <div className="divide-y divide-slate-700/50">{children}</div>
-    </div>
-  );
-}
-
-function DataRow({ label, sheetVal, computed, unit = '', note, highlight }) {
-  const match = close(computed, sheetVal);
-  return (
-    <div className={`flex items-start justify-between gap-3 px-4 py-2.5 ${highlight ? 'bg-slate-700/30' : ''}`}>
-      <div className="flex-1 min-w-0">
-        <p className="text-slate-300 text-sm leading-snug">{label}</p>
-        {note && <p className="text-slate-500 text-xs mt-0.5">{note}</p>}
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <div className="text-right">
-          <p className="text-white text-sm font-medium">
-            {sheetVal !== undefined ? sheetVal : (computed !== null && computed !== undefined ? (typeof computed === 'number' ? (unit === '%' ? fmtPct(computed) : fmt(computed)) : computed) : '—')}
-            {unit && unit !== '%' ? unit : ''}
-          </p>
-          {computed !== undefined && computed !== null && sheetVal !== undefined && (
-            <p className="text-slate-500 text-xs">calc: {unit === '%' ? fmtPct(computed) : fmt(computed)}</p>
-          )}
-        </div>
-        {match !== null && (
-          match
-            ? <span className="text-emerald-400 text-xs w-4">✓</span>
-            : <span className="text-amber-400 text-xs w-4" title="Mismatch — check sheet">⚠</span>
+    <div className={`bg-slate-900 rounded-xl p-3 flex flex-col gap-0.5 ${wide ? 'col-span-2' : ''}`}>
+      <div className="flex items-start justify-between gap-1">
+        <p className="text-slate-500 text-[10px] uppercase tracking-widest leading-tight">{label}</p>
+        {detail && (
+          <button
+            onClick={() => setOpen(v => !v)}
+            className="text-slate-600 hover:text-blue-400 text-[10px] w-4 h-4 flex items-center justify-center shrink-0 transition-colors"
+          >ℹ</button>
         )}
       </div>
-    </div>
-  );
-}
-
-function RawRow({ label, value, sub, color = 'text-white' }) {
-  return (
-    <div className="flex justify-between items-start gap-3 px-4 py-2.5">
-      <p className="text-slate-300 text-sm flex-1 min-w-0">{label}</p>
-      <div className="text-right shrink-0">
-        <p className={`text-sm font-medium ${color}`}>{value}</p>
-        {sub && <p className="text-slate-500 text-xs">{sub}</p>}
+      <div className="flex items-baseline gap-1.5">
+        <p className={`text-xl font-bold font-mono tabular-nums tracking-tight ${color}`}>{value}</p>
+        {verify !== undefined && (
+          <span className={verify ? 'text-emerald-500 text-[10px]' : 'text-amber-400 text-[10px]'}>
+            {verify ? '✓' : '⚠'}
+          </span>
+        )}
       </div>
+      {sub && <p className="text-slate-600 text-[11px] leading-tight">{sub}</p>}
+      {open && detail && (
+        <p className="text-slate-400 text-[11px] leading-relaxed mt-1.5 pt-1.5 border-t border-slate-800">{detail}</p>
+      )}
     </div>
   );
 }
 
-function ProgressRow({ label, current, goal, color }) {
+function SectionGrid({ children }) {
+  return <div className="grid grid-cols-2 gap-2">{children}</div>;
+}
+
+function BarTile({ label, items, total }) {
+  const COLORS = {
+    Essentials: '#3b82f6', Discretionary: '#a855f7',
+    Savings: '#10b981', Stability: '#f59e0b', Subscription: '#f43f5e',
+  };
+  return (
+    <div className="bg-slate-900 rounded-xl p-3 col-span-2 space-y-2">
+      <p className="text-slate-500 text-[10px] uppercase tracking-widest">{label}</p>
+      {items.map(([cat, amt]) => {
+        const pct = total > 0 ? (amt / total) * 100 : 0;
+        return (
+          <div key={cat} className="space-y-0.5">
+            <div className="flex justify-between text-[11px]">
+              <span className="text-slate-300">{cat}</span>
+              <span className="font-mono text-white tabular-nums">{fmt(amt)} <span className="text-slate-600">({pct.toFixed(0)}%)</span></span>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: COLORS[cat] || '#64748b' }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProgressTile({ label, current, goal }) {
   const pct = goal > 0 ? Math.min((current / goal) * 100, 100) : 0;
+  const color = pct >= 100 ? '#10b981' : pct >= 75 ? '#f59e0b' : '#3b82f6';
   return (
-    <div className="px-4 py-3 space-y-1.5">
-      <div className="flex justify-between text-sm">
-        <span className="text-slate-300">{label}</span>
-        <span className="text-slate-400">{fmt(current)} / {fmt(goal)}</span>
+    <div className="bg-slate-900 rounded-xl p-3 col-span-2 space-y-2">
+      <div className="flex justify-between items-baseline">
+        <p className="text-slate-500 text-[10px] uppercase tracking-widest">{label}</p>
+        <p className="text-slate-400 text-[11px] font-mono">{fmt(current)} <span className="text-slate-600">/ {fmt(goal)}</span></p>
       </div>
-      <div className="w-full bg-slate-700 rounded-full h-2.5 overflow-hidden">
+      <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
         <div className="h-2.5 rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: color }} />
       </div>
-      <p className="text-slate-500 text-xs text-right">{pct.toFixed(0)}%</p>
+      <p className="text-right text-[11px] font-mono" style={{ color }}>{pct.toFixed(0)}%</p>
     </div>
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// ─── Insights ────────────────────────────────────────────────────────────────
+
+function buildInsights(c) {
+  if (!c.totalAllowance) return { good: [], watch: [] };
+  const good = [];
+  const watch = [];
+  const covPct = c.pi / c.totalAllowance * 100;
+
+  if (covPct >= 90) good.push(`${covPct.toFixed(0)}% of monthly goal met`);
+  else if (covPct >= 60) watch.push(`${covPct.toFixed(0)}% of goal — ${fmt(c.ar)} remaining`);
+  else watch.push(`Behind goal — only ${covPct.toFixed(0)}% covered, need ${fmt(c.ar)} more`);
+
+  if (c.projectedEnd >= 1.0) good.push('On track to hit goal by month end');
+  else watch.push(`Projected ${(c.projectedEnd * 100).toFixed(0)}% by end of month`);
+
+  if (c.claimableGas >= 30) good.push(`${fmt(c.claimableGas)} in gas budget available`);
+  else if (c.claimableGas < 15) watch.push('Gas budget running low');
+
+  if (c.daysLeft <= 5 && c.ar > 0) watch.push(`Only ${c.daysLeft} days left — still need ${fmt(c.ar)}`);
+
+  if (c.shiftsNeeded <= 3 && c.shiftsNeeded > 0) good.push(`${c.shiftsNeeded} shift${c.shiftsNeeded > 1 ? 's' : ''} needed to meet goal`);
+  else if (c.shiftsNeeded >= 6) watch.push(`${c.shiftsNeeded} shifts still needed this month`);
+
+  return { good, watch };
+}
+
+// ─── Tabs ────────────────────────────────────────────────────────────────────
+
+const TABS = [
+  { id: 'overview',  label: 'Overview'  },
+  { id: 'work',      label: 'Work'      },
+  { id: 'gas',       label: 'Gas'       },
+  { id: 'accounts',  label: 'Accounts'  },
+  { id: 'budget',    label: 'Budget'    },
+];
+
+// ─── Main ────────────────────────────────────────────────────────────────────
 
 export default function Summary({ token }) {
-  const [svRows, setSvRows] = useState([]);
-  const [expRows, setExpRows] = useState([]);
+  const [svRows, setSvRows]     = useState([]);
+  const [expRows, setExpRows]   = useState([]);
   const [allocRows, setAllocRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [tab, setTab]           = useState('overview');
 
   useEffect(() => {
     if (!token) return;
@@ -260,17 +269,12 @@ export default function Summary({ token }) {
       readRange(token, 'Monthly Expenses!A1:T40'),
       readRange(token, 'Allocation Summary!A1:B10'),
     ])
-      .then(([sv, exp, alloc]) => {
-        setSvRows(sv);
-        setExpRows(exp);
-        setAllocRows(alloc);
-      })
+      .then(([sv, exp, alloc]) => { setSvRows(sv); setExpRows(exp); setAllocRows(alloc); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [token]);
 
   const sv = useMemo(() => extractSV(svRows), [svRows]);
-
   const expenses = useMemo(() => {
     if (!expRows.length) return [];
     const [headers, ...data] = expRows;
@@ -278,286 +282,284 @@ export default function Summary({ token }) {
       headers.reduce((obj, h, i) => { obj[h] = row[i] ?? null; return obj; }, {})
     );
   }, [expRows]);
-
   const c = useMemo(() => computeAll(expenses, sv, allocRows), [expenses, sv, allocRows]);
+  const insights = useMemo(() => buildInsights(c), [c]);
 
   if (loading) return <LoadingSpinner />;
-  if (error) return <div className="p-4 text-red-400">Error: {error}</div>;
+  if (error)   return <div className="p-4 text-red-400">Error: {error}</div>;
 
-  const now = c.now;
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   return (
-    <div className="p-4 pb-24 space-y-4">
+    <div className="pb-24 bg-slate-950 min-h-screen">
 
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Finance Summary</h1>
-        <p className="text-slate-400 text-sm">
-          {MONTHS[now.getMonth()]} {now.getFullYear()} · Day {c.today} of {c.dim}
+      <div className="px-4 pt-4 pb-3">
+        <h1 className="text-xl font-bold text-white tracking-tight">Finance Summary</h1>
+        <p className="text-slate-500 text-xs mt-0.5 font-mono">
+          {MONTHS[c.now.getMonth()]} {c.now.getFullYear()} · Day {c.today}/{c.dim} · {c.daysLeft}d remaining
         </p>
       </div>
 
-      {/* ── Income & Goal ─────────────────────────────────────── */}
-      <Section title="💰 Income & Monthly Goal" accent="border-blue-800/50">
-        <ProgressRow
-          label="Goal to Cycle"
-          current={c.pi}
-          goal={c.totalAllowance}
-          color={c.goalToCycle >= 1 ? '#10b981' : c.goalToCycle >= 0.75 ? '#f59e0b' : '#3b82f6'}
-        />
-        <DataRow label="Monthly Goal (Σ allowances)"
-          sheetVal={fmt(pm(sv['Monthly Goal']))}
-          computed={c.totalAllowance}
-          note="Sum of all Monthly Expenses allowances"
-          highlight
-        />
-        <DataRow label="Processed Income (PI)"
-          sheetVal={fmt(pm(sv['Processed Income for Month (PI)']))}
-          computed={c.pi}
-          note="Paychecks + commissions received & processed"
-        />
-        <DataRow label="Claimable Income (CI)"
-          sheetVal={fmt(pm(sv['Claimable Income (CI)']))}
-          computed={c.ci}
-          note="Income available to allocate"
-        />
-        <DataRow label="CI + PI"
-          sheetVal={fmt(pm(sv['CI + PI']))}
-          computed={c.ciPlusPi}
-        />
-        <DataRow label="Amount Required for Goal (AR)"
-          sheetVal={fmt(pm(sv['Amount Required for Goal (AR)']))}
-          computed={c.ar}
-          note="Monthly Goal − PI — still needed this month"
-          highlight
-        />
-        <DataRow label="Goal to Cycle"
-          sheetVal={sv['Goal to Cycle'] !== undefined ? (parseFloat(sv['Goal to Cycle']) < 2 ? fmtPct(pm(sv['Goal to Cycle'])) : sv['Goal to Cycle']) : undefined}
-          computed={c.goalToCycle}
-          unit="%"
-        />
-      </Section>
-
-      {/* ── Time & Projection ─────────────────────────────────── */}
-      <Section title="📅 Time & Projection" accent="border-purple-800/50">
-        <RawRow label="Today" value={`${MONTHS[now.getMonth()]} ${c.today}, ${now.getFullYear()}`} />
-        <RawRow label="Days Remaining in Month" value={`${c.daysLeft} of ${c.dim}`} />
-        <RawRow label="Days Remaining in Year" value={`${c.daysInYear} days`} />
-        <RawRow label="Approx Weeks in Month" value={`${c.weeksInMo} weeks`} />
-        <DataRow label="Average % Progress / day"
-          sheetVal={sv['Average %/day'] !== undefined ? fmtPct(pm(sv['Average %/day'])) : undefined}
-          computed={c.avgPctDay}
-          unit="%"
-          note="Goal to Cycle ÷ days in month"
-        />
-        <DataRow label="Projected End-of-Month Cycle %"
-          sheetVal={sv['Projected End Cycle Amount'] !== undefined ? fmtPct(pm(sv['Projected End Cycle Amount'])) : undefined}
-          computed={c.projectedEnd}
-          unit="%"
-          note="Current % + (avg/day × days remaining)"
-          highlight
-        />
-      </Section>
-
-      {/* ── Work Requirements ─────────────────────────────────── */}
-      <Section title="⚡ Work Requirements" accent="border-amber-800/50">
-        <DataRow label="Minimum Weekly Requirement"
-          sheetVal={fmt(pm(sv['Minimum Weekly Requirement']))}
-          computed={c.weeklyReq}
-          note="Monthly Goal ÷ weeks in month"
-          highlight
-        />
-        <DataRow label="Required Earnings / day (÷30)"
-          sheetVal={fmt(pm(sv['Required Earnings/day (30 days)']))}
-          computed={c.reqDay30}
-          note="Monthly Goal ÷ 30"
-        />
-        <DataRow label="Required Earnings / day (remaining)"
-          sheetVal={fmt(pm(sv['Required Earnings/day (remaining from AR)']))}
-          computed={c.reqDayLeft}
-          note="AR ÷ days remaining"
-          highlight
-        />
-        <DataRow label="Spending (Checking) / day"
-          sheetVal={fmt(pm(sv['Spending Amount Daily (checking)']))}
-          computed={c.spendingDaily}
-          note="Checking deposit ÷ CI days applicable"
-        />
-        <RawRow label="Hourly Wage" value={fmt(c.hourlyWage)} />
-        <RawRow label="% of Wage Earned" value={`${(c.wagePct * 100).toFixed(2)}%`} sub="After deductions" />
-        <DataRow label="Adjusted Earning / hr"
-          sheetVal={fmt(pm(sv['Adjusted Earning/hr']))}
-          computed={c.adjHourly}
-          note="Hourly Wage × % of Wage Earned"
-          highlight
-        />
-        <DataRow label="Hours Left to Hit Goal"
-          sheetVal={sv['Amount of Hours Left to Achieve Monthly Requirement'] !== undefined ? `${fmtN(pm(sv['Amount of Hours Left to Achieve Monthly Requirement']))} hrs` : undefined}
-          computed={c.hoursLeft}
-          note="AR ÷ Adjusted Earning/hr"
-        />
-        <DataRow label="Hours / Week Needed"
-          sheetVal={sv['Amount of Hours Per Week to Achieve Weekly Requirement'] !== undefined ? `${fmtN(pm(sv['Amount of Hours Per Week to Achieve Weekly Requirement']))} hrs` : undefined}
-          computed={c.hrsPerWeek}
-          note="Weekly Req ÷ Adjusted Earning/hr"
-        />
-        <DataRow label="7-hr Shifts Needed"
-          sheetVal={sv['Amount of 7-Hr Shifts to Achieve Weekly Requirement'] !== undefined ? `${sv['Amount of 7-Hr Shifts to Achieve Weekly Requirement']} shifts` : undefined}
-          computed={c.shiftsNeeded}
-          note="⌈Hours/Week ÷ 7⌉"
-          highlight
-        />
-        <DataRow label="Earnings per 7-hr Shift"
-          sheetVal={fmt(pm(sv['Amount of Money Each Shift Should Give']))}
-          computed={c.moneyPerShift}
-          note="7 × Adjusted Earning/hr"
-        />
-      </Section>
-
-      {/* ── Account Deposits ──────────────────────────────────── */}
-      <Section title="🏦 Account Deposits (from CI)" accent="border-emerald-800/50">
-        {[
-          ['Checking',        '🏧'],
-          ['Outside Payment', '💸'],
-          ['Cash',            '💵'],
-          ['Savings',         '🐷'],
-          ['Business Tax',    '🧾'],
-          ['Subscription',    '📱'],
-        ].map(([acct, icon]) => (
-          <DataRow
-            key={acct}
-            label={`${icon} ${acct}`}
-            sheetVal={pm(sv[`dep_${acct}`]) !== null ? fmt(pm(sv[`dep_${acct}`])) : undefined}
-            computed={c.deposits[acct]}
-            note={`(Allowance ÷ Total) × CI`}
-          />
-        ))}
-        <div className="px-4 py-3 bg-emerald-900/20 border-t border-emerald-800/30">
-          <div className="flex justify-between text-sm">
-            <span className="text-emerald-300 font-medium">CI Days Applicable</span>
-            <span className="text-white font-bold">{c.ciDays} days</span>
-          </div>
+      {/* Insights */}
+      {(insights.good.length > 0 || insights.watch.length > 0) && (
+        <div className="px-4 pb-3 space-y-1.5">
+          {insights.good.map((msg, i) => (
+            <div key={i} className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-800/40 rounded-lg px-3 py-2">
+              <span className="text-emerald-400 text-xs">✓</span>
+              <span className="text-emerald-300 text-xs">{msg}</span>
+            </div>
+          ))}
+          {insights.watch.map((msg, i) => (
+            <div key={i} className="flex items-center gap-2 bg-amber-950/50 border border-amber-800/40 rounded-lg px-3 py-2">
+              <span className="text-amber-400 text-xs">⚠</span>
+              <span className="text-amber-300 text-xs">{msg}</span>
+            </div>
+          ))}
         </div>
-      </Section>
+      )}
 
-      {/* ── Gas Calculator ────────────────────────────────────── */}
-      <Section title="⛽ Gas Calculator" accent="border-orange-800/50">
-        <RawRow label="Price per gallon" value={fmt(c.gasPerGal)} />
-        <RawRow label="Average MPG" value={`${c.mpg} mpg`} />
-        <DataRow label="Claimable Gas balance"
-          sheetVal={fmt(pm(sv['Claimable Gas']))}
-          computed={c.claimableGas}
-          note="From Allocation Summary"
-        />
-        <DataRow label="Gallons remaining"
-          sheetVal={fmtN(pm(sv['Gallons (Remaining)']))}
-          computed={c.gallonsLeft}
-          note="Claimable Gas ÷ $/gal"
-          highlight
-        />
-        <DataRow label="Estimated miles remaining"
-          sheetVal={fmtN(pm(sv['Est. Miles (remaining)']))}
-          computed={c.estMiles}
-          note="Gallons × MPG"
-        />
-        <DataRow label="Miles / day (remaining)"
-          sheetVal={fmtN(pm(sv['Miles/Day (remaining)']))}
-          computed={c.milesPerDay}
-          note="Miles ÷ days remaining"
-        />
-        <DataRow label="QC trips / day (28.3 mi)"
-          sheetVal={fmtN(pm(sv['QC Trips/day (remaining)']))}
-          computed={c.qcPerDay}
-          note="Miles/day ÷ 28.3"
-          highlight
-        />
-        <DataRow label="Total QC trips remaining"
-          sheetVal={fmtN(pm(sv['Total QC trips (remaining)']))}
-          computed={c.totalQC}
-          note="Total miles ÷ 28.3"
-        />
-      </Section>
-
-      {/* ── Budget by Priority ────────────────────────────────── */}
-      <Section title="🎯 Budget by Priority" accent="border-pink-800/50">
-        {[
-          ['Priority 1', 'Essentials & critical savings', 'text-emerald-400'],
-          ['Priority 2', 'Important stability & discretionary', 'text-amber-400'],
-          ['Priority 3', 'Nice-to-have / optional', 'text-slate-400'],
-        ].map(([label, desc, color], i) => {
-          const p = i + 1;
-          const sheetKey = label;
-          const sheetVal = pm(sv[sheetKey]);
-          const computed = c.priorities[p];
-          return (
-            <div key={p} className={`px-4 py-3 flex items-start justify-between gap-3 ${i < 2 ? 'border-b border-slate-700/50' : ''}`}>
-              <div>
-                <p className={`text-sm font-medium ${color}`}>{label}</p>
-                <p className="text-slate-500 text-xs">{desc}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="text-right">
-                  <p className={`text-sm font-bold ${color}`}>{sheetVal !== null ? fmt(sheetVal) : fmt(computed)}</p>
-                  {sheetVal !== null && <p className="text-slate-500 text-xs">calc: {fmt(computed)}</p>}
-                </div>
-                {sheetVal !== null && (
-                  close(computed, sheetVal)
-                    ? <span className="text-emerald-400 text-xs w-4">✓</span>
-                    : <span className="text-amber-400 text-xs w-4">⚠</span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </Section>
-
-      {/* ── Budget by Expense Type ────────────────────────────── */}
-      <Section title="📊 Budget by Expense Type" accent="border-sky-800/50">
-        {Object.entries(c.cats).sort(([,a],[,b]) => b - a).map(([cat, amt], i, arr) => {
-          const pct = c.totalAllowance > 0 ? amt / c.totalAllowance : 0;
-          const COLORS = {
-            Essentials: 'bg-blue-500',
-            Discretionary: 'bg-purple-500',
-            Savings: 'bg-emerald-500',
-            Stability: 'bg-amber-500',
-            Subscription: 'bg-rose-500',
-          };
-          return (
-            <div key={cat} className={`px-4 py-3 space-y-1.5 ${i < arr.length - 1 ? 'border-b border-slate-700/50' : ''}`}>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-300">{cat}</span>
-                <span className="text-white font-medium">{fmt(amt)} <span className="text-slate-500 font-normal text-xs">({(pct * 100).toFixed(1)}%)</span></span>
-              </div>
-              <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                <div className={`h-1.5 rounded-full ${COLORS[cat] || 'bg-slate-500'}`} style={{ width: `${pct * 100}%` }} />
-              </div>
-            </div>
-          );
-        })}
-      </Section>
-
-      {/* ── Emergency Fund Targets ────────────────────────────── */}
-      <Section title="🛡 Emergency Fund Targets" accent="border-red-800/50">
-        <DataRow label="Required Minimum (3 months essentials)"
-          sheetVal={pm(sv['Required Emergency Minimum (3mo)']) !== null ? fmt(pm(sv['Required Emergency Minimum (3mo)'])) : undefined}
-          computed={c.essentials3mo}
-          note="Essentials monthly × 3"
-        />
-        <DataRow label="Required Maximum (6 months essentials)"
-          sheetVal={pm(sv['Required Emergency Maximum (6mo)']) !== null ? fmt(pm(sv['Required Emergency Maximum (6mo)'])) : undefined}
-          computed={c.essentials6mo}
-          note="Essentials monthly × 6"
-          highlight
-        />
-      </Section>
-
-      {/* ── Verification legend ───────────────────────────────── */}
-      <div className="bg-slate-800/50 rounded-xl p-3 flex gap-4 text-xs text-slate-400">
-        <span><span className="text-emerald-400">✓</span> Sheet value matches JS calculation</span>
-        <span><span className="text-amber-400">⚠</span> &gt;2% difference — check sheet</span>
+      {/* Tab bar */}
+      <div className="flex gap-1 px-4 pb-3 overflow-x-auto scrollbar-hide">
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`shrink-0 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+              tab === t.id ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
+      {/* Tab content */}
+      <div className="px-4 space-y-2">
+
+        {/* ── Overview ── */}
+        {tab === 'overview' && (
+          <SectionGrid>
+            <ProgressTile label="Monthly Goal Progress" current={c.pi} goal={c.totalAllowance} />
+            <MetricTile
+              label="Monthly Goal"
+              value={fmt(c.totalAllowance)}
+              detail="Sum of all Monthly Expenses allowances"
+              verify={close(c.totalAllowance, sv['Monthly Goal'])}
+            />
+            <MetricTile
+              label="Processed Income"
+              value={fmt(c.pi)}
+              sub="PI"
+              detail="Paychecks + commissions received and processed"
+            />
+            <MetricTile
+              label="Claimable Income"
+              value={fmt(c.ci)}
+              sub="CI"
+              detail="Income available to allocate across accounts"
+            />
+            <MetricTile
+              label="CI + PI"
+              value={fmt(c.ciPlusPi)}
+              detail="Claimable Income + Processed Income combined"
+            />
+            <MetricTile
+              label="Still Required (AR)"
+              value={fmt(c.ar)}
+              color={c.ar > 0 ? 'text-amber-400' : 'text-emerald-400'}
+              detail="Monthly Goal − Processed Income. How much more you need this month."
+            />
+            <MetricTile
+              label="Coverage %"
+              value={fmtPct(c.goalToCycle)}
+              color={c.goalToCycle >= 1 ? 'text-emerald-400' : c.goalToCycle >= 0.75 ? 'text-amber-400' : 'text-rose-400'}
+              detail="PI ÷ Monthly Goal"
+              verify={close(c.goalToCycle, pm(sv['Goal to Cycle']) < 2 ? pm(sv['Goal to Cycle']) : null)}
+            />
+            <MetricTile
+              label="Projected End %"
+              value={fmtPct(c.projectedEnd)}
+              color={c.projectedEnd >= 1 ? 'text-emerald-400' : 'text-amber-400'}
+              detail="Current % + (avg daily % × days remaining)"
+            />
+          </SectionGrid>
+        )}
+
+        {/* ── Work ── */}
+        {tab === 'work' && (
+          <SectionGrid>
+            <MetricTile
+              label="Weekly Requirement"
+              value={fmt(c.weeklyReq)}
+              detail="Monthly Goal ÷ weeks in month"
+              verify={close(c.weeklyReq, sv['Minimum Weekly Requirement'])}
+              wide
+            />
+            <MetricTile
+              label="Required / Day (÷30)"
+              value={fmt(c.reqDay30)}
+              detail="Monthly Goal ÷ 30"
+              verify={close(c.reqDay30, sv['Required Earnings/day (30 days)'])}
+            />
+            <MetricTile
+              label="Required / Day (left)"
+              value={fmt(c.reqDayLeft)}
+              color={c.reqDayLeft > c.adjHourly * 8 ? 'text-rose-400' : 'text-white'}
+              detail="Amount Required (AR) ÷ days remaining in month"
+              verify={close(c.reqDayLeft, sv['Required Earnings/day (remaining from AR)'])}
+            />
+            <MetricTile
+              label="Hourly Wage"
+              value={fmt(c.hourlyWage)}
+              sub={`${(c.wagePct * 100).toFixed(2)}% after deductions`}
+            />
+            <MetricTile
+              label="Adjusted / hr"
+              value={fmt(c.adjHourly)}
+              detail="Hourly Wage × % of Wage Earned"
+              verify={close(c.adjHourly, sv['Adjusted Earning/hr'])}
+            />
+            <MetricTile
+              label="Hours Left for Goal"
+              value={`${fmtN(c.hoursLeft)} hrs`}
+              color={c.hoursLeft > 40 ? 'text-rose-400' : 'text-white'}
+              detail="AR ÷ Adjusted Earning/hr"
+            />
+            <MetricTile
+              label="Hours / Week Needed"
+              value={`${fmtN(c.hrsPerWeek)} hrs`}
+              detail="Weekly Requirement ÷ Adjusted Earning/hr"
+            />
+            <MetricTile
+              label="7-hr Shifts Needed"
+              value={`${c.shiftsNeeded} shifts`}
+              color={c.shiftsNeeded >= 5 ? 'text-rose-400' : c.shiftsNeeded >= 3 ? 'text-amber-400' : 'text-emerald-400'}
+              detail="⌈Hours/Week ÷ 7⌉ — minimum 7-hour shifts to hit weekly target"
+            />
+            <MetricTile
+              label="Earnings / Shift"
+              value={fmt(c.moneyPerShift)}
+              detail="7 × Adjusted Earning/hr"
+              verify={close(c.moneyPerShift, sv['Amount of Money Each Shift Should Give'])}
+            />
+            <MetricTile
+              label="Spending / Day (Checking)"
+              value={fmt(c.spendingDaily)}
+              detail="Checking deposit allocation ÷ CI Days Applicable"
+              sub={`over ${c.ciDays} CI days`}
+            />
+          </SectionGrid>
+        )}
+
+        {/* ── Gas ── */}
+        {tab === 'gas' && (
+          <SectionGrid>
+            <MetricTile label="Price / Gallon" value={fmt(c.gasPerGal, 3)} sub="Current average" />
+            <MetricTile label="Average MPG" value={`${c.mpg} mpg`} />
+            <MetricTile
+              label="Claimable Gas Budget"
+              value={fmt(c.claimableGas)}
+              color={c.claimableGas < 20 ? 'text-rose-400' : 'text-white'}
+              detail="From Allocation Summary — Gas row balance"
+              wide
+            />
+            <MetricTile
+              label="Gallons Remaining"
+              value={`${fmtN(c.gallonsLeft)} gal`}
+              detail="Claimable Gas ÷ Price per Gallon"
+              verify={close(c.gallonsLeft, sv['Gallons (Remaining)'])}
+            />
+            <MetricTile
+              label="Est. Miles Remaining"
+              value={`${fmtN(c.estMiles, 0)} mi`}
+              detail="Gallons × MPG"
+              verify={close(c.estMiles, sv['Est. Miles (remaining)'])}
+            />
+            <MetricTile
+              label="Miles / Day (remaining)"
+              value={`${fmtN(c.milesPerDay)} mi`}
+              detail="Estimated miles ÷ days remaining in month"
+            />
+            <MetricTile
+              label="QC Trips / Day"
+              value={fmtN(c.qcPerDay)}
+              color={c.qcPerDay >= 2 ? 'text-emerald-400' : 'text-amber-400'}
+              detail="Miles/day ÷ 28.3 mi per round-trip to QC"
+            />
+            <MetricTile
+              label="Total QC Trips Left"
+              value={fmtN(c.totalQC, 1)}
+              detail="Total estimated miles ÷ 28.3 mi"
+            />
+            <MetricTile
+              label="Budget for 2 QC/day (full month)"
+              value={fmt(c.budgetFor2QC)}
+              color={c.budgetFor2QC > 0 ? 'text-amber-400' : 'text-emerald-400'}
+              detail="(56.6 mi/day × days × $/gal ÷ mpg) − claimable gas. Positive = shortfall."
+              wide
+            />
+          </SectionGrid>
+        )}
+
+        {/* ── Accounts ── */}
+        {tab === 'accounts' && (
+          <SectionGrid>
+            {[
+              ['Checking',        '🏧'],
+              ['Outside Payment', '💸'],
+              ['Savings',         '🐷'],
+              ['Cash',            '💵'],
+              ['Business Tax',    '🧾'],
+              ['Subscription',    '📱'],
+            ].map(([acct, icon]) => (
+              <MetricTile
+                key={acct}
+                label={`${icon} ${acct}`}
+                value={fmt(c.deposits[acct])}
+                detail={`(${acct} allowances ÷ Total allowance) × CI. Proportional share of claimable income.`}
+                verify={close(c.deposits[acct], sv[`dep_${acct}`])}
+              />
+            ))}
+            <MetricTile label="CI Days Applicable" value={`${c.ciDays} days`} detail="Number of days CI is spread across for daily spending calculation" wide />
+          </SectionGrid>
+        )}
+
+        {/* ── Budget ── */}
+        {tab === 'budget' && (
+          <SectionGrid>
+            {[
+              [1, 'text-emerald-400', 'Essential — non-negotiable bills & savings'],
+              [2, 'text-amber-400',   'Stability — important recurring needs'],
+              [3, 'text-slate-400',   'Optional — nice-to-have items'],
+            ].map(([p, color, desc]) => (
+              <MetricTile
+                key={p}
+                label={`Priority ${p}`}
+                value={fmt(c.priorities[p])}
+                sub={desc}
+                color={color}
+                detail={`Sum of all Priority ${p} expense allowances from Monthly Expenses sheet`}
+                verify={close(c.priorities[p], sv[`Priority ${p}`])}
+                wide
+              />
+            ))}
+            <BarTile
+              label="Budget by Category"
+              items={Object.entries(c.cats).sort(([,a],[,b]) => b - a)}
+              total={c.totalAllowance}
+            />
+          </SectionGrid>
+        )}
+
+      </div>
+
+      {/* Legend */}
+      <div className="mx-4 mt-4 bg-slate-900 rounded-xl px-3 py-2 flex gap-4 text-[10px] text-slate-600">
+        <span><span className="text-emerald-500">✓</span> matches sheet</span>
+        <span><span className="text-amber-400">⚠</span> &gt;2% diff</span>
+        <span><span className="text-blue-400">ℹ</span> tap for formula</span>
+      </div>
     </div>
   );
 }

@@ -79,6 +79,17 @@ export async function updateCell(token, range, value) {
   });
 }
 
+export async function batchUpdateCells(token, data) {
+  // data: array of { range, value }
+  return request(token, SPREADSHEET_ID, `/values:batchUpdate`, {
+    method: 'POST',
+    body: JSON.stringify({
+      valueInputOption: 'USER_ENTERED',
+      data: data.map(({ range, value }) => ({ range, values: [[value]] })),
+    }),
+  });
+}
+
 export function rowsToObjects(rows) {
   if (!rows.length) return [];
   const [headers, ...data] = rows;

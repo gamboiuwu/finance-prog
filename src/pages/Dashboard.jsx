@@ -277,6 +277,7 @@ export default function Dashboard({ token }) {
         <ProcessIncome
           expenses={expenses}
           token={token}
+          alreadyProcessed={income}
           onClose={() => setShowIncome(false)}
         />
       )}
