@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { readRange, batchUpdateCells } from '../lib/sheets';
 import { SHEETS, SPREADSHEET_ID } from '../config';
+import { MONTHS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -265,31 +266,49 @@ function BudgetCard({ item, onEdit }) {
 const FILTER_OPTIONS = ['All', ...EXPENSE_TYPES];
 
 export default function Budget({ token }) {
-  const [items, setItems]       = useState([]);
-  const [headers, setHeaders]   = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(null);
-  const [filter, setFilter]     = useState('All');
-  const [editItem, setEditItem] = useState(null);
-  const [saving, setSaving]     = useState(false);
+  const [items, setItems]         = useState([]);
+  const [headers, setHeaders]     = useState([]);
+  const [pi, setPi]               = useState(0);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
+  const [filter, setFilter]       = useState('All');
+  const [editItem, setEditItem]   = useState(null);
+  const [saving, setSaving]       = useState(false);
   const [saveError, setSaveError] = useState(null);
 
   function load() {
     setLoading(true);
-    readRange(token, `${SHEETS.MONTHLY_EXPENSES}!A1:T50`)
-      .then(rows => {
-        if (!rows.length) return;
-        const [headerRow, ...dataRows] = rows;
-        setHeaders(headerRow);
-        setItems(
-          dataRows
-            .filter(r => r[0])
-            .map((row, idx) => {
-              const obj = { _rowNum: idx + 2 }; // +1 header, +1 for 1-indexed
-              headerRow.forEach((h, i) => { obj[h] = row[i] ?? null; });
-              return obj;
-            })
-        );
+    const now = new Date();
+    const currentMonth = MONTHS[now.getMonth()];
+    const currentYear  = String(now.getFullYear());
+
+    Promise.all([
+      readRange(token, `${SHEETS.MONTHLY_EXPENSES}!A1:T50`),
+      readRange(token, `${SHEETS.MONTHLY_SUMMARY}!A1:P13`),
+    ])
+      .then(([expRows, summaryRows]) => {
+        if (expRows.length) {
+          const [headerRow, ...dataRows] = expRows;
+          setHeaders(headerRow);
+          setItems(
+            dataRows
+              .filter(r => r[0])
+              .map((row, idx) => {
+                const obj = { _rowNum: idx + 2 };
+                headerRow.forEach((h, i) => { obj[h] = row[i] ?? null; });
+                return obj;
+              })
+          );
+        }
+
+        if (summaryRows.length) {
+          const [hdr, ...data] = summaryRows;
+          const cur = data.find(r => r[hdr.indexOf('Month')] === currentMonth && String(r[hdr.indexOf('Year')]) === currentYear);
+          if (cur) {
+            const piIdx = hdr.indexOf('Total Processed Income');
+            setPi(parseFloat(cur[piIdx]) || 0);
+          }
+        }
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
@@ -333,7 +352,8 @@ export default function Budget({ token }) {
   const filtered = filter === 'All' ? items : items.filter(i => i['Expense'] === filter);
   const totalAllowance = items.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0);
   const totalSpent     = items.reduce((s, i) => s + pm(i['Actual Spend']), 0);
-  const overallPct     = totalAllowance > 0 ? (totalSpent / totalAllowance) * 100 : 0;
+  const baseline       = pi > 0 ? pi : totalAllowance;
+  const overallPct     = baseline > 0 ? (totalSpent / baseline) * 100 : 0;
 
   return (
     <div className="pb-24">
@@ -350,8 +370,17 @@ export default function Budget({ token }) {
         <div className="bg-slate-900 rounded-2xl p-4 space-y-3">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-slate-500 text-[10px] uppercase tracking-wider">Monthly Budget</p>
-              <p className="text-white text-xl font-bold font-mono tabular-nums mt-0.5">{fmt(totalAllowance)}</p>
+              <p className="text-slate-500 text-[10px] uppercase tracking-wider">
+                {pi > 0 ? 'Processed Income' : 'Monthly Budget'}
+              </p>
+              <p className="text-white text-xl font-bold font-mono tabular-nums mt-0.5">
+                {fmt(baseline)}
+              </p>
+              {pi > 0 && (
+                <p className="text-slate-600 text-[10px] font-mono mt-0.5">
+                  goal {fmt(totalAllowance)}
+                </p>
+              )}
             </div>
             <div>
               <p className="text-slate-500 text-[10px] uppercase tracking-wider">Total Spent</p>
@@ -367,7 +396,7 @@ export default function Budget({ token }) {
             />
           </div>
           <div className="flex justify-between text-[11px] font-mono text-slate-500">
-            <span>{fmt(totalAllowance - totalSpent)} remaining</span>
+            <span>{fmt(baseline - totalSpent)} remaining</span>
             <span>{overallPct.toFixed(0)}% spent</span>
           </div>
         </div>
