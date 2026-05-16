@@ -67,7 +67,8 @@ function computeAll(expenses, sv, allocRows) {
   const ci = pm(sv['Claimable Income (CI)']) || 0;
   const ciDays = pm(sv['CI Days Applicable']) || 14;
   const hourlyWage = pm(sv['Hourly Wage']) || 17;
-  const wagePct = pm(sv['% of Wage Earned']) || 0.9047;
+  const rawWagePct = pm(sv['% of Wage Earned']);
+  const wagePct = rawWagePct !== null ? (rawWagePct > 1 ? rawWagePct / 100 : rawWagePct) : 0.9047;
 
   const adjHourly = hourlyWage * wagePct;
   const ciPlusPi = ci + pi;
