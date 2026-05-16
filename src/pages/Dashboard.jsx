@@ -5,7 +5,7 @@ import { fetchGasPrices } from '../lib/gasPrice';
 import { SHEETS, MONTHS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ProcessIncome from '../components/ProcessIncome';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 function fmt(val) {
   const n = parseFloat(String(val ?? '').replace(/[$,\s]/g, ''));
@@ -45,6 +45,13 @@ export default function Dashboard({ token }) {
   const [gasDesc, setGasDesc]           = useState('');
   const [gasLogging, setGasLogging]     = useState(false);
   const [gasLogDone, setGasLogDone]     = useState(false);
+  const [showExpLog, setShowExpLog]     = useState(false);
+  const [expAmount, setExpAmount]       = useState('');
+  const [expCategory, setExpCategory]   = useState('');
+  const [expNote, setExpNote]           = useState('');
+  const [expLogging, setExpLogging]     = useState(false);
+  const [expLogDone, setExpLogDone]     = useState(false);
+  const [showBills, setShowBills]       = useState(false);
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -137,6 +144,30 @@ export default function Dashboard({ token }) {
       alert(`Error logging gas: ${e.message}`);
     } finally {
       setGasLogging(false);
+    }
+  }
+
+  async function logExpense() {
+    const amt = parseFloat(expAmount);
+    if (!amt || !expCategory || !token) return;
+    setExpLogging(true);
+    const d = new Date();
+    const date = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    const desc = expNote ? `${expCategory}: ${expNote}` : expCategory;
+    const matched = expenses.find(e => e['Expense'] === expCategory);
+    const account = matched?.['Account'] || 'Checking';
+    try {
+      await appendRow(token, 'Allocation Transactions!A:F', [
+        date, expCategory, -parseFloat(amt.toFixed(2)), desc, account, false,
+      ]);
+      setExpLogDone(true);
+      setExpAmount('');
+      setExpNote('');
+      setTimeout(() => { setExpLogDone(false); setShowExpLog(false); }, 1800);
+    } catch (e) {
+      alert(`Error logging expense: ${e.message}`);
+    } finally {
+      setExpLogging(false);
     }
   }
 
@@ -252,8 +283,28 @@ export default function Dashboard({ token }) {
         </div>
       )}
 
-      {/* ── Stat cards ──────────────────────────────────────── */}
+      {/* ── Quick action buttons ─────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={() => setShowExpLog(true)}
+          className="bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded-2xl p-4 flex flex-col gap-1 text-left transition-colors"
+        >
+          <span className="text-xl">🧾</span>
+          <p className="text-white font-semibold text-sm">Log Expense</p>
+          <p className="text-slate-400 text-xs">Record any spending</p>
+        </button>
+        <button
+          onClick={() => setShowBills(true)}
+          className="bg-violet-900/40 hover:bg-violet-900/60 active:bg-violet-900/80 border border-violet-700/40 rounded-2xl p-4 flex flex-col gap-1 text-left transition-colors"
+        >
+          <span className="text-xl">📋</span>
+          <p className="text-violet-200 font-semibold text-sm">Bill Tracker</p>
+          <p className="text-violet-400 text-xs">Monthly expense breakdown</p>
+        </button>
+      </div>
+
+      {/* ── Stat cards ──────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Income"   value={fmt(income)}  sub={unprocessed > 0 ? `+${fmt(unprocessed)} unprocessed` : undefined} color="text-emerald-400" />
         <StatCard label="Spent"    value={fmt(spent)}   color="text-rose-400" />
         <StatCard label="Net Flow" value={fmt(net)}     color={net >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
@@ -362,6 +413,206 @@ export default function Dashboard({ token }) {
           })}
         </div>
       </div>
+
+      {/* ── Quick Expense Log modal ──────────────────────────── */}
+      {showExpLog && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50">
+          <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-white font-bold">🧾 Log Expense</h3>
+                <p className="text-slate-500 text-xs mt-0.5">Records a spending transaction to your sheet</p>
+              </div>
+              <button onClick={() => setShowExpLog(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 flex items-center justify-center">✕</button>
+            </div>
+            {expLogDone ? (
+              <div className="text-center py-6 space-y-2">
+                <p className="text-4xl">✅</p>
+                <p className="text-white font-medium">Expense logged!</p>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="text-slate-400 text-xs uppercase tracking-wider block mb-2">Amount</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-xl font-bold">$</span>
+                    <input
+                      type="number" step="0.01" min="0"
+                      value={expAmount}
+                      onChange={e => setExpAmount(e.target.value)}
+                      placeholder="0.00"
+                      autoFocus
+                      className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3.5 outline-none focus:ring-2 focus:ring-violet-500 placeholder-slate-600 font-mono tabular-nums"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Category</label>
+                  <select
+                    value={expCategory}
+                    onChange={e => setExpCategory(e.target.value)}
+                    className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-violet-500"
+                  >
+                    <option value="">— pick a category —</option>
+                    {expenses.filter(e => e['Expense']).map((e, i) => (
+                      <option key={i} value={e['Expense']}>{e['Expense']}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Note (optional)</label>
+                  <input
+                    type="text"
+                    value={expNote}
+                    onChange={e => setExpNote(e.target.value)}
+                    placeholder="e.g. Costco run"
+                    className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-violet-500 placeholder-slate-600"
+                  />
+                </div>
+                <button
+                  onClick={logExpense}
+                  disabled={!expAmount || !expCategory || expLogging}
+                  className="w-full py-3.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-bold transition-colors"
+                >
+                  {expLogging ? 'Logging…' : `Log $${parseFloat(expAmount || 0).toFixed(2)} — ${expCategory || 'select category'}`}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Bill Tracker modal (full-screen) ─────────────────── */}
+      {showBills && (() => {
+        const billExpenses = expenses.filter(e => e['Expense'] && parseFloat(e['Monthly Allowance ($)']) > 0);
+        const totalBudget  = billExpenses.reduce((s, e) => s + (parseFloat(e['Monthly Allowance ($)']) || 0), 0);
+
+        const priorityMeta = {
+          '1': { label: 'Essential',  color: '#f43f5e', bg: 'bg-rose-500',   text: 'text-rose-400',   badge: 'bg-rose-900/50 text-rose-300'   },
+          '2': { label: 'Stability',  color: '#f59e0b', bg: 'bg-amber-500',  text: 'text-amber-400',  badge: 'bg-amber-900/50 text-amber-300'  },
+          '3': { label: 'Optional',   color: '#8b5cf6', bg: 'bg-violet-500', text: 'text-violet-400', badge: 'bg-violet-900/50 text-violet-300' },
+        };
+
+        const PIE_PALETTE = {
+          '1': ['#f43f5e','#fb7185','#fda4af','#fecdd3','#ffe4e6','#e11d48','#be123c'],
+          '2': ['#f59e0b','#fbbf24','#fcd34d','#fde68a','#fef3c7','#d97706','#b45309'],
+          '3': ['#8b5cf6','#a78bfa','#c4b5fd','#ddd6fe','#7c3aed','#6d28d9','#5b21b6'],
+        };
+        const priorityCounts = { '1': 0, '2': 0, '3': 0 };
+        const pieData = billExpenses.map(e => {
+          const p = String(e['Priority'] ?? '3');
+          const idx = priorityCounts[p] ?? 0;
+          priorityCounts[p] = idx + 1;
+          const palette = PIE_PALETTE[p] || PIE_PALETTE['3'];
+          return {
+            name:  e['Expense'],
+            value: parseFloat(e['Monthly Allowance ($)']),
+            color: palette[idx % palette.length],
+            priority: p,
+          };
+        });
+
+        const priorityTotals = {};
+        billExpenses.forEach(e => {
+          const p = String(e['Priority'] ?? '3');
+          priorityTotals[p] = (priorityTotals[p] || 0) + (parseFloat(e['Monthly Allowance ($)']) || 0);
+        });
+
+        const grouped = ['1','2','3'].map(p => ({
+          priority: p,
+          meta: priorityMeta[p] || priorityMeta['3'],
+          total: priorityTotals[p] || 0,
+          items: billExpenses.filter(e => String(e['Priority'] ?? '3') === p),
+        })).filter(g => g.items.length > 0);
+
+        return (
+          <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 shrink-0">
+              <div>
+                <h2 className="text-white font-bold text-lg">📋 Bill Tracker</h2>
+                <p className="text-slate-400 text-xs mt-0.5">Monthly budget: <span className="text-white font-semibold">${totalBudget.toFixed(2)}</span></p>
+              </div>
+              <button onClick={() => setShowBills(false)} className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">✕</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {/* Donut chart */}
+              <div className="flex flex-col items-center py-6 bg-slate-900/50">
+                <div className="relative">
+                  <PieChart width={220} height={220}>
+                    <Pie data={pieData} cx={110} cy={110} innerRadius={68} outerRadius={100} dataKey="value" stroke="none" startAngle={90} endAngle={-270}>
+                      {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 12 }} formatter={(v, n) => [`$${v.toFixed(2)}`, n]} />
+                  </PieChart>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-white font-bold text-lg">${totalBudget.toFixed(0)}</span>
+                    <span className="text-slate-400 text-xs">/ month</span>
+                  </div>
+                </div>
+
+                {/* Legend */}
+                <div className="flex gap-4 mt-1 text-xs text-slate-400">
+                  {Object.entries(priorityMeta).filter(([p]) => priorityTotals[p]).map(([p, m]) => (
+                    <span key={p} className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: m.color }} />
+                      {m.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Priority summary bars */}
+              <div className="px-5 py-4 space-y-3 border-b border-slate-800">
+                <p className="text-slate-400 text-xs uppercase tracking-wider">By Priority</p>
+                {grouped.map(({ priority, meta, total }) => (
+                  <div key={priority} className="space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span className={`font-medium ${meta.text}`}>P{priority} — {meta.label}</span>
+                      <span className="text-white font-semibold">${total.toFixed(2)}</span>
+                    </div>
+                    <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                      <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${totalBudget > 0 ? (total / totalBudget) * 100 : 0}%`, background: meta.color }} />
+                    </div>
+                    <p className="text-slate-500 text-xs">{totalBudget > 0 ? ((total / totalBudget) * 100).toFixed(1) : 0}% of total</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Grouped expense list */}
+              <div className="px-5 py-4 space-y-6 pb-24">
+                {grouped.map(({ priority, meta, items }) => (
+                  <div key={priority}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${meta.badge}`}>P{priority}</span>
+                      <span className="text-slate-300 text-sm font-medium">{meta.label}</span>
+                    </div>
+                    <div className="space-y-2">
+                      {items.map((e, i) => {
+                        const amt = parseFloat(e['Monthly Allowance ($)']) || 0;
+                        const pct = totalBudget > 0 ? (amt / totalBudget) * 100 : 0;
+                        return (
+                          <div key={i} className="bg-slate-900 rounded-xl px-4 py-3 space-y-1.5">
+                            <div className="flex justify-between items-center">
+                              <span className="text-white text-sm">{e['Expense']}</span>
+                              <span className="text-white font-semibold text-sm">${amt.toFixed(2)}</span>
+                            </div>
+                            <div className="w-full bg-slate-800 rounded-full h-1 overflow-hidden">
+                              <div className="h-1 rounded-full" style={{ width: `${pct}%`, background: meta.color }} />
+                            </div>
+                            <p className="text-slate-500 text-xs">{pct.toFixed(1)}% of budget{e['Account'] ? ` · ${e['Account']}` : ''}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Process Income modal ─────────────────────────────── */}
       {showIncome && (

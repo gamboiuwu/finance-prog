@@ -29,7 +29,7 @@ export default function App() {
           </button>
         </header>
 
-        <main className="max-w-lg mx-auto">
+        <main className="max-w-lg mx-auto md:max-w-none md:px-8 lg:px-16">
           <Routes>
             <Route path="/"                      element={<Dashboard     token={token} />} />
             <Route path="/budget"                element={<Budget        token={token} />} />
