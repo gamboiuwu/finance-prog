@@ -154,7 +154,7 @@ export default function Dashboard({ token }) {
     const d = new Date();
     const date = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
     const desc = expNote ? `${expCategory}: ${expNote}` : expCategory;
-    const matched = expenses.find(e => e['Expense'] === expCategory);
+    const matched = expenses.find(e => e['Type'] === expCategory);
     const account = matched?.['Account'] || 'Checking';
     try {
       await appendRow(token, 'Allocation Transactions!A:F', [
@@ -454,8 +454,8 @@ export default function Dashboard({ token }) {
                     className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-violet-500"
                   >
                     <option value="">— pick a category —</option>
-                    {expenses.filter(e => e['Expense']).map((e, i) => (
-                      <option key={i} value={e['Expense']}>{e['Expense']}</option>
+                    {expenses.filter(e => e['Type']).map((e, i) => (
+                      <option key={i} value={e['Type']}>{e['Type']}</option>
                     ))}
                   </select>
                 </div>

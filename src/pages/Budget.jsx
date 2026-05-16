@@ -349,7 +349,9 @@ export default function Budget({ token }) {
   if (loading) return <LoadingSpinner />;
   if (error)   return <div className="p-4 text-red-400">Error: {error}</div>;
 
-  const filtered = filter === 'All' ? items : items.filter(i => i['Expense'] === filter);
+  const filtered = filter === 'All'
+    ? items
+    : items.filter(i => i['Expense'] === filter || i['Account'] === filter);
   const totalAllowance = items.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0);
   const totalSpent     = items.reduce((s, i) => s + pm(i['Actual Spend']), 0);
   const baseline       = pi > 0 ? pi : totalAllowance;
