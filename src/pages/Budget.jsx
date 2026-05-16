@@ -26,9 +26,14 @@ const CAT_BADGES = {
 
 const PRI_COLORS = { 1: 'text-emerald-400', 2: 'text-amber-400', 3: 'text-slate-500' };
 
+function pm(val) {
+  if (val === null || val === undefined || val === '') return 0;
+  const n = parseFloat(String(val).replace(/[$,\s]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
 function fmt(val) {
-  const n = parseFloat(val);
-  return isNaN(n) ? '—' : `$${n.toFixed(2)}`;
+  const n = pm(val);
+  return `$${n.toFixed(2)}`;
 }
 
 // ─── Pie chart with legend ────────────────────────────────────────────────────
@@ -38,7 +43,7 @@ function BudgetPie({ items }) {
     const map = {};
     items.forEach(item => {
       const cat = item['Expense'] || 'Other';
-      map[cat] = (map[cat] || 0) + (parseFloat(item['Monthly Allowance ($)']) || 0);
+      map[cat] = (map[cat] || 0) + pm(item['Monthly Allowance ($)']);
     });
     return Object.entries(map).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value }));
   }, [items]);
@@ -197,8 +202,8 @@ function EditDrawer({ item, headers, onSave, onClose, saving }) {
 // ─── Budget row card ──────────────────────────────────────────────────────────
 
 function BudgetCard({ item, onEdit }) {
-  const allowance = parseFloat(item['Monthly Allowance ($)']) || 0;
-  const spent = parseFloat(item['Actual Spend']) || 0;
+  const allowance = pm(item['Monthly Allowance ($)']);
+  const spent = pm(item['Actual Spend']);
   const remaining = allowance - spent;
   const pct = allowance > 0 ? Math.min((spent / allowance) * 100, 100) : 0;
   const overBudget = spent > allowance && allowance > 0;
@@ -326,12 +331,12 @@ export default function Budget({ token }) {
   if (error)   return <div className="p-4 text-red-400">Error: {error}</div>;
 
   const filtered = filter === 'All' ? items : items.filter(i => i['Expense'] === filter);
-  const totalAllowance = items.reduce((s, i) => s + (parseFloat(i['Monthly Allowance ($)']) || 0), 0);
-  const totalSpent     = items.reduce((s, i) => s + (parseFloat(i['Actual Spend']) || 0), 0);
+  const totalAllowance = items.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0);
+  const totalSpent     = items.reduce((s, i) => s + pm(i['Actual Spend']), 0);
   const overallPct     = totalAllowance > 0 ? (totalSpent / totalAllowance) * 100 : 0;
 
   return (
-    <div className="pb-24 bg-slate-950 min-h-screen">
+    <div className="pb-24">
 
       {/* Header */}
       <div className="px-4 pt-4 pb-3">

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { readRange, readReportLinks } from '../lib/sheets';
+import { readRange, readReportLinks, appendRow } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
 import { SHEETS, MONTHS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -40,6 +40,11 @@ export default function Dashboard({ token }) {
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState(null);
   const [showIncome, setShowIncome]     = useState(false);
+  const [showGasLog, setShowGasLog]     = useState(false);
+  const [gasAmount, setGasAmount]       = useState('');
+  const [gasDesc, setGasDesc]           = useState('');
+  const [gasLogging, setGasLogging]     = useState(false);
+  const [gasLogDone, setGasLogDone]     = useState(false);
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -113,6 +118,28 @@ export default function Dashboard({ token }) {
     return new Date(y, mo - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
+  async function logGasSpend() {
+    const amt = parseFloat(gasAmount);
+    if (!amt || !token) return;
+    setGasLogging(true);
+    const d = new Date();
+    const date = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    const desc = gasDesc ? `Gas fill-up: ${gasDesc}` : 'Gas fill-up';
+    try {
+      await appendRow(token, 'Allocation Transactions!A:F', [
+        date, 'Gas', -parseFloat(amt.toFixed(2)), desc, 'Cash', false,
+      ]);
+      setGasLogDone(true);
+      setGasAmount('');
+      setGasDesc('');
+      setTimeout(() => { setGasLogDone(false); setShowGasLog(false); }, 1800);
+    } catch (e) {
+      alert(`Error logging gas: ${e.message}`);
+    } finally {
+      setGasLogging(false);
+    }
+  }
+
   return (
     <div className="p-4 space-y-5 pb-24">
 
@@ -144,21 +171,85 @@ export default function Dashboard({ token }) {
         )}
       </div>
 
-      {/* ── Gas price chip ──────────────────────────────────── */}
+      {/* ── Gas price chip + Log Gas spend ─────────────────── */}
       {gasPrice?.value && (
-        <button
-          onClick={() => navigate('/gas')}
-          className="w-full bg-slate-800 hover:bg-slate-700 rounded-xl px-4 py-3 flex justify-between items-center transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-lg">⛽</span>
-            <div className="text-left">
-              <p className="text-white text-sm font-semibold">${gasPrice.value.toFixed(3)} / gal</p>
-              <p className="text-slate-500 text-xs">NYC Regular · {formatGasDate(gasPrice.period)} · EIA</p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate('/gas')}
+            className="flex-1 bg-slate-800 hover:bg-slate-700 rounded-xl px-4 py-3 flex justify-between items-center transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⛽</span>
+              <div className="text-left">
+                <p className="text-white text-sm font-semibold">${gasPrice.value.toFixed(3)} / gal</p>
+                <p className="text-slate-500 text-xs">NYC · {formatGasDate(gasPrice.period)}</p>
+              </div>
             </div>
+            <span className="text-slate-500 text-xs">→</span>
+          </button>
+          <button
+            onClick={() => setShowGasLog(true)}
+            className="bg-orange-900/40 hover:bg-orange-900/60 border border-orange-800/40 rounded-xl px-4 py-3 flex flex-col items-center justify-center gap-0.5 transition-colors shrink-0"
+          >
+            <span className="text-lg">⛽</span>
+            <span className="text-orange-300 text-[10px] font-medium">Log Spend</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── Gas spend modal ──────────────────────────────────── */}
+      {showGasLog && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50">
+          <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-white font-bold">⛽ Log Gas Spend</h3>
+                <p className="text-slate-500 text-xs mt-0.5">Deducts from your claimable gas balance</p>
+              </div>
+              <button onClick={() => setShowGasLog(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 flex items-center justify-center">✕</button>
+            </div>
+            {gasLogDone ? (
+              <div className="text-center py-6 space-y-2">
+                <p className="text-4xl">✅</p>
+                <p className="text-white font-medium">Gas spend logged!</p>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="text-slate-400 text-xs uppercase tracking-wider block mb-2">Amount Spent</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-xl font-bold">$</span>
+                    <input
+                      type="number" step="0.01" min="0"
+                      value={gasAmount}
+                      onChange={e => setGasAmount(e.target.value)}
+                      placeholder="0.00"
+                      autoFocus
+                      className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3.5 outline-none focus:ring-2 focus:ring-orange-500 placeholder-slate-600 font-mono tabular-nums"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Note (optional)</label>
+                  <input
+                    type="text"
+                    value={gasDesc}
+                    onChange={e => setGasDesc(e.target.value)}
+                    placeholder="e.g. Shell on Sunrise Hwy"
+                    className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500 placeholder-slate-600"
+                  />
+                </div>
+                <button
+                  onClick={logGasSpend}
+                  disabled={!gasAmount || gasLogging}
+                  className="w-full py-3.5 rounded-xl bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-bold transition-colors"
+                >
+                  {gasLogging ? 'Logging…' : `⛽ Log $${parseFloat(gasAmount || 0).toFixed(2)} Gas Spend`}
+                </button>
+              </>
+            )}
           </div>
-          <span className="text-slate-500 text-xs">All regions →</span>
-        </button>
+        </div>
       )}
 
       {/* ── Stat cards ──────────────────────────────────────── */}

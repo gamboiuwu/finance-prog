@@ -291,7 +291,7 @@ export default function Summary({ token }) {
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   return (
-    <div className="pb-24 bg-slate-950 min-h-screen">
+    <div className="pb-24">
 
       {/* Header */}
       <div className="px-4 pt-4 pb-3">
