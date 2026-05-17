@@ -182,6 +182,10 @@ export default function Transactions({ token }) {
   if (loading) return <LoadingSpinner />;
   if (error) return <div className="p-4 text-red-400">Error: {error}</div>;
 
+  const totalSpent    = rows.filter(r => parseFloat(r[2]) < 0).reduce((s, r) => s + Math.abs(parseFloat(r[2]) || 0), 0);
+  const totalReceived = rows.filter(r => parseFloat(r[2]) > 0).reduce((s, r) => s + (parseFloat(r[2]) || 0), 0);
+  const net           = totalReceived - totalSpent;
+
   return (
     <div className="p-4 pb-24 space-y-4">
       <div className="flex justify-between items-center">
@@ -197,32 +201,50 @@ export default function Transactions({ token }) {
         </button>
       </div>
 
+      {/* Summary strip */}
+      {rows.length > 0 && (
+        <div className="grid grid-cols-3 gap-2">
+          <div className="bg-slate-800 rounded-xl p-3 text-center">
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider">Received</p>
+            <p className="text-emerald-400 font-bold text-sm mt-0.5">${totalReceived.toFixed(2)}</p>
+          </div>
+          <div className="bg-slate-800 rounded-xl p-3 text-center">
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider">Spent</p>
+            <p className="text-rose-400 font-bold text-sm mt-0.5">${totalSpent.toFixed(2)}</p>
+          </div>
+          <div className="bg-slate-800 rounded-xl p-3 text-center">
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider">Net</p>
+            <p className={`font-bold text-sm mt-0.5 ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{net >= 0 ? '+' : '-'}${Math.abs(net).toFixed(2)}</p>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
         {rows.map((row, i) => {
           const amount = parseFloat(row[2]) || 0;
           const isCredit = amount > 0;
           const status = row[5];
           return (
-            <div key={i} className="bg-slate-800 rounded-xl p-3 flex items-start gap-3">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm font-bold ${isCredit ? 'bg-emerald-900/50 text-emerald-400' : 'bg-rose-900/50 text-rose-400'}`}>
+            <div key={i} className="bg-slate-800 rounded-xl p-3 flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-bold ${isCredit ? 'bg-emerald-900/50 text-emerald-400' : 'bg-rose-900/50 text-rose-400'}`}>
                 {isCredit ? '↑' : '↓'}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-start gap-2">
+                <div className="flex justify-between items-baseline gap-2">
                   <p className="text-white text-sm font-medium truncate">{row[1]}</p>
-                  <span className={`text-sm font-bold shrink-0 ${isCredit ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {fmt(row[2])}
+                  <span className={`text-base font-bold font-mono tabular-nums shrink-0 ${isCredit ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {isCredit ? '+' : '-'}${Math.abs(amount).toFixed(2)}
                   </span>
                 </div>
                 <div className="flex gap-2 mt-0.5 flex-wrap items-center">
                   <span className="text-slate-500 text-xs">{fmtDate(row[0])}</span>
                   {row[4] && <span className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded">{row[4]}</span>}
                   {status === 'TRUE' || status === true
-                    ? <span className="text-xs text-emerald-500">✓</span>
+                    ? <span className="text-xs text-emerald-500">✓ done</span>
                     : <span className="text-xs text-slate-600">pending</span>
                   }
                 </div>
-                {row[3] && <p className="text-slate-400 text-xs mt-1 truncate">{row[3]}</p>}
+                {row[3] && <p className="text-slate-400 text-xs mt-0.5 truncate">{row[3]}</p>}
               </div>
             </div>
           );
