@@ -6,9 +6,14 @@ import LoadingSpinner from '../components/LoadingSpinner';
 const ACCOUNTS = ['Cash', 'Checking', 'Savings', 'Outside Payment', 'Business Tax', 'Subscription', 'Liabilities'];
 
 function parseAmount(val) {
-  if (val == null) return 0;
-  const n = parseFloat(String(val).replace(/[$,]/g, ''));
-  return isNaN(n) ? 0 : n;
+  if (val == null || val === '') return 0;
+  const s = String(val).trim();
+  // Accounting notation: (45.67) means negative
+  const isNeg = (s.startsWith('(') && s.endsWith(')')) || s.startsWith('-');
+  const clean = s.replace(/[$,\s()]/g, '').replace(/^-/, '');
+  const n = parseFloat(clean);
+  if (isNaN(n)) return 0;
+  return isNeg ? -n : n;
 }
 
 function fmtDate(val) {
