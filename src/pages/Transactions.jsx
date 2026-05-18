@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { readRange, appendRow } from '../lib/sheets';
+import { readRange, appendRow, updateCell } from '../lib/sheets';
 import { SHEETS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
@@ -82,10 +82,11 @@ function AddModal({ categories, onSave, onClose }) {
   );
 }
 
-function TxRow({ row }) {
+function TxRow({ row, onToggle }) {
   const amount   = parseAmount(row[2]);
   const isCredit = amount > 0;
   const status   = row[5];
+  const isDone   = status === 'TRUE' || status === true;
   return (
     <div className="flex items-center gap-3 px-3 py-2.5 border-t border-slate-700/60">
       <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold
@@ -102,16 +103,23 @@ function TxRow({ row }) {
         <div className="flex gap-2 mt-0.5 flex-wrap items-center">
           <span className="text-slate-600 text-xs">{row[0]}</span>
           {row[4] && <span className="text-xs px-1.5 py-0.5 bg-slate-700/70 text-slate-500 rounded">{row[4]}</span>}
-          {status === 'TRUE' || status === true
-            ? <span className="text-xs text-emerald-600">✓ done</span>
-            : <span className="text-xs text-slate-700">pending</span>}
+          <button
+            onClick={() => onToggle(row[6], status)}
+            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+              isDone
+                ? 'border-emerald-700/50 text-emerald-500 bg-emerald-900/20 hover:bg-emerald-900/40'
+                : 'border-slate-700 text-slate-600 hover:text-amber-400 hover:border-amber-700/50 hover:bg-amber-900/20'
+            }`}
+          >
+            {isDone ? '✓ done' : 'mark done'}
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll }) {
+function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, onToggle }) {
   const [open, setOpen] = useState(true);
   const color       = CAT_COLORS[colorIdx % CAT_COLORS.length];
   const count       = groupRows.length;
@@ -160,7 +168,7 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll }
       {/* Transaction list */}
       {open && (
         <div className="bg-slate-900/40">
-          {groupRows.map((row, i) => <TxRow key={i} row={row} />)}
+          {groupRows.map((row, i) => <TxRow key={i} row={row} onToggle={onToggle} />)}
         </div>
       )}
     </div>
@@ -189,6 +197,7 @@ export default function Transactions({ token }) {
         const patched = txRows.map((row, i) => {
           const r = [...row];
           r[2] = rawAmtRows[i]?.[0] ?? row[2];
+          r[6] = i + 2; // 1-indexed sheet row (row 1 = header)
           return r;
         });
         setRows(patched.filter(r => r[0]).reverse());
@@ -210,6 +219,19 @@ export default function Transactions({ token }) {
       setError(e.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function toggleStatus(sheetRow, currentStatus) {
+    const isDone = currentStatus === 'TRUE' || currentStatus === true;
+    const next = !isDone;
+    // Optimistic update
+    setRows(prev => prev.map(r => r[6] === sheetRow ? Object.assign([...r], { 5: next ? 'TRUE' : 'FALSE' }) : r));
+    try {
+      await updateCell(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!F${sheetRow}`, next);
+    } catch (e) {
+      // Revert
+      setRows(prev => prev.map(r => r[6] === sheetRow ? Object.assign([...r], { 5: isDone ? 'TRUE' : 'FALSE' }) : r));
     }
   }
 
@@ -354,6 +376,7 @@ export default function Transactions({ token }) {
               totalSpent={totalSpent}
               colorIdx={i}
               pctOfAll={totalSpent > 0 ? (absSpending / totalSpent) * 100 : 0}
+              onToggle={toggleStatus}
             />
           ))}
           {groups.length === 0 && <p className="text-slate-500 text-center py-8">No transactions yet</p>}
@@ -383,9 +406,16 @@ export default function Transactions({ token }) {
                   <div className="flex gap-2 mt-0.5 flex-wrap items-center">
                     <span className="text-slate-500 text-xs">{row[0]}</span>
                     {row[4] && <span className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded">{row[4]}</span>}
-                    {status === 'TRUE' || status === true
-                      ? <span className="text-xs text-emerald-500">✓ done</span>
-                      : <span className="text-xs text-slate-600">pending</span>}
+                    <button
+                      onClick={() => toggleStatus(row[6], status)}
+                      className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                        status === 'TRUE' || status === true
+                          ? 'border-emerald-700/50 text-emerald-500 bg-emerald-900/20 hover:bg-emerald-900/40'
+                          : 'border-slate-700 text-slate-600 hover:text-amber-400 hover:border-amber-700/50 hover:bg-amber-900/20'
+                      }`}
+                    >
+                      {status === 'TRUE' || status === true ? '✓ done' : 'mark done'}
+                    </button>
                   </div>
                   {row[3] && <p className="text-slate-400 text-xs mt-0.5 truncate">{row[3]}</p>}
                 </div>
