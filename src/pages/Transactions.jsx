@@ -5,11 +5,10 @@ import LoadingSpinner from '../components/LoadingSpinner';
 
 const ACCOUNTS = ['Cash', 'Checking', 'Savings', 'Outside Payment', 'Business Tax', 'Subscription', 'Liabilities'];
 
-function fmt(val) {
-  const n = parseFloat(val);
-  if (isNaN(n)) return '—';
-  const abs = `$${Math.abs(n).toFixed(2)}`;
-  return n < 0 ? `-${abs}` : `+${abs}`;
+function parseAmount(val) {
+  if (val == null) return 0;
+  const n = parseFloat(String(val).replace(/[$,]/g, ''));
+  return isNaN(n) ? 0 : n;
 }
 
 function fmtDate(val) {
@@ -182,8 +181,8 @@ export default function Transactions({ token }) {
   if (loading) return <LoadingSpinner />;
   if (error) return <div className="p-4 text-red-400">Error: {error}</div>;
 
-  const totalSpent    = rows.filter(r => parseFloat(r[2]) < 0).reduce((s, r) => s + Math.abs(parseFloat(r[2]) || 0), 0);
-  const totalReceived = rows.filter(r => parseFloat(r[2]) > 0).reduce((s, r) => s + (parseFloat(r[2]) || 0), 0);
+  const totalSpent    = rows.filter(r => parseAmount(r[2]) < 0).reduce((s, r) => s + Math.abs(parseAmount(r[2])), 0);
+  const totalReceived = rows.filter(r => parseAmount(r[2]) > 0).reduce((s, r) => s + parseAmount(r[2]), 0);
   const net           = totalReceived - totalSpent;
 
   return (
@@ -221,7 +220,7 @@ export default function Transactions({ token }) {
 
       <div className="space-y-2">
         {rows.map((row, i) => {
-          const amount = parseFloat(row[2]) || 0;
+          const amount = parseAmount(row[2]);
           const isCredit = amount > 0;
           const status = row[5];
           return (
