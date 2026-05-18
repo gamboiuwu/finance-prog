@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { readRange, appendRow } from '../lib/sheets';
 import { SHEETS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const ACCOUNTS = ['Cash', 'Checking', 'Savings', 'Outside Payment', 'Business Tax', 'Subscription', 'Liabilities'];
 
@@ -228,6 +229,78 @@ export default function Transactions({ token }) {
           </div>
         </div>
       )}
+
+      {/* ── Charts ─────────────────────────────────────────── */}
+      {rows.length > 0 && (() => {
+        // Category breakdown (expenses only)
+        const catMap = {};
+        rows.forEach(r => {
+          const amt = parseAmount(r[2]);
+          if (amt >= 0) return;
+          const cat = r[1] || 'Other';
+          catMap[cat] = (catMap[cat] || 0) + Math.abs(amt);
+        });
+        const sorted = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+        const top5 = sorted.slice(0, 5);
+        const otherSum = sorted.slice(5).reduce((s, [, v]) => s + v, 0);
+        const catData = [...top5.map(([name, value]) => ({ name, value })), ...(otherSum > 0 ? [{ name: 'Other', value: otherSum }] : [])];
+        const CAT_COLORS = ['#3b82f6','#f43f5e','#f59e0b','#10b981','#8b5cf6','#64748b'];
+
+        // Monthly spending (expenses only)
+        const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const monthMap = {};
+        rows.forEach(r => {
+          const amt = parseAmount(r[2]);
+          if (amt >= 0 || !r[0]) return;
+          const parts = String(r[0]).split('/');
+          if (parts.length < 2) return;
+          const label = MONTH_NAMES[(parseInt(parts[0], 10) - 1)] ?? parts[0];
+          monthMap[label] = (monthMap[label] || 0) + Math.abs(amt);
+        });
+        const monthData = Object.entries(monthMap).map(([month, spent]) => ({ month, spent }));
+
+        return (
+          <>
+            {catData.length > 0 && (
+              <div className="bg-slate-800 rounded-2xl p-4">
+                <p className="text-slate-300 font-medium text-sm mb-3">Spending by Category</p>
+                <div className="flex gap-4 items-center">
+                  <PieChart width={130} height={130}>
+                    <Pie data={catData} cx={65} cy={65} innerRadius={38} outerRadius={60} dataKey="value" stroke="none">
+                      {catData.map((_, i) => <Cell key={i} fill={CAT_COLORS[i % CAT_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 12 }} formatter={v => [`$${v.toFixed(2)}`]} />
+                  </PieChart>
+                  <div className="flex-1 space-y-1.5">
+                    {catData.map((d, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CAT_COLORS[i % CAT_COLORS.length] }} />
+                          <span className="text-slate-300 text-xs truncate">{d.name}</span>
+                        </div>
+                        <span className="text-slate-400 text-xs font-mono shrink-0">${d.value.toFixed(0)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            {monthData.length > 1 && (
+              <div className="bg-slate-800 rounded-2xl p-4">
+                <p className="text-slate-300 font-medium text-sm mb-3">Monthly Spending</p>
+                <ResponsiveContainer width="100%" height={140}>
+                  <BarChart data={monthData} barCategoryGap="35%">
+                    <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                    <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9' }} formatter={v => [`$${v.toFixed(2)}`, 'Spent']} />
+                    <Bar dataKey="spent" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       <div className="space-y-2">
         {rows.map((row, i) => {

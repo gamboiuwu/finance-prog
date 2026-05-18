@@ -5,7 +5,7 @@ import { fetchGasPrices } from '../lib/gasPrice';
 import { SHEETS, MONTHS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ProcessIncome from '../components/ProcessIncome';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 function fmt(val) {
   const n = parseFloat(String(val ?? '').replace(/[$,\s]/g, ''));
@@ -109,11 +109,11 @@ export default function Dashboard({ token }) {
 
   const chartData = allMonths
     .filter(m => parseFloat(m['Total Processed Income']) > 0)
-    .map(m => ({
-      month:  m['Month']?.slice(0, 3),
-      income: parseFloat(m['Total Processed Income']) || 0,
-      spent:  parseFloat(m['Total Spent'])            || 0,
-    }));
+    .map(m => {
+      const inc = parseFloat(m['Total Processed Income']) || 0;
+      const spt = parseFloat(m['Total Spent'])            || 0;
+      return { month: m['Month']?.slice(0, 3), income: inc, spent: spt, net: inc - spt };
+    });
 
   const pastMonths = allMonths.filter(
     m => reportLinks[m['Month']] && m['Month'] !== currentMonth
@@ -342,17 +342,19 @@ export default function Dashboard({ token }) {
         <div className="bg-slate-800 rounded-2xl p-4">
           <p className="text-slate-300 font-medium text-sm mb-4">2026 — Income vs Spent</p>
           <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={chartData} barCategoryGap="30%">
+            <ComposedChart data={chartData} barCategoryGap="30%">
               <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
               <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9' }} formatter={v => [`$${v.toFixed(2)}`]} />
               <Bar dataKey="income" fill="#3b82f6" radius={[4,4,0,0]} name="Income" />
               <Bar dataKey="spent"  fill="#f43f5e" radius={[4,4,0,0]} name="Spent" />
-            </BarChart>
+              <Line type="monotone" dataKey="net" stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 3 }} name="Net Saved" />
+            </ComposedChart>
           </ResponsiveContainer>
           <div className="flex gap-4 mt-2 justify-center text-xs text-slate-400">
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-blue-500 inline-block" /> Income</span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-rose-500 inline-block" /> Spent</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block" /> Net Saved</span>
           </div>
         </div>
       )}
