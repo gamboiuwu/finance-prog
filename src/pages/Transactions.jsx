@@ -236,9 +236,9 @@ export default function Transactions({ token }) {
 
   // Charts data
   const catChartData = groups
-    .filter(g => g.isExpense)
+    .filter(g => g.absSpending > 0)
     .slice(0, 6)
-    .map(g => ({ name: g.name, value: g.total }));
+    .map(g => ({ name: g.name, value: g.absSpending }));
 
   const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const monthMap = {};
@@ -346,7 +346,7 @@ export default function Transactions({ token }) {
       {/* Grouped view */}
       {view === 'grouped' && (
         <div className="space-y-3">
-          {groups.map(({ name, rows: gr, total, isExpense }, i) => (
+          {groups.map(({ name, rows: gr, absSpending }, i) => (
             <CategoryGroup
               key={name}
               name={name}
