@@ -486,7 +486,7 @@ export default function Dashboard({ token }) {
 
       {/* ── Bill Tracker modal (full-screen) ─────────────────── */}
       {showBills && (() => {
-        const billExpenses = expenses.filter(e => e['Expense'] && parseFloat(e['Monthly Allowance ($)']) > 0);
+        const billExpenses = expenses.filter(e => parseFloat(e['Monthly Allowance ($)']) > 0);
         const totalBudget  = billExpenses.reduce((s, e) => s + (parseFloat(e['Monthly Allowance ($)']) || 0), 0);
 
         const priorityMeta = {
@@ -506,7 +506,7 @@ export default function Dashboard({ token }) {
           const idx = priorityCounts[p] ?? 0;
           priorityCounts[p] = idx + 1;
           const palette = PIE_PALETTE[p] || PIE_PALETTE['3'];
-          return { name: e['Expense'], value: parseFloat(e['Monthly Allowance ($)']), color: palette[idx % palette.length], priority: p };
+          return { name: e['Type'] || e['Expense'] || '—', value: parseFloat(e['Monthly Allowance ($)']), color: palette[idx % palette.length], priority: p };
         });
 
         const priorityTotals = {};
@@ -582,14 +582,19 @@ export default function Dashboard({ token }) {
                         const pct = totalBudget > 0 ? (amt / totalBudget) * 100 : 0;
                         return (
                           <div key={i} className="bg-slate-900 rounded-xl px-4 py-3 space-y-1.5">
-                            <div className="flex justify-between items-center">
-                              <span className="text-white text-sm">{e['Expense']}</span>
-                              <span className="text-white font-semibold text-sm">${amt.toFixed(2)}</span>
+                            <div className="flex justify-between items-center gap-2">
+                              <div className="min-w-0">
+                                <span className="text-white text-sm">{e['Type'] || e['Expense'] || '—'}</span>
+                                {e['Account'] === 'Subscription' && (
+                                  <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-violet-900/60 text-violet-300">sub</span>
+                                )}
+                              </div>
+                              <span className="text-white font-semibold text-sm shrink-0">${amt.toFixed(2)}</span>
                             </div>
                             <div className="w-full bg-slate-800 rounded-full h-1 overflow-hidden">
                               <div className="h-1 rounded-full" style={{ width: `${pct}%`, background: meta.color }} />
                             </div>
-                            <p className="text-slate-500 text-xs">{pct.toFixed(1)}% of budget{e['Account'] ? ` · ${e['Account']}` : ''}</p>
+                            <p className="text-slate-500 text-xs">{pct.toFixed(1)}% of budget{e['Account'] && e['Account'] !== 'Subscription' ? ` · ${e['Account']}` : ''}</p>
                           </div>
                         );
                       })}
