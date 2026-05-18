@@ -111,15 +111,17 @@ function TxRow({ row }) {
   );
 }
 
-function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, isExpense }) {
+function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll }) {
   const [open, setOpen] = useState(true);
-  const color    = CAT_COLORS[colorIdx % CAT_COLORS.length];
-  const count    = groupRows.length;
-  const total    = groupRows.reduce((s, r) => s + Math.abs(parseAmount(r[2])), 0);
-  const avg      = count > 0 ? total / count : 0;
-  const dates    = groupRows.map(r => r[0]).filter(Boolean);
-  const dateRange = dates.length > 1 ? `${dates[dates.length - 1]} – ${dates[0]}` : dates[0] || '';
-  const pending  = groupRows.filter(r => r[5] !== 'TRUE' && r[5] !== true).length;
+  const color       = CAT_COLORS[colorIdx % CAT_COLORS.length];
+  const count       = groupRows.length;
+  // Use actual signed net so +income offsets -expenses correctly
+  const netTotal    = groupRows.reduce((s, r) => s + parseAmount(r[2]), 0);
+  const absSpending = groupRows.filter(r => parseAmount(r[2]) < 0).reduce((s, r) => s + Math.abs(parseAmount(r[2])), 0);
+  const isNet       = netTotal >= 0;
+  const dates       = groupRows.map(r => r[0]).filter(Boolean);
+  const dateRange   = dates.length > 1 ? `${dates[dates.length - 1]} – ${dates[0]}` : dates[0] || '';
+  const pending     = groupRows.filter(r => r[5] !== 'TRUE' && r[5] !== true).length;
 
   return (
     <div className="bg-slate-800 rounded-2xl overflow-hidden">
@@ -129,21 +131,21 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-white font-semibold text-sm truncate">{name}</span>
-            <span className={`font-bold text-sm font-mono tabular-nums shrink-0 ${isExpense ? 'text-rose-400' : 'text-emerald-400'}`}>
-              {isExpense ? '-' : '+'}${total.toFixed(2)}
+            <span className={`font-bold text-sm font-mono tabular-nums shrink-0 ${isNet ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {isNet ? '+' : '-'}${Math.abs(netTotal).toFixed(2)}
             </span>
           </div>
           <div className="flex items-center gap-3 mt-0.5">
             <span className="text-slate-500 text-xs">{count} transaction{count !== 1 ? 's' : ''}</span>
-            {isExpense && <span className="text-slate-500 text-xs">avg ${avg.toFixed(2)}</span>}
+            {absSpending > 0 && <span className="text-slate-500 text-xs">spent ${absSpending.toFixed(2)}</span>}
             {pending > 0 && <span className="text-amber-600 text-xs">{pending} pending</span>}
           </div>
         </div>
         <span className={`text-slate-500 text-xs transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▼</span>
       </button>
 
-      {/* Stats bar */}
-      {isExpense && totalSpent > 0 && (
+      {/* Stats bar — based on actual spending portion */}
+      {absSpending > 0 && totalSpent > 0 && (
         <div className="px-4 pb-3 space-y-1">
           <div className="flex justify-between text-xs text-slate-500">
             <span>{pctOfAll.toFixed(1)}% of total spending</span>
@@ -227,12 +229,10 @@ export default function Transactions({ token }) {
   });
   const groups = Object.entries(catMap)
     .map(([name, grpRows]) => {
-      const expenses  = grpRows.filter(r => parseAmount(r[2]) < 0);
-      const isExpense = expenses.length >= grpRows.length / 2;
-      const total     = grpRows.reduce((s, r) => s + Math.abs(parseAmount(r[2])), 0);
-      return { name, rows: grpRows, total, isExpense };
+      const absSpending = grpRows.filter(r => parseAmount(r[2]) < 0).reduce((s, r) => s + Math.abs(parseAmount(r[2])), 0);
+      return { name, rows: grpRows, absSpending };
     })
-    .sort((a, b) => b.total - a.total);
+    .sort((a, b) => b.absSpending - a.absSpending);
 
   // Charts data
   const catChartData = groups
@@ -353,8 +353,7 @@ export default function Transactions({ token }) {
               rows={gr}
               totalSpent={totalSpent}
               colorIdx={i}
-              pctOfAll={totalSpent > 0 ? (total / totalSpent) * 100 : 0}
-              isExpense={isExpense}
+              pctOfAll={totalSpent > 0 ? (absSpending / totalSpent) * 100 : 0}
             />
           ))}
           {groups.length === 0 && <p className="text-slate-500 text-center py-8">No transactions yet</p>}
