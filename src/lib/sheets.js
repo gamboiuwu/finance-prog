@@ -19,8 +19,8 @@ async function request(token, spreadsheetId, path, options = {}) {
 }
 
 // Read from the main finance spreadsheet
-export async function readRange(token, range) {
-  const data = await request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(range)}?valueRenderOption=FORMATTED_VALUE`);
+export async function readRange(token, range, valueRenderOption = 'FORMATTED_VALUE') {
+  const data = await request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(range)}?valueRenderOption=${valueRenderOption}`);
   return data.values || [];
 }
 

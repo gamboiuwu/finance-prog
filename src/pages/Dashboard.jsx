@@ -134,7 +134,7 @@ export default function Dashboard({ token }) {
     const desc = gasDesc ? `Gas fill-up: ${gasDesc}` : 'Gas fill-up';
     try {
       await appendRow(token, 'Allocation Transactions!A:F', [
-        date, 'Gas', -parseFloat(amt.toFixed(2)), desc, 'Cash', false,
+        date, 'Gas', -Math.abs(amt), desc, 'Cash', false,
       ]);
       setGasLogDone(true);
       setGasAmount('');
@@ -158,7 +158,7 @@ export default function Dashboard({ token }) {
     const account = matched?.['Account'] || 'Checking';
     try {
       await appendRow(token, 'Allocation Transactions!A:F', [
-        date, expCategory, -parseFloat(amt.toFixed(2)), desc, account, false,
+        date, expCategory, -Math.abs(amt), desc, account, false,
       ]);
       setExpLogDone(true);
       setExpAmount('');

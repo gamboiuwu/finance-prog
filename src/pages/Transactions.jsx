@@ -153,16 +153,22 @@ export default function Transactions({ token }) {
 
   function load() {
     setLoading(true);
-    readRange(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!A1:F200`)
-      .then(data => {
+    Promise.all([
+      readRange(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!A1:F200`),
+      readRange(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!C1:C200`, 'UNFORMATTED_VALUE'),
+    ])
+      .then(([data, rawAmts]) => {
         if (!data.length) return;
         const [, ...txRows] = data;
-        // Sort newest first
-        const parsed = txRows.filter(r => r[0]).reverse();
-        setRows(parsed);
-        // Extract unique categories for the form
-        const cats = [...new Set(txRows.map(r => r[1]).filter(Boolean))];
-        setCategories(cats);
+        const [, ...rawAmtRows] = rawAmts;
+        // Patch column C with raw signed numeric value so currency formatting can't strip the minus sign
+        const patched = txRows.map((row, i) => {
+          const r = [...row];
+          r[2] = rawAmtRows[i]?.[0] ?? row[2];
+          return r;
+        });
+        setRows(patched.filter(r => r[0]).reverse());
+        setCategories([...new Set(txRows.map(r => r[1]).filter(Boolean))]);
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
