@@ -1,5 +1,26 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: 'Broske';
+  src: url('/finance-prog/fonts/Broske.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'ZTNature';
+  src: url('/finance-prog/fonts/ZTNature.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: 'ZTNature', system-ui, -apple-system, sans-serif;
+  --font-display: 'Broske', system-ui, -apple-system, sans-serif;
+}
+
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
@@ -9,14 +30,24 @@
   body {
     background-color: #020617; /* slate-950 */
     color: white;
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family: 'ZTNature', system-ui, -apple-system, sans-serif;
   }
   input, select, textarea, button {
     color-scheme: dark;
+    font-family: 'ZTNature', system-ui, -apple-system, sans-serif;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Broske', system-ui, -apple-system, sans-serif;
   }
 }
 
 @layer utilities {
+  .font-broske {
+    font-family: 'Broske', system-ui, sans-serif;
+  }
+  .font-ztnature {
+    font-family: 'ZTNature', system-ui, sans-serif;
+  }
   .safe-area-pb {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }

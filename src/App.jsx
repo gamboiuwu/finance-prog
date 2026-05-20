@@ -76,7 +76,7 @@ export default function App() {
         onKeyDown={refreshActivity}
       >
         <header className="sticky top-0 z-30 bg-slate-950/90 backdrop-blur border-b border-slate-800 px-4 py-3 flex justify-between items-center">
-          <span className="font-bold text-white text-sm">💰 Finance</span>
+          <span className="font-bold text-white text-sm font-broske tracking-wide">💰 Finance</span>
           <div className="flex items-center gap-2 relative">
             {/* PIN / lock menu */}
             <button

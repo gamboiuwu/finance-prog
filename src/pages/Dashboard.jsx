@@ -16,9 +16,9 @@ function fmt(val) {
 function StatCard({ label, value, sub, color = 'text-white' }) {
   return (
     <div className="bg-slate-800 rounded-2xl p-4 flex flex-col gap-1">
-      <span className="text-slate-400 text-xs uppercase tracking-wider">{label}</span>
-      <span className={`text-2xl font-bold ${color}`}>{value}</span>
-      {sub && <span className="text-slate-500 text-xs">{sub}</span>}
+      <span className="text-slate-400 text-xs uppercase tracking-wider font-ztnature">{label}</span>
+      <span className={`text-2xl font-bold font-broske ${color}`}>{value}</span>
+      {sub && <span className="text-slate-500 text-xs font-ztnature">{sub}</span>}
     </div>
   );
 }
@@ -340,7 +340,7 @@ export default function Dashboard({ token }) {
       {/* ── Year chart ──────────────────────────────────────── */}
       {chartData.length > 0 && (
         <div className="bg-slate-800 rounded-2xl p-4">
-          <p className="text-slate-300 font-medium text-sm mb-4">2026 — Income vs Spent</p>
+          <p className="text-slate-300 font-medium text-sm mb-4 font-broske tracking-wide">2026 — Income vs Spent</p>
           <ResponsiveContainer width="100%" height={180}>
             <ComposedChart data={chartData} barCategoryGap="30%">
               <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -362,7 +362,7 @@ export default function Dashboard({ token }) {
       {/* ── Past month report cards ──────────────────────────── */}
       {pastMonths.length > 0 && (
         <div>
-          <p className="text-slate-300 font-medium text-sm mb-3">Past Monthly Reports</p>
+          <p className="text-slate-300 font-medium text-sm mb-3 font-broske tracking-wide">Past Monthly Reports</p>
           <div className="space-y-2">
             {pastMonths.map((m, i) => {
               const mIncome = parseFloat(m['Total Processed Income']) || 0;
@@ -394,7 +394,7 @@ export default function Dashboard({ token }) {
 
       {/* ── Year overview table ──────────────────────────────── */}
       <div>
-        <p className="text-slate-300 font-medium text-sm mb-3">Full Year</p>
+        <p className="text-slate-300 font-medium text-sm mb-3 font-broske tracking-wide">Full Year</p>
         <div className="bg-slate-800 rounded-2xl overflow-hidden">
           {allMonths.filter(m => parseFloat(m['Total Processed Income']) > 0 || parseFloat(m['Allowance Goal']) > 0).map((m, i, arr) => {
             const mIncome = parseFloat(m['Total Processed Income']) || 0;
