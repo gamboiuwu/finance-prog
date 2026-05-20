@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { storePin, verifyPin, recordFailedAttempt, getFailedAttempts, MAX_ATTEMPTS } from '../lib/pin';
 
 const KEYS = [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']];
@@ -86,6 +86,19 @@ export default function PinGate({ mode, onUnlock, onSignOut }) {
       setBusy(false);
     }
   }
+
+  // Keep a ref to press so the stable keydown listener always calls the latest version
+  const pressRef = useRef(press);
+  useEffect(() => { pressRef.current = press; });
+  useEffect(() => {
+    function onKey(e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (/^[0-9]$/.test(e.key)) pressRef.current(e.key);
+      else if (e.key === 'Backspace') pressRef.current('⌫');
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const dots = step === 'confirm' ? confirm.length : pin.length;
 
