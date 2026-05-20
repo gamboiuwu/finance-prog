@@ -76,7 +76,7 @@ function AllocationDonut({ items, total }) {
   return (
     <div className="bg-slate-900 rounded-2xl p-5">
       <p className="text-slate-400 text-xs uppercase tracking-wider mb-4 font-broske">Allocation by Category</p>
-      <div className="flex items-center gap-5">
+      <div className="flex items-center gap-5 max-w-xl">
         <div className="relative shrink-0" style={{ width: 130, height: 130 }}>
           <PieChart width={130} height={130}>
             <Pie data={data} cx={65} cy={65} innerRadius={38} outerRadius={58}
@@ -139,6 +139,7 @@ function PriorityChart({ items }) {
   return (
     <div className="bg-slate-900 rounded-2xl p-5">
       <p className="text-slate-400 text-xs uppercase tracking-wider mb-4 font-broske">Budget vs Actual — by Priority</p>
+      <div className="max-w-xl">
       <ResponsiveContainer width="100%" height={140}>
         <BarChart data={data} barCategoryGap="35%">
           <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -153,6 +154,7 @@ function PriorityChart({ items }) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+      </div>
       <div className="flex gap-4 justify-center text-xs text-slate-500 mt-1">
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-slate-800 border border-slate-700" />Budget</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-blue-500" />Actual</span>

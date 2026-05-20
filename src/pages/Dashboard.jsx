@@ -52,6 +52,10 @@ export default function Dashboard({ token }) {
   const [expLogging, setExpLogging]     = useState(false);
   const [expLogDone, setExpLogDone]     = useState(false);
   const [showBills, setShowBills]       = useState(false);
+  const [showStatement, setShowStatement] = useState(false);
+  const [stmtLoading, setStmtLoading]   = useState(false);
+  const [stmtTxns, setStmtTxns]         = useState([]);
+  const [stmtError, setStmtError]       = useState(null);
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -171,20 +175,215 @@ export default function Dashboard({ token }) {
     }
   }
 
+  async function openStatement() {
+    setShowStatement(true);
+    setStmtLoading(true);
+    setStmtError(null);
+    const mo = now.getMonth() + 1;
+    const yr = now.getFullYear();
+    try {
+      const rows = await readRange(token, 'Allocation Transactions!A:F');
+      const [, ...data] = rows;
+      const txns = data
+        .filter(r => r[0])
+        .filter(r => {
+          const parts = (r[0] || '').split('/');
+          return parseInt(parts[0]) === mo && parseInt(parts[2]) === yr;
+        })
+        .map(r => ({
+          date: r[0], type: r[1] || '',
+          amount: parseFloat(r[2]) || 0,
+          desc: r[3] || '', account: r[4] || '',
+          done: r[5] === 'TRUE' || r[5] === true,
+        }))
+        .sort((a, b) => {
+          const [am, ad] = a.date.split('/').map(Number);
+          const [bm, bd] = b.date.split('/').map(Number);
+          return am !== bm ? am - bm : ad - bd;
+        });
+      setStmtTxns(txns);
+    } catch (e) {
+      setStmtError(e.message);
+    } finally {
+      setStmtLoading(false);
+    }
+  }
+
+  function printStatement(current, stmtTxns, expenses, currentMonth, currentYear) {
+    const fmtAmt = n => {
+      if (n == null || isNaN(n)) return '—';
+      return n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
+    };
+    const income = parseFloat(current?.['Total Processed Income']) || 0;
+    const spent  = parseFloat(current?.['Total Spent'])            || 0;
+    const goal   = parseFloat(current?.['Allowance Goal'])         || 0;
+    const net    = income - spent;
+
+    // Group expenses by priority
+    const priGroups = ['1','2','3'].map(p => ({
+      p, label: { '1':'Essential','2':'Stability','3':'Optional' }[p],
+      items: expenses.filter(e => String(e['Priority'] ?? '3') === p && parseFloat(e['Monthly Allowance ($)']) > 0),
+    })).filter(g => g.items.length);
+
+    // Group transactions by type
+    const catMap = {};
+    stmtTxns.forEach(t => {
+      if (!catMap[t.type]) catMap[t.type] = { income: 0, spend: 0 };
+      if (t.amount > 0) catMap[t.type].income += t.amount;
+      else catMap[t.type].spend += Math.abs(t.amount);
+    });
+
+    const genDate = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Finance Statement – ${currentMonth} ${currentYear}</title>
+<style>
+  @page { size: letter; margin: 0.75in; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Georgia, 'Times New Roman', serif; font-size: 11pt; color: #1a1a2e; background: #fff; line-height: 1.5; }
+  .page-header { border-bottom: 3px solid #1a1a2e; padding-bottom: 14px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .page-header h1 { font-size: 22pt; letter-spacing: -0.5px; }
+  .page-header .meta { text-align: right; font-size: 9pt; color: #555; line-height: 1.8; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .summary-box { border: 1.5px solid #ddd; border-radius: 8px; padding: 12px 14px; }
+  .summary-box .lbl { font-size: 8pt; text-transform: uppercase; letter-spacing: 0.08em; color: #666; margin-bottom: 4px; }
+  .summary-box .val { font-size: 16pt; font-weight: bold; }
+  .val.green { color: #15803d; } .val.red { color: #dc2626; } .val.blue { color: #1d4ed8; }
+  .section-title { font-size: 10pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.08em; color: #444; border-bottom: 1px solid #e0e0e0; padding-bottom: 6px; margin: 20px 0 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+  th { text-align: left; padding: 6px 8px; background: #f5f5f5; border-bottom: 1.5px solid #ccc; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #555; }
+  td { padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .amt { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pos { color: #15803d; font-weight: bold; } .neg { color: #dc2626; }
+  .pri-head { background: #f0f0f0; font-weight: bold; font-size: 9pt; padding: 5px 8px; color: #333; }
+  .footer { margin-top: 28px; padding-top: 10px; border-top: 1px solid #ccc; font-size: 8pt; color: #888; display: flex; justify-content: space-between; }
+  .no-data { color: #888; font-style: italic; font-size: 10pt; padding: 12px 0; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+<div class="page-header">
+  <div>
+    <div style="font-size:9pt;text-transform:uppercase;letter-spacing:.1em;color:#888;margin-bottom:4px">Monthly Finance Statement</div>
+    <h1>${currentMonth} ${currentYear}</h1>
+  </div>
+  <div class="meta">
+    <div>Generated ${genDate}</div>
+    <div>Personal Finance Tracker</div>
+  </div>
+</div>
+
+<div class="summary-grid">
+  <div class="summary-box">
+    <div class="lbl">Income</div>
+    <div class="val green">${fmtAmt(income)}</div>
+  </div>
+  <div class="summary-box">
+    <div class="lbl">Spent</div>
+    <div class="val ${spent > income ? 'red' : ''}">${fmtAmt(spent)}</div>
+  </div>
+  <div class="summary-box">
+    <div class="lbl">Net Saved</div>
+    <div class="val ${net >= 0 ? 'green' : 'red'}">${fmtAmt(net)}</div>
+  </div>
+  <div class="summary-box">
+    <div class="lbl">Monthly Goal</div>
+    <div class="val blue">${fmtAmt(goal)}</div>
+  </div>
+</div>
+
+<div class="section-title">Budget Allocation</div>
+${priGroups.length ? priGroups.map(g => `
+  <div class="pri-head">P${g.p} — ${g.label}</div>
+  <table>
+    <thead><tr><th>Item</th><th>Account</th><th class="amt">Allowance</th><th class="amt">Spent</th><th class="amt">Remaining</th></tr></thead>
+    <tbody>
+      ${g.items.map(e => {
+        const allw = parseFloat(e['Monthly Allowance ($)']) || 0;
+        const sp   = parseFloat(e['Actual Spend'])          || 0;
+        const rem  = allw - sp;
+        return `<tr>
+          <td>${e['Type'] || '—'}</td>
+          <td style="color:#666">${e['Account'] || '—'}</td>
+          <td class="amt">${fmtAmt(allw)}</td>
+          <td class="amt ${sp > allw ? 'neg' : ''}">${fmtAmt(sp)}</td>
+          <td class="amt ${rem < 0 ? 'neg' : ''}">${fmtAmt(rem)}</td>
+        </tr>`;
+      }).join('')}
+      <tr style="font-weight:bold;background:#fafafa">
+        <td colspan="2">Subtotal</td>
+        <td class="amt">${fmtAmt(g.items.reduce((s,e)=>s+parseFloat(e['Monthly Allowance ($)']),0))}</td>
+        <td class="amt">${fmtAmt(g.items.reduce((s,e)=>s+parseFloat(e['Actual Spend']||0),0))}</td>
+        <td class="amt">${fmtAmt(g.items.reduce((s,e)=>s+(parseFloat(e['Monthly Allowance ($)'])-parseFloat(e['Actual Spend']||0)),0))}</td>
+      </tr>
+    </tbody>
+  </table><br/>
+`).join('') : '<p class="no-data">No budget items found.</p>'}
+
+<div class="section-title">Transactions — ${currentMonth} ${currentYear}</div>
+${stmtTxns.length ? `
+<table>
+  <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Account</th><th class="amt">Amount</th></tr></thead>
+  <tbody>
+    ${stmtTxns.map(t => `
+      <tr>
+        <td style="white-space:nowrap;color:#555">${t.date}</td>
+        <td>${t.type}</td>
+        <td style="color:#555;font-size:9.5pt">${t.desc}</td>
+        <td style="color:#666;font-size:9.5pt">${t.account}</td>
+        <td class="amt ${t.amount < 0 ? 'neg' : 'pos'}">${fmtAmt(t.amount)}</td>
+      </tr>
+    `).join('')}
+    <tr style="font-weight:bold;background:#fafafa;border-top:2px solid #ccc">
+      <td colspan="4">Total</td>
+      <td class="amt ${stmtTxns.reduce((s,t)=>s+t.amount,0) >= 0 ? 'pos' : 'neg'}">${fmtAmt(stmtTxns.reduce((s,t)=>s+t.amount,0))}</td>
+    </tr>
+  </tbody>
+</table>
+` : '<p class="no-data">No transactions found for this month.</p>'}
+
+<div class="footer">
+  <span>Finance Statement · ${currentMonth} ${currentYear}</span>
+  <span>${stmtTxns.length} transaction${stmtTxns.length !== 1 ? 's' : ''} · Generated ${genDate}</span>
+</div>
+</body>
+</html>`;
+
+    const win = window.open('', '_blank', 'width=900,height=1100');
+    if (!win) { alert('Please allow pop-ups to generate the PDF statement.'); return; }
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 600);
+  }
+
   return (
     <div className="p-4 space-y-5 pb-24">
 
-      {/* ── Process Income CTA ──────────────────────────────── */}
-      <button
-        onClick={() => setShowIncome(true)}
-        className="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-2xl p-4 flex items-center justify-between transition-colors shadow-lg shadow-emerald-900/30"
-      >
-        <div className="text-left">
-          <p className="font-bold text-base">💰 Process Income</p>
-          <p className="text-emerald-200 text-xs mt-0.5">Calculate deposits → auto-log to transactions</p>
-        </div>
-        <span className="text-2xl">→</span>
-      </button>
+      {/* ── Process Income + Statement CTAs ─────────────────── */}
+      <div className="flex gap-3">
+        <button
+          onClick={() => setShowIncome(true)}
+          className="flex-1 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-2xl p-4 flex items-center justify-between transition-colors shadow-lg shadow-emerald-900/30"
+        >
+          <div className="text-left">
+            <p className="font-bold text-base">💰 Process Income</p>
+            <p className="text-emerald-200 text-xs mt-0.5">Auto-log deposits to transactions</p>
+          </div>
+          <span className="text-xl">→</span>
+        </button>
+        <button
+          onClick={openStatement}
+          className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white rounded-2xl px-4 flex flex-col items-center justify-center gap-1 shrink-0 transition-colors"
+        >
+          <span className="text-xl">📄</span>
+          <span className="text-[10px] text-slate-300 font-medium">Statement</span>
+        </button>
+      </div>
 
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex justify-between items-start">
@@ -615,6 +814,150 @@ export default function Dashboard({ token }) {
           alreadyProcessed={income}
           onClose={() => setShowIncome(false)}
         />
+      )}
+
+      {/* ── Monthly Statement modal ──────────────────────────── */}
+      {showStatement && (
+        <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 shrink-0">
+            <div>
+              <h2 className="text-white font-bold text-lg">📄 Monthly Statement</h2>
+              <p className="text-slate-400 text-xs mt-0.5">{currentMonth} {currentYear}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {!stmtLoading && !stmtError && (
+                <button
+                  onClick={() => printStatement(current, stmtTxns, expenses, currentMonth, currentYear)}
+                  className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"
+                >
+                  🖨 Save PDF
+                </button>
+              )}
+              <button onClick={() => setShowStatement(false)} className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">✕</button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-5 space-y-5 pb-10">
+            {stmtLoading && (
+              <div className="flex flex-col items-center justify-center py-20 gap-3">
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-slate-400 text-sm">Loading transactions…</p>
+              </div>
+            )}
+            {stmtError && (
+              <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm">{stmtError}</div>
+            )}
+
+            {!stmtLoading && !stmtError && (() => {
+              const fmtS = n => n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
+              const totalIncome = parseFloat(current?.['Total Processed Income']) || 0;
+              const totalSpent  = parseFloat(current?.['Total Spent'])            || 0;
+              const netSaved    = totalIncome - totalSpent;
+              const goalAmt     = parseFloat(current?.['Allowance Goal'])         || 0;
+
+              const priGroups = ['1','2','3'].map(p => ({
+                p, label: { '1':'Essential','2':'Stability','3':'Optional' }[p],
+                color:    { '1':'text-rose-400','2':'text-amber-400','3':'text-violet-400' }[p],
+                bg:       { '1':'bg-rose-950/40','2':'bg-amber-950/40','3':'bg-violet-950/40' }[p],
+                border:   { '1':'border-rose-800/40','2':'border-amber-800/40','3':'border-violet-800/40' }[p],
+                items: expenses.filter(e => String(e['Priority'] ?? '3') === p && parseFloat(e['Monthly Allowance ($)']) > 0),
+              })).filter(g => g.items.length);
+
+              return (
+                <>
+                  {/* Summary cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      { label: 'Income',    val: totalIncome, color: 'text-emerald-400' },
+                      { label: 'Spent',     val: totalSpent,  color: 'text-rose-400' },
+                      { label: 'Net Saved', val: netSaved,    color: netSaved >= 0 ? 'text-emerald-400' : 'text-rose-400' },
+                      { label: 'Goal',      val: goalAmt,     color: 'text-sky-400' },
+                    ].map(({ label, val, color }) => (
+                      <div key={label} className="bg-slate-900 rounded-2xl p-4">
+                        <p className="text-slate-500 text-[10px] uppercase tracking-wider">{label}</p>
+                        <p className={`text-xl font-bold font-mono tabular-nums mt-1 ${color}`}>{fmtS(val)}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Budget allocation */}
+                  <div>
+                    <p className="text-slate-400 text-xs uppercase tracking-wider mb-3 font-broske">Budget Allocation</p>
+                    <div className="space-y-3">
+                      {priGroups.map(g => (
+                        <div key={g.p} className={`rounded-2xl border ${g.border} overflow-hidden`}>
+                          <div className={`px-4 py-2.5 ${g.bg} flex items-center justify-between`}>
+                            <span className={`text-xs font-bold ${g.color}`}>P{g.p} — {g.label}</span>
+                            <span className="text-white text-xs font-mono">
+                              {fmtS(g.items.reduce((s, e) => s + parseFloat(e['Monthly Allowance ($)']), 0))}
+                            </span>
+                          </div>
+                          <div className="divide-y divide-slate-800">
+                            {g.items.map((e, i) => {
+                              const allw = parseFloat(e['Monthly Allowance ($)']) || 0;
+                              const sp   = parseFloat(e['Actual Spend'] || 0);
+                              const rem  = allw - sp;
+                              const pct  = allw > 0 ? Math.min((sp / allw) * 100, 100) : 0;
+                              return (
+                                <div key={i} className="px-4 py-3 bg-slate-900/60">
+                                  <div className="flex justify-between items-start mb-1.5">
+                                    <div>
+                                      <p className="text-white text-sm">{e['Type']}</p>
+                                      <p className="text-slate-500 text-[10px]">{e['Account']}</p>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-white text-sm font-mono">{fmtS(allw)}</p>
+                                      <p className={`text-[10px] font-mono ${sp > allw ? 'text-rose-400' : 'text-slate-500'}`}>
+                                        {sp > 0 ? `${fmtS(sp)} spent` : 'no spend yet'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="w-full bg-slate-800 rounded-full h-1 overflow-hidden">
+                                    <div className="h-1 rounded-full" style={{ width: `${pct}%`, background: sp > allw ? '#ef4444' : g.color.replace('text-','').replace('-400','') === 'rose' ? '#f43f5e' : g.color.includes('amber') ? '#f59e0b' : '#8b5cf6' }} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Transactions */}
+                  <div>
+                    <p className="text-slate-400 text-xs uppercase tracking-wider mb-3 font-broske">
+                      Transactions · {stmtTxns.length} entries
+                    </p>
+                    {stmtTxns.length === 0 ? (
+                      <p className="text-slate-600 text-sm text-center py-8">No transactions found for {currentMonth}</p>
+                    ) : (
+                      <div className="bg-slate-900 rounded-2xl overflow-hidden divide-y divide-slate-800">
+                        {stmtTxns.map((t, i) => (
+                          <div key={i} className="px-4 py-3 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-white text-sm truncate">{t.type || t.desc}</p>
+                              <p className="text-slate-500 text-[10px]">{t.date} · {t.account}</p>
+                            </div>
+                            <span className={`font-mono text-sm font-semibold shrink-0 ${t.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {fmtS(t.amount)}
+                            </span>
+                          </div>
+                        ))}
+                        <div className="px-4 py-3 flex items-center justify-between bg-slate-800/50">
+                          <span className="text-slate-300 text-sm font-semibold">Total</span>
+                          <span className={`font-mono text-sm font-bold ${stmtTxns.reduce((s,t) => s + t.amount, 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {fmtS(stmtTxns.reduce((s, t) => s + t.amount, 0))}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
       )}
     </div>
   );

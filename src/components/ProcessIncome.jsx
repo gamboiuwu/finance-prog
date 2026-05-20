@@ -21,8 +21,7 @@ function todayStr() {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 
-// Priority-first allocation: fill P1 items completely before P2, then P3
-function calcDeposits(expenses, income) {
+function calcDeposits(expenses, income, mode) {
   if (!income) return [];
   const eligible = expenses
     .filter(e => pm(e['Monthly Allowance ($)']) > 0)
@@ -35,42 +34,53 @@ function calcDeposits(expenses, income) {
     }))
     .sort((a, b) => a.priority - b.priority || b.allowance - a.allowance);
 
+  if (mode === 'proportional') {
+    const totalAllowance = eligible.reduce((s, e) => s + e.allowance, 0);
+    return eligible.map(e => {
+      const pct     = totalAllowance > 0 ? e.allowance / totalAllowance : 0;
+      const deposit = pct * income;
+      // coverage = what fraction of their allowance they'd receive IF income = totalAllowance
+      const coverage = totalAllowance > 0 ? income / totalAllowance : 0;
+      return { ...e, deposit, pct, coverage: Math.min(coverage, 1) };
+    });
+  }
+
+  // Priority-first: fill P1 completely before P2, then P3
   let remaining = income;
   return eligible.map(e => {
     const deposit  = Math.min(e.allowance, Math.max(0, remaining));
     remaining      = Math.max(0, remaining - deposit);
     const coverage = e.allowance > 0 ? deposit / e.allowance : 0;
-    const pct      = income > 0 ? deposit / income : 0;
-    return { ...e, deposit, pct, coverage };
+    return { ...e, deposit, pct: income > 0 ? deposit / income : 0, coverage };
   });
 }
 
 function CoverageChip({ coverage }) {
-  if (coverage >= 1)      return <span className="text-[10px] font-medium text-emerald-400 bg-emerald-900/40 px-1.5 py-0.5 rounded-full">✓ Full</span>;
-  if (coverage > 0)       return <span className="text-[10px] font-medium text-amber-400  bg-amber-900/40  px-1.5 py-0.5 rounded-full">~ Partial</span>;
-  return                         <span className="text-[10px] font-medium text-rose-400   bg-rose-900/40   px-1.5 py-0.5 rounded-full">✗ Unfunded</span>;
+  if (coverage >= 1)  return <span className="text-[10px] font-medium text-emerald-400 bg-emerald-900/40 px-1.5 py-0.5 rounded-full">✓ Full</span>;
+  if (coverage > 0)   return <span className="text-[10px] font-medium text-amber-400  bg-amber-900/40  px-1.5 py-0.5 rounded-full">~ Partial</span>;
+  return                     <span className="text-[10px] font-medium text-rose-400   bg-rose-900/40   px-1.5 py-0.5 rounded-full">✗ Unfunded</span>;
 }
 
 export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose }) {
   const [income, setIncome]     = useState('');
   const [source, setSource]     = useState('');
+  const [mode, setMode]         = useState('priority'); // 'priority' | 'proportional'
   const [logging, setLogging]   = useState(false);
   const [done, setDone]         = useState(false);
   const [logError, setLogError] = useState(null);
   const [copied, setCopied]     = useState(false);
 
   const amount         = parseFloat(income) || 0;
-  const deposits       = useMemo(() => calcDeposits(expenses, amount), [expenses, amount]);
+  const deposits       = useMemo(() => calcDeposits(expenses, amount, mode), [expenses, amount, mode]);
   const totalAllowance = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
   const totalCovered   = alreadyProcessed + amount;
   const stillNeeded    = Math.max(0, totalAllowance - totalCovered);
   const coveragePct    = totalAllowance > 0 ? (totalCovered / totalAllowance) * 100 : 0;
 
-  // Priority tier summaries for the header display
   const tierTotals = useMemo(() => {
     const t = { 1: { budget: 0, deposit: 0 }, 2: { budget: 0, deposit: 0 }, 3: { budget: 0, deposit: 0 } };
     deposits.forEach(d => {
-      const p = d.priority <= 3 ? d.priority : 3;
+      const p = Math.min(Math.max(d.priority, 1), 3);
       t[p].budget  += d.allowance;
       t[p].deposit += d.deposit;
     });
@@ -100,12 +110,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
       for (const d of deposits) {
         if (d.deposit <= 0) continue;
         await appendRow(token, 'Allocation Transactions!A:F', [
-          date,
-          d.type,
-          parseFloat(d.deposit.toFixed(2)),
-          desc,
-          d.account,
-          true,
+          date, d.type, parseFloat(d.deposit.toFixed(2)), desc, d.account, true,
         ]);
       }
       setDone(true);
@@ -117,7 +122,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   }
 
   function copyText() {
-    const lines = [`Income: ${fmt(amount)}${source ? ` (${source})` : ''}`, ''];
+    const lines = [`Income: ${fmt(amount)}${source ? ` (${source})` : ''}`, `Mode: ${mode === 'priority' ? 'Priority-First' : 'Proportional'}`, ''];
     ACCOUNT_ORDER.forEach(acct => {
       const g = byAccount[acct];
       if (!g) return;
@@ -130,7 +135,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     setTimeout(() => setCopied(false), 2000);
   }
 
-  // ── Success state ─────────────────────────────────────────────────────────
+  // ── Success ───────────────────────────────────────────────────────────────
   if (done) {
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-6">
@@ -139,7 +144,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           <h2 className="text-white text-xl font-bold">Income Processed!</h2>
           <p className="text-slate-400 text-sm">
             {deposits.filter(d => d.deposit > 0).length} deposits totalling{' '}
-            <span className="text-emerald-400 font-semibold">{fmt(amount)}</span> logged to Allocation Transactions.
+            <span className="text-emerald-400 font-semibold">{fmt(amount)}</span> logged using{' '}
+            <span className="text-blue-400">{mode === 'priority' ? 'priority-first' : 'proportional'}</span> allocation.
           </p>
           <button onClick={onClose} className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors">
             Done
@@ -157,13 +163,46 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         <div className="flex items-center justify-between p-5 border-b border-slate-700 shrink-0">
           <div>
             <h2 className="text-white font-bold text-lg">Process Income</h2>
-            <p className="text-slate-400 text-xs mt-0.5">Priority-first: P1 → P2 → P3</p>
+            <p className="text-slate-400 text-xs mt-0.5">Deposits auto-logged to Allocation Transactions</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:bg-slate-600 flex items-center justify-center">✕</button>
         </div>
 
+        {/* Allocation mode toggle */}
+        <div className="px-5 pt-4 shrink-0">
+          <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-2">Allocation Mode</p>
+          <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
+            <button
+              onClick={() => setMode('priority')}
+              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                mode === 'priority'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              🎯 Priority First
+            </button>
+            <button
+              onClick={() => setMode('proportional')}
+              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                mode === 'proportional'
+                  ? 'bg-violet-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              ⚖️ Proportional
+            </button>
+          </div>
+          {mode === 'priority' && (
+            <p className="text-slate-600 text-[10px] mt-1.5">P1 items fully funded first, then P2, then P3</p>
+          )}
+          {mode === 'proportional' && (
+            <p className="text-slate-600 text-[10px] mt-1.5">Each item gets its % share of income regardless of priority</p>
+          )}
+        </div>
+
         {/* Inputs */}
-        <div className="p-5 border-b border-slate-700 shrink-0 space-y-3">
+        <div className="p-5 border-b border-slate-700 shrink-0 space-y-3 pt-3">
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-2">Net Amount Received</label>
             <div className="relative">
@@ -197,7 +236,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                 { p: 2, label: 'Stability', color: '#f59e0b', textClass: 'text-amber-400' },
                 { p: 3, label: 'Optional',  color: '#8b5cf6', textClass: 'text-violet-400' },
               ].map(({ p, label, color, textClass }) => {
-                const tier = tierTotals[p];
+                const tier    = tierTotals[p];
                 const tierPct = tier.budget > 0 ? (tier.deposit / tier.budget) * 100 : 0;
                 return (
                   <div key={p} className="bg-slate-800 rounded-xl p-2.5 space-y-1.5">
