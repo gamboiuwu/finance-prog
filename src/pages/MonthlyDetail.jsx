@@ -184,13 +184,13 @@ export default function MonthlyDetail({ token }) {
       {/* Category breakdown chart */}
       {chartData.length > 0 && (
         <div className="bg-slate-800 rounded-2xl p-4">
-          <p className="text-slate-300 font-medium text-sm mb-4">Income by Source</p>
+          <p className="text-slate-300 font-medium text-sm mb-4 font-broske">Income by Source</p>
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={chartData} layout="vertical" barCategoryGap="25%">
-              <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-              <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} width={70} />
+              <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+              <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} width={70} />
               <Tooltip
-                contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9' }}
+                contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontFamily: "'ZTNature', system-ui, sans-serif" }}
                 formatter={v => [`$${v.toFixed(2)}`]}
               />
               <Bar dataKey="amount" radius={[0, 4, 4, 0]}>
@@ -205,7 +205,7 @@ export default function MonthlyDetail({ token }) {
 
       {/* Transaction list */}
       <div>
-        <p className="text-slate-300 font-medium text-sm mb-3">Transactions ({transactions.length})</p>
+        <p className="text-slate-300 font-medium text-sm mb-3 font-broske">Transactions ({transactions.length})</p>
         <div className="space-y-2">
           {transactions.map((t, i) => (
             <div key={i} className="bg-slate-800 rounded-xl p-3 flex items-start gap-3">

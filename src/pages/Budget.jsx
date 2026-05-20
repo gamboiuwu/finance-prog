@@ -86,7 +86,7 @@ function AllocationDonut({ items, total }) {
               ))}
             </Pie>
             <Tooltip
-              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }}
+              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }}
               formatter={v => [`$${v.toFixed(2)}`]}
             />
           </PieChart>
@@ -142,10 +142,10 @@ function PriorityChart({ items }) {
       <div className="max-w-xl">
       <ResponsiveContainer width="100%" height={140}>
         <BarChart data={data} barCategoryGap="35%">
-          <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={50} />
+          <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={50} />
           <Tooltip
-            contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9' }}
+            contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontFamily: "'ZTNature', system-ui, sans-serif" }}
             formatter={v => [`$${v.toFixed(2)}`]}
           />
           <Bar dataKey="budget" fill="#1e293b" radius={[4, 4, 0, 0]} name="Budget" />

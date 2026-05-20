@@ -48,6 +48,11 @@
   .font-ztnature {
     font-family: 'ZTNature', system-ui, sans-serif;
   }
+  /* Override Tailwind's font-mono so numbers stay in ZTNature with tabular alignment */
+  .font-mono {
+    font-family: 'ZTNature', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
   .safe-area-pb {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }

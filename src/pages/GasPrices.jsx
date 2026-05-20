@@ -105,7 +105,7 @@ export default function GasPrices() {
 
       {/* Range indicator */}
       <div className="bg-slate-800 rounded-2xl p-4">
-        <p className="text-slate-300 text-sm font-medium mb-3">Regular Grade — Regional Range</p>
+        <p className="text-slate-300 text-sm font-medium mb-3 font-broske">Regular Grade — Regional Range</p>
         <div className="flex items-center gap-3">
           <span className="text-emerald-400 text-sm font-bold">{fmt(lowestRegular)}</span>
           <div className="flex-1 bg-slate-700 rounded-full h-3 overflow-hidden relative">

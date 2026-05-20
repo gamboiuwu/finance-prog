@@ -542,9 +542,9 @@ ${stmtTxns.length ? `
           <p className="text-slate-300 font-medium text-sm mb-4 font-broske tracking-wide">2026 — Income vs Spent</p>
           <ResponsiveContainer width="100%" height={180}>
             <ComposedChart data={chartData} barCategoryGap="30%">
-              <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-              <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9' }} formatter={v => [`$${v.toFixed(2)}`]} />
+              <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+              <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontFamily: "'ZTNature', system-ui, sans-serif" }} formatter={v => [`$${v.toFixed(2)}`]} />
               <Bar dataKey="income" fill="#3b82f6" radius={[4,4,0,0]} name="Income" />
               <Bar dataKey="spent"  fill="#f43f5e" radius={[4,4,0,0]} name="Spent" />
               <Line type="monotone" dataKey="net" stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 3 }} name="Net Saved" />
@@ -737,7 +737,7 @@ ${stmtTxns.length ? `
                     <Pie data={pieData} cx={110} cy={110} innerRadius={68} outerRadius={100} dataKey="value" stroke="none" startAngle={90} endAngle={-270}>
                       {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                     </Pie>
-                    <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 12 }} formatter={(v, n) => [`$${v.toFixed(2)}`, n]} />
+                    <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 12, fontFamily: "'ZTNature', system-ui, sans-serif" }} formatter={(v, n) => [`$${v.toFixed(2)}`, n]} />
                   </PieChart>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                     <span className="text-white font-bold text-lg">${totalBudget.toFixed(0)}</span>
@@ -917,6 +917,82 @@ ${stmtTxns.length ? `
                       </div>
                     </div>
 
+                    {/* ── Daily Spending chart ─────────────────────── */}
+                    {stmtTxns.length > 0 && (() => {
+                      const dailyMap = {};
+                      stmtTxns.forEach(t => {
+                        if (t.amount >= 0) return;
+                        const parts = t.date.split('/');
+                        const label = `${parseInt(parts[0])}/${parseInt(parts[1])}`;
+                        dailyMap[label] = (dailyMap[label] || 0) + Math.abs(t.amount);
+                      });
+                      const dailyData = Object.entries(dailyMap)
+                        .sort((a, b) => {
+                          const [am, ad] = a[0].split('/').map(Number);
+                          const [bm, bd] = b[0].split('/').map(Number);
+                          return am !== bm ? am - bm : ad - bd;
+                        })
+                        .map(([day, amt]) => ({ day, amt }));
+
+                      const incomeByDay = {};
+                      stmtTxns.forEach(t => {
+                        if (t.amount <= 0) return;
+                        const parts = t.date.split('/');
+                        const label = `${parseInt(parts[0])}/${parseInt(parts[1])}`;
+                        incomeByDay[label] = (incomeByDay[label] || 0) + t.amount;
+                      });
+
+                      const allDays = [...new Set([...Object.keys(dailyMap), ...Object.keys(incomeByDay)])].sort((a, b) => {
+                        const [am, ad] = a.split('/').map(Number);
+                        const [bm, bd] = b.split('/').map(Number);
+                        return am !== bm ? am - bm : ad - bd;
+                      });
+                      const combinedData = allDays.map(day => ({
+                        day,
+                        spend: dailyMap[day] || 0,
+                        income: incomeByDay[day] || 0,
+                      }));
+
+                      if (dailyData.length < 2) return null;
+
+                      return (
+                        <div>
+                          <SectionLabel>Daily Activity</SectionLabel>
+                          <div className="bg-slate-900 rounded-2xl p-4 space-y-4">
+                            <div>
+                              <p className="text-slate-400 text-xs font-broske uppercase tracking-wider mb-3">Spending by Day</p>
+                              <ResponsiveContainer width="100%" height={160}>
+                                <BarChart data={dailyData} barCategoryGap="25%">
+                                  <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} />
+                                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={45} />
+                                  <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontFamily: "'ZTNature', system-ui, sans-serif", fontSize: 12 }} formatter={v => [`$${v.toFixed(2)}`, 'Spent']} />
+                                  <Bar dataKey="amt" fill="#f43f5e" radius={[3, 3, 0, 0]} name="Spent" />
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
+                            {combinedData.some(d => d.income > 0) && (
+                              <div>
+                                <p className="text-slate-400 text-xs font-broske uppercase tracking-wider mb-3">Income vs Spending</p>
+                                <ResponsiveContainer width="100%" height={160}>
+                                  <ComposedChart data={combinedData} barCategoryGap="25%">
+                                    <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} />
+                                    <YAxis tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={45} />
+                                    <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontFamily: "'ZTNature', system-ui, sans-serif", fontSize: 12 }} formatter={v => [`$${v.toFixed(2)}`]} />
+                                    <Bar dataKey="spend" fill="#f43f5e" radius={[3, 3, 0, 0]} name="Spent" />
+                                    <Bar dataKey="income" fill="#3b82f6" radius={[3, 3, 0, 0]} name="Income" />
+                                  </ComposedChart>
+                                </ResponsiveContainer>
+                                <div className="flex gap-4 justify-center text-xs text-slate-500 mt-1">
+                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-rose-500" /> Spent</span>
+                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-blue-500" /> Income</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     {/* ── Spending by Category ─────────────────────── */}
                     {catRanked.length > 0 && (
                       <div>
@@ -966,6 +1042,42 @@ ${stmtTxns.length ? `
                         </div>
                       </div>
                     )}
+
+                    {/* ── Budget vs Actual chart ───────────────────── */}
+                    {priGroups.length > 0 && (() => {
+                      const bvaData = priGroups.map(g => ({
+                        name: g.label,
+                        budget: g.items.reduce((s, e) => s + (parseFloat(e['Monthly Allowance ($)']) || 0), 0),
+                        actual: g.items.reduce((s, e) => s + (parseFloat(e['Actual Spend'] || 0)), 0),
+                        color: { '1':'#f43f5e','2':'#f59e0b','3':'#8b5cf6' }[g.p],
+                      }));
+                      return (
+                        <div>
+                          <SectionLabel>Budget vs Actual</SectionLabel>
+                          <div className="bg-slate-900 rounded-2xl p-4">
+                            <ResponsiveContainer width="100%" height={160}>
+                              <BarChart data={bvaData} barCategoryGap="30%">
+                                <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} />
+                                <YAxis tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={50} />
+                                <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontFamily: "'ZTNature', system-ui, sans-serif", fontSize: 12 }} formatter={v => [`$${v.toFixed(2)}`]} />
+                                <Bar dataKey="budget" fill="#1e293b" stroke="#334155" strokeWidth={1} radius={[4, 4, 0, 0]} name="Budget" />
+                                <Bar dataKey="actual" radius={[4, 4, 0, 0]} name="Actual">
+                                  {bvaData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                            <div className="flex gap-4 justify-center text-xs text-slate-500 mt-2">
+                              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-slate-800 border border-slate-700" /> Budget</span>
+                              {bvaData.map(d => (
+                                <span key={d.name} className="flex items-center gap-1.5">
+                                  <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: d.color }} /> {d.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* ── Budget Allocation ────────────────────────── */}
                     <div>

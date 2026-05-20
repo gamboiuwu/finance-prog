@@ -313,13 +313,13 @@ export default function Transactions({ token }) {
         <>
           {catChartData.length > 0 && (
             <div className="bg-slate-800 rounded-2xl p-4">
-              <p className="text-slate-300 font-medium text-sm mb-3">Spending by Category</p>
+              <p className="text-slate-300 font-medium text-sm mb-3 font-broske">Spending by Category</p>
               <div className="flex gap-4 items-center">
                 <PieChart width={130} height={130}>
                   <Pie data={catChartData} cx={65} cy={65} innerRadius={38} outerRadius={60} dataKey="value" stroke="none">
                     {catChartData.map((_, i) => <Cell key={i} fill={CAT_COLORS[i % CAT_COLORS.length]} />)}
                   </Pie>
-                  <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 12 }}
+                  <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 12, fontFamily: "'ZTNature', system-ui, sans-serif" }}
                     formatter={v => [`$${v.toFixed(2)}`]} />
                 </PieChart>
                 <div className="flex-1 space-y-1.5">
@@ -338,12 +338,12 @@ export default function Transactions({ token }) {
           )}
           {monthData.length > 1 && (
             <div className="bg-slate-800 rounded-2xl p-4">
-              <p className="text-slate-300 font-medium text-sm mb-3">Monthly Spending</p>
+              <p className="text-slate-300 font-medium text-sm mb-3 font-broske">Monthly Spending</p>
               <ResponsiveContainer width="100%" height={140}>
                 <BarChart data={monthData} barCategoryGap="35%">
-                  <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                  <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9' }}
+                  <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                  <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontFamily: "'ZTNature', system-ui, sans-serif" }}
                     formatter={v => [`$${v.toFixed(2)}`, 'Spent']} />
                   <Bar dataKey="spent" fill="#f43f5e" radius={[4, 4, 0, 0]} />
                 </BarChart>
