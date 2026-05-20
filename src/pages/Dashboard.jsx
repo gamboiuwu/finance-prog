@@ -819,143 +819,264 @@ ${stmtTxns.length ? `
       {/* ── Monthly Statement modal ──────────────────────────── */}
       {showStatement && (
         <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 shrink-0">
-            <div>
-              <h2 className="text-white font-bold text-lg">📄 Monthly Statement</h2>
-              <p className="text-slate-400 text-xs mt-0.5">{currentMonth} {currentYear}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              {!stmtLoading && !stmtError && (
+
+          {/* Sticky header */}
+          <div className="shrink-0 border-b border-slate-800 bg-slate-950/95 backdrop-blur">
+            <div className="max-w-3xl mx-auto px-5 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-white font-bold text-lg leading-tight">📄 Monthly Statement</h2>
+                <p className="text-slate-400 text-xs mt-0.5">{currentMonth} {currentYear}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {!stmtLoading && !stmtError && (
+                  <button
+                    onClick={() => printStatement(current, stmtTxns, expenses, currentMonth, currentYear)}
+                    className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+                  >
+                    🖨 Save PDF
+                  </button>
+                )}
                 <button
-                  onClick={() => printStatement(current, stmtTxns, expenses, currentMonth, currentYear)}
-                  className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"
-                >
-                  🖨 Save PDF
-                </button>
-              )}
-              <button onClick={() => setShowStatement(false)} className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">✕</button>
+                  onClick={() => setShowStatement(false)}
+                  className="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-base transition-colors"
+                >✕</button>
+              </div>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 space-y-5 pb-10">
-            {stmtLoading && (
-              <div className="flex flex-col items-center justify-center py-20 gap-3">
-                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                <p className="text-slate-400 text-sm">Loading transactions…</p>
-              </div>
-            )}
-            {stmtError && (
-              <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm">{stmtError}</div>
-            )}
+          {/* Scrollable body */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-3xl mx-auto px-5 py-6 space-y-8 pb-16">
 
-            {!stmtLoading && !stmtError && (() => {
-              const fmtS = n => n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
-              const totalIncome = parseFloat(current?.['Total Processed Income']) || 0;
-              const totalSpent  = parseFloat(current?.['Total Spent'])            || 0;
-              const netSaved    = totalIncome - totalSpent;
-              const goalAmt     = parseFloat(current?.['Allowance Goal'])         || 0;
+              {stmtLoading && (
+                <div className="flex flex-col items-center justify-center py-24 gap-4">
+                  <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-slate-400 text-sm">Loading transactions…</p>
+                </div>
+              )}
+              {stmtError && (
+                <div className="bg-red-900/30 border border-red-700/50 rounded-2xl p-5 text-red-400 text-sm">{stmtError}</div>
+              )}
 
-              const priGroups = ['1','2','3'].map(p => ({
-                p, label: { '1':'Essential','2':'Stability','3':'Optional' }[p],
-                color:    { '1':'text-rose-400','2':'text-amber-400','3':'text-violet-400' }[p],
-                bg:       { '1':'bg-rose-950/40','2':'bg-amber-950/40','3':'bg-violet-950/40' }[p],
-                border:   { '1':'border-rose-800/40','2':'border-amber-800/40','3':'border-violet-800/40' }[p],
-                items: expenses.filter(e => String(e['Priority'] ?? '3') === p && parseFloat(e['Monthly Allowance ($)']) > 0),
-              })).filter(g => g.items.length);
+              {!stmtLoading && !stmtError && (() => {
+                const fmtS = n => n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
+                const totalIncome = parseFloat(current?.['Total Processed Income']) || 0;
+                const totalSpent  = parseFloat(current?.['Total Spent'])            || 0;
+                const netSaved    = totalIncome - totalSpent;
+                const goalAmt     = parseFloat(current?.['Allowance Goal'])         || 0;
 
-              return (
-                <>
-                  {/* Summary cards */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {[
-                      { label: 'Income',    val: totalIncome, color: 'text-emerald-400' },
-                      { label: 'Spent',     val: totalSpent,  color: 'text-rose-400' },
-                      { label: 'Net Saved', val: netSaved,    color: netSaved >= 0 ? 'text-emerald-400' : 'text-rose-400' },
-                      { label: 'Goal',      val: goalAmt,     color: 'text-sky-400' },
-                    ].map(({ label, val, color }) => (
-                      <div key={label} className="bg-slate-900 rounded-2xl p-4">
-                        <p className="text-slate-500 text-[10px] uppercase tracking-wider">{label}</p>
-                        <p className={`text-xl font-bold font-mono tabular-nums mt-1 ${color}`}>{fmtS(val)}</p>
-                      </div>
-                    ))}
+                // Spending by category — negative transactions only, grouped by type
+                const catSpend = {};
+                stmtTxns.forEach(t => {
+                  if (t.amount >= 0) return;
+                  catSpend[t.type] = (catSpend[t.type] || 0) + Math.abs(t.amount);
+                });
+                const catRanked = Object.entries(catSpend)
+                  .sort((a, b) => b[1] - a[1]);
+                const maxSpend = catRanked[0]?.[1] || 1;
+                const totalCatSpend = catRanked.reduce((s, [, v]) => s + v, 0);
+
+                // Bar color based on rank position
+                const rankColors = ['#f43f5e','#f97316','#f59e0b','#84cc16','#10b981','#06b6d4','#3b82f6','#8b5cf6','#ec4899'];
+
+                const priGroups = ['1','2','3'].map(p => ({
+                  p,
+                  label:  { '1':'Essential','2':'Stability','3':'Optional' }[p],
+                  color:  { '1':'text-rose-400','2':'text-amber-400','3':'text-violet-400' }[p],
+                  barClr: { '1':'#f43f5e','2':'f59e0b','3':'#8b5cf6' }[p],
+                  bg:     { '1':'bg-rose-950/40','2':'bg-amber-950/40','3':'bg-violet-950/40' }[p],
+                  border: { '1':'border-rose-800/40','2':'border-amber-800/40','3':'border-violet-800/40' }[p],
+                  items: expenses.filter(e => String(e['Priority'] ?? '3') === p && parseFloat(e['Monthly Allowance ($)']) > 0),
+                })).filter(g => g.items.length);
+
+                const SectionLabel = ({ children }) => (
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="text-slate-400 text-xs font-broske uppercase tracking-widest">{children}</span>
+                    <div className="flex-1 h-px bg-slate-800" />
                   </div>
+                );
 
-                  {/* Budget allocation */}
-                  <div>
-                    <p className="text-slate-400 text-xs uppercase tracking-wider mb-3 font-broske">Budget Allocation</p>
-                    <div className="space-y-3">
-                      {priGroups.map(g => (
-                        <div key={g.p} className={`rounded-2xl border ${g.border} overflow-hidden`}>
-                          <div className={`px-4 py-2.5 ${g.bg} flex items-center justify-between`}>
-                            <span className={`text-xs font-bold ${g.color}`}>P{g.p} — {g.label}</span>
-                            <span className="text-white text-xs font-mono">
-                              {fmtS(g.items.reduce((s, e) => s + parseFloat(e['Monthly Allowance ($)']), 0))}
-                            </span>
-                          </div>
-                          <div className="divide-y divide-slate-800">
-                            {g.items.map((e, i) => {
-                              const allw = parseFloat(e['Monthly Allowance ($)']) || 0;
-                              const sp   = parseFloat(e['Actual Spend'] || 0);
-                              const rem  = allw - sp;
-                              const pct  = allw > 0 ? Math.min((sp / allw) * 100, 100) : 0;
-                              return (
-                                <div key={i} className="px-4 py-3 bg-slate-900/60">
-                                  <div className="flex justify-between items-start mb-1.5">
-                                    <div>
-                                      <p className="text-white text-sm">{e['Type']}</p>
-                                      <p className="text-slate-500 text-[10px]">{e['Account']}</p>
-                                    </div>
-                                    <div className="text-right">
-                                      <p className="text-white text-sm font-mono">{fmtS(allw)}</p>
-                                      <p className={`text-[10px] font-mono ${sp > allw ? 'text-rose-400' : 'text-slate-500'}`}>
-                                        {sp > 0 ? `${fmtS(sp)} spent` : 'no spend yet'}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="w-full bg-slate-800 rounded-full h-1 overflow-hidden">
-                                    <div className="h-1 rounded-full" style={{ width: `${pct}%`, background: sp > allw ? '#ef4444' : g.color.replace('text-','').replace('-400','') === 'rose' ? '#f43f5e' : g.color.includes('amber') ? '#f59e0b' : '#8b5cf6' }} />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Transactions */}
-                  <div>
-                    <p className="text-slate-400 text-xs uppercase tracking-wider mb-3 font-broske">
-                      Transactions · {stmtTxns.length} entries
-                    </p>
-                    {stmtTxns.length === 0 ? (
-                      <p className="text-slate-600 text-sm text-center py-8">No transactions found for {currentMonth}</p>
-                    ) : (
-                      <div className="bg-slate-900 rounded-2xl overflow-hidden divide-y divide-slate-800">
-                        {stmtTxns.map((t, i) => (
-                          <div key={i} className="px-4 py-3 flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-white text-sm truncate">{t.type || t.desc}</p>
-                              <p className="text-slate-500 text-[10px]">{t.date} · {t.account}</p>
-                            </div>
-                            <span className={`font-mono text-sm font-semibold shrink-0 ${t.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {fmtS(t.amount)}
-                            </span>
+                return (
+                  <>
+                    {/* ── Summary ─────────────────────────────────── */}
+                    <div>
+                      <SectionLabel>Overview</SectionLabel>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {[
+                          { label: 'Income',    val: totalIncome, color: 'text-emerald-400', sub: goal > 0 ? `${((totalIncome/goalAmt)*100).toFixed(0)}% of goal` : null },
+                          { label: 'Spent',     val: totalSpent,  color: totalSpent > totalIncome ? 'text-rose-400' : 'text-white', sub: totalIncome > 0 ? `${((totalSpent/totalIncome)*100).toFixed(0)}% of income` : null },
+                          { label: 'Net Saved', val: netSaved,    color: netSaved >= 0 ? 'text-emerald-400' : 'text-rose-400', sub: netSaved >= 0 ? 'surplus' : 'deficit' },
+                          { label: 'Goal',      val: goalAmt,     color: 'text-sky-400',     sub: goalAmt > 0 ? `${catRanked.length} categories` : null },
+                        ].map(({ label, val, color, sub }) => (
+                          <div key={label} className="bg-slate-900 rounded-2xl p-4 space-y-1">
+                            <p className="text-slate-500 text-[10px] uppercase tracking-wider">{label}</p>
+                            <p className={`text-xl font-bold font-broske tabular-nums ${color}`}>{fmtS(val)}</p>
+                            {sub && <p className="text-slate-600 text-[10px]">{sub}</p>}
                           </div>
                         ))}
-                        <div className="px-4 py-3 flex items-center justify-between bg-slate-800/50">
-                          <span className="text-slate-300 text-sm font-semibold">Total</span>
-                          <span className={`font-mono text-sm font-bold ${stmtTxns.reduce((s,t) => s + t.amount, 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {fmtS(stmtTxns.reduce((s, t) => s + t.amount, 0))}
-                          </span>
+                      </div>
+                    </div>
+
+                    {/* ── Spending by Category ─────────────────────── */}
+                    {catRanked.length > 0 && (
+                      <div>
+                        <SectionLabel>Spending by Category</SectionLabel>
+                        <div className="bg-slate-900 rounded-2xl overflow-hidden divide-y divide-slate-800/60">
+                          {catRanked.map(([cat, amt], idx) => {
+                            const barPct  = (amt / maxSpend) * 100;
+                            const sharePct = totalCatSpend > 0 ? (amt / totalCatSpend) * 100 : 0;
+                            const barColor = rankColors[Math.min(idx, rankColors.length - 1)];
+                            const isTop    = idx === 0;
+                            const isLow    = idx >= catRanked.length - 2 && catRanked.length > 3;
+                            return (
+                              <div key={cat} className="px-5 py-3.5">
+                                <div className="flex items-center justify-between mb-2 gap-3">
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <span className="text-slate-600 text-[11px] font-mono w-4 shrink-0 tabular-nums">
+                                      {idx + 1}
+                                    </span>
+                                    <span className="text-white text-sm truncate">{cat}</span>
+                                    {isTop && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/50 text-rose-300 shrink-0">most</span>
+                                    )}
+                                    {isLow && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 shrink-0">least</span>
+                                    )}
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <span className="text-white text-sm font-mono font-semibold tabular-nums">${amt.toFixed(2)}</span>
+                                    <span className="text-slate-500 text-[10px] ml-2">{sharePct.toFixed(1)}%</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                    <div
+                                      className="h-1.5 rounded-full transition-all duration-500"
+                                      style={{ width: `${barPct}%`, background: barColor }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <div className="px-5 py-3 flex justify-between items-center bg-slate-800/40">
+                            <span className="text-slate-400 text-xs">{catRanked.length} categories</span>
+                            <span className="text-white text-sm font-mono font-bold tabular-nums">${totalCatSpend.toFixed(2)} total</span>
+                          </div>
                         </div>
                       </div>
                     )}
-                  </div>
-                </>
-              );
-            })()}
+
+                    {/* ── Budget Allocation ────────────────────────── */}
+                    <div>
+                      <SectionLabel>Budget Allocation</SectionLabel>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {priGroups.map(g => {
+                          const gAllw = g.items.reduce((s, e) => s + (parseFloat(e['Monthly Allowance ($)']) || 0), 0);
+                          const gSpent = g.items.reduce((s, e) => s + (parseFloat(e['Actual Spend'] || 0)), 0);
+                          const gPct = gAllw > 0 ? Math.min((gSpent / gAllw) * 100, 100) : 0;
+                          const priBarClr = { '1':'#f43f5e','2':'#f59e0b','3':'#8b5cf6' }[g.p];
+                          return (
+                            <div key={g.p} className={`rounded-2xl border ${g.border} overflow-hidden`}>
+                              {/* Section header */}
+                              <div className={`px-5 py-3 ${g.bg} flex items-center justify-between`}>
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs font-bold ${g.color}`}>P{g.p} — {g.label}</span>
+                                  <span className="text-slate-600 text-[10px]">· {g.items.length} items</span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-white text-sm font-mono font-semibold tabular-nums">{fmtS(gAllw)}</span>
+                                  {gSpent > 0 && (
+                                    <span className={`text-[10px] font-mono ml-2 ${gSpent > gAllw ? 'text-rose-400' : 'text-slate-400'}`}>
+                                      {fmtS(gSpent)} spent
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Section progress */}
+                              {gAllw > 0 && (
+                                <div className="px-5 py-1.5 bg-slate-900/50">
+                                  <div className="w-full bg-slate-800 rounded-full h-1 overflow-hidden">
+                                    <div className="h-1 rounded-full" style={{ width: `${gPct}%`, background: gSpent > gAllw ? '#ef4444' : priBarClr }} />
+                                  </div>
+                                </div>
+                              )}
+                              {/* Items */}
+                              <div className="divide-y divide-slate-800/60">
+                                {g.items.map((e, i) => {
+                                  const allw = parseFloat(e['Monthly Allowance ($)']) || 0;
+                                  const sp   = parseFloat(e['Actual Spend'] || 0);
+                                  const pct  = allw > 0 ? Math.min((sp / allw) * 100, 100) : 0;
+                                  const over = sp > allw && allw > 0;
+                                  return (
+                                    <div key={i} className="px-5 py-3.5 bg-slate-900/40">
+                                      <div className="flex justify-between items-start mb-2 gap-3">
+                                        <div className="min-w-0">
+                                          <p className="text-white text-sm">{e['Type']}</p>
+                                          <p className="text-slate-500 text-[10px] mt-0.5">{e['Expense'] || e['Account']}</p>
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                          <p className="text-white text-sm font-mono tabular-nums">{fmtS(allw)}</p>
+                                          <p className={`text-[10px] font-mono tabular-nums mt-0.5 ${over ? 'text-rose-400' : sp > 0 ? 'text-slate-400' : 'text-slate-600'}`}>
+                                            {sp > 0 ? `${fmtS(sp)} spent` : 'no spend yet'}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      {allw > 0 && (
+                                        <div className="flex items-center gap-2">
+                                          <div className="flex-1 bg-slate-800 rounded-full h-1 overflow-hidden">
+                                            <div className="h-1 rounded-full transition-all" style={{ width: `${pct}%`, background: over ? '#ef4444' : priBarClr }} />
+                                          </div>
+                                          <span className="text-slate-600 text-[10px] font-mono w-8 text-right tabular-nums">{pct.toFixed(0)}%</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* ── Transactions ─────────────────────────────── */}
+                    <div>
+                      <SectionLabel>All Transactions · {stmtTxns.length}</SectionLabel>
+                      {stmtTxns.length === 0 ? (
+                        <div className="bg-slate-900 rounded-2xl p-8 text-center">
+                          <p className="text-slate-500 text-sm">No transactions found for {currentMonth}</p>
+                        </div>
+                      ) : (
+                        <div className="bg-slate-900 rounded-2xl overflow-hidden divide-y divide-slate-800/60">
+                          {stmtTxns.map((t, i) => (
+                            <div key={i} className="px-5 py-3.5 flex items-center justify-between gap-4">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-white text-sm truncate">{t.type || t.desc}</p>
+                                <p className="text-slate-500 text-[10px] mt-0.5">
+                                  {t.date}
+                                  {t.account && <> · <span className="text-slate-600">{t.account}</span></>}
+                                  {t.desc && t.desc !== t.type && <> · <span className="text-slate-600 truncate">{t.desc}</span></>}
+                                </p>
+                              </div>
+                              <span className={`font-mono text-sm font-semibold tabular-nums shrink-0 ${t.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {fmtS(t.amount)}
+                              </span>
+                            </div>
+                          ))}
+                          <div className="px-5 py-3.5 flex items-center justify-between bg-slate-800/60">
+                            <span className="text-slate-300 text-sm font-semibold">Net Total</span>
+                            <span className={`font-mono text-sm font-bold tabular-nums ${stmtTxns.reduce((s, t) => s + t.amount, 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {fmtS(stmtTxns.reduce((s, t) => s + t.amount, 0))}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
           </div>
         </div>
       )}
