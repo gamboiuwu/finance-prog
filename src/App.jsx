@@ -127,7 +127,7 @@ export default function App() {
             <Route path="/transactions"          element={<Transactions  token={token} />} />
             <Route path="/commissions"           element={<Commissions   token={token} />} />
             <Route path="/gas"                   element={<GasPrices />} />
-            <Route path="/business"              element={<BusinessExpenses />} />
+            <Route path="/business"              element={<BusinessExpenses token={token} />} />
             <Route path="/month/:sheetId/:month" element={<MonthlyDetail token={token} />} />
           </Routes>
         </main>

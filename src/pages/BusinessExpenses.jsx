@@ -1,6 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { readRange, appendRow, batchUpdateCells, ensureSheetTab, clearRow } from '../lib/sheets';
+import { SHEETS } from '../config';
+import LoadingSpinner from '../components/LoadingSpinner';
 
-const CATEGORIES = ['COGS', 'Merchandise', 'Profit', 'Materials', 'Labor', 'Overhead', 'Shipping', 'Platform Fees', 'Taxes', 'Other'];
+const SHEET = SHEETS.BUSINESS_PRODUCTS;
+const HEADERS = ['ID', 'Name', 'StartPrice', 'Formula'];
+
+const BUILT_IN_CATS = ['COGS', 'Merchandise', 'Profit', 'Materials', 'Labor', 'Overhead', 'Shipping', 'Platform Fees', 'Taxes', 'Other'];
 
 const CAT_COLORS = {
   COGS:           '#3b82f6',
@@ -17,6 +23,15 @@ const CAT_COLORS = {
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
+// Display name for a block — uses customName when category is Other
+function blockLabel(block) {
+  return (block.category === 'Other' && block.customName?.trim()) ? block.customName.trim() : block.category;
+}
+function blockColor(block) {
+  return CAT_COLORS[block.category] || CAT_COLORS.Other;
+}
+
+// Waterfall computation: each % is taken from remaining pool
 function computeFormula(startPrice, blocks) {
   let remaining = startPrice;
   const steps = blocks.map(block => {
@@ -30,9 +45,9 @@ function computeFormula(startPrice, blocks) {
   return { steps, remaining };
 }
 
-// ── Formula Editor modal ───────────────────────────────────────────────────────
+// ── Formula Editor ─────────────────────────────────────────────────────────────
 
-function FormulaEditor({ product, onSave, onClose }) {
+function FormulaEditor({ product, onSave, onClose, saving }) {
   const [name,       setName]       = useState(product.name || '');
   const [startPrice, setStartPrice] = useState(product.startPrice > 0 ? String(product.startPrice) : '');
   const [blocks,     setBlocks]     = useState(product.formula?.length ? product.formula : []);
@@ -43,15 +58,17 @@ function FormulaEditor({ product, onSave, onClose }) {
   const canSave  = name.trim() && price > 0 && balanced;
 
   function addBlock() {
-    setBlocks(b => [...b, { id: uid(), category: 'COGS', type: 'fixed', value: '' }]);
+    setBlocks(b => [...b, { id: uid(), category: 'COGS', type: 'fixed', value: '', customName: '' }]);
   }
   function removeBlock(id) { setBlocks(b => b.filter(bl => bl.id !== id)); }
   function updateBlock(id, key, val) {
-    setBlocks(b => b.map(bl => bl.id === id ? { ...bl, [key]: val } : bl));
-  }
-  function handleSave() {
-    if (!canSave) return;
-    onSave({ ...product, name: name.trim(), startPrice: price, formula: blocks });
+    setBlocks(b => b.map(bl => {
+      if (bl.id !== id) return bl;
+      const updated = { ...bl, [key]: val };
+      // Clear customName when switching away from Other
+      if (key === 'category' && val !== 'Other') updated.customName = '';
+      return updated;
+    }));
   }
 
   return (
@@ -65,10 +82,10 @@ function FormulaEditor({ product, onSave, onClose }) {
         <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">✕</button>
       </div>
 
-      {/* Body */}
+      {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 pb-36">
 
-        {/* Name + Start Price */}
+        {/* Name + Price */}
         <div className="space-y-3">
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Product Name</label>
@@ -99,45 +116,45 @@ function FormulaEditor({ product, onSave, onClose }) {
         <div className="space-y-2">
           <p className="text-slate-400 text-xs uppercase tracking-wider font-broske">Allocation Steps</p>
 
-          {/* Starting pool */}
+          {/* Starting pool indicator */}
           {price > 0 && (
             <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-900/20 border border-blue-800/40 rounded-xl">
-              <span className="text-blue-400 text-xs font-broske uppercase tracking-wider w-12">Start</span>
+              <span className="text-blue-400 text-xs font-broske uppercase tracking-wider w-12 shrink-0">Start</span>
               <span className="text-white font-bold font-mono tabular-nums">${price.toFixed(2)}</span>
               <div className="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                <div className="h-1.5 rounded-full bg-blue-500" style={{ width: '100%' }} />
+                <div className="h-1.5 rounded-full bg-blue-500 w-full" />
               </div>
             </div>
           )}
 
           {steps.map((step, idx) => {
-            const color = CAT_COLORS[step.category] || CAT_COLORS.Other;
+            const color = blockColor(step);
+            const label = blockLabel(step);
             const pct   = price > 0 ? (step.allocated / price) * 100 : 0;
             return (
               <div key={step.id} className="space-y-1.5">
-                {/* Block editor row */}
-                <div className="bg-slate-900 rounded-xl p-3 border border-slate-800">
-                  <div className="flex items-center gap-2 mb-2.5">
+                {/* Block editor */}
+                <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 space-y-2">
+                  <div className="flex items-center gap-2">
                     <span className="text-slate-600 text-xs font-mono w-4 text-center shrink-0">{idx + 1}</span>
+                    {/* Category dropdown */}
                     <select
                       value={step.category}
                       onChange={e => updateBlock(step.id, 'category', e.target.value)}
                       className="flex-1 bg-slate-800 text-white rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500"
                     >
-                      {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                      {BUILT_IN_CATS.map(c => <option key={c}>{c}</option>)}
                     </select>
-                    {/* Type toggle */}
+                    {/* $ / % toggle */}
                     <div className="flex bg-slate-800 rounded-lg p-0.5 shrink-0">
-                      {[['fixed','$'],['percent','%']].map(([t, label]) => (
-                        <button
-                          key={t}
-                          onClick={() => updateBlock(step.id, 'type', t)}
-                          className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${step.type === t ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                        >
-                          {label}
+                      {[['fixed','$'],['percent','%']].map(([t, lbl]) => (
+                        <button key={t} onClick={() => updateBlock(step.id, 'type', t)}
+                          className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${step.type === t ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+                          {lbl}
                         </button>
                       ))}
                     </div>
+                    {/* Value */}
                     <input
                       type="number" step="0.01" min="0"
                       value={step.value}
@@ -150,10 +167,25 @@ function FormulaEditor({ product, onSave, onClose }) {
                       ✕
                     </button>
                   </div>
-                  {/* Allocation result */}
+
+                  {/* Custom name input — only shown when category is Other */}
+                  {step.category === 'Other' && (
+                    <div className="flex items-center gap-2 ml-5">
+                      <span className="text-slate-500 text-xs shrink-0">Custom name:</span>
+                      <input
+                        value={step.customName || ''}
+                        onChange={e => updateBlock(step.id, 'customName', e.target.value)}
+                        placeholder="e.g. Platform cut, Packaging…"
+                        className="flex-1 bg-slate-800 text-white rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-600"
+                        autoFocus
+                      />
+                    </div>
+                  )}
+
+                  {/* Allocation result row */}
                   <div className="flex items-center gap-2 ml-5">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
-                    <span className="text-xs font-medium shrink-0" style={{ color }}>{step.category}</span>
+                    <span className="text-xs font-medium shrink-0" style={{ color }}>{label}</span>
                     <span className="text-white text-xs font-mono font-bold tabular-nums">→ ${step.allocated.toFixed(2)}</span>
                     <div className="flex-1 bg-slate-800 rounded-full h-1 overflow-hidden">
                       <div className="h-1 rounded-full" style={{ width: `${pct}%`, background: color }} />
@@ -161,7 +193,8 @@ function FormulaEditor({ product, onSave, onClose }) {
                     <span className="text-slate-500 text-[10px] font-mono shrink-0">{pct.toFixed(1)}%</span>
                   </div>
                 </div>
-                {/* Remaining after step */}
+
+                {/* Remaining after this step */}
                 <div className={`flex items-center gap-3 px-4 py-2 rounded-lg border ${Math.abs(step.remainingAfter) < 0.001 ? 'bg-emerald-900/20 border-emerald-800/40' : 'bg-slate-900/60 border-slate-800/60'}`}>
                   <span className="text-slate-500 text-[10px] uppercase tracking-wider shrink-0">Remaining</span>
                   <span className={`font-mono text-sm font-bold tabular-nums ${Math.abs(step.remainingAfter) < 0.001 ? 'text-emerald-400' : 'text-slate-300'}`}>
@@ -183,10 +216,8 @@ function FormulaEditor({ product, onSave, onClose }) {
             </div>
           )}
 
-          <button
-            onClick={addBlock}
-            className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-blue-600/50 transition-colors"
-          >
+          <button onClick={addBlock}
+            className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-blue-600/50 transition-colors">
             + Add Allocation Step
           </button>
         </div>
@@ -198,22 +229,22 @@ function FormulaEditor({ product, onSave, onClose }) {
             <div className="flex h-5 rounded-full overflow-hidden bg-slate-800">
               {steps.map(step => (
                 <div key={step.id}
-                  style={{ width: `${price > 0 ? (step.allocated / price) * 100 : 0}%`, background: CAT_COLORS[step.category] || '#64748b' }}
-                  title={`${step.category}: $${step.allocated.toFixed(2)}`}
+                  style={{ width: `${price > 0 ? (step.allocated / price) * 100 : 0}%`, background: blockColor(step) }}
+                  title={`${blockLabel(step)}: $${step.allocated.toFixed(2)}`}
                 />
               ))}
               {remaining > 0 && (
-                <div style={{ width: `${(remaining / price) * 100}%` }} className="bg-rose-900/70" title={`Unallocated: $${remaining.toFixed(2)}`} />
+                <div style={{ width: `${(remaining / price) * 100}%` }} className="bg-rose-900/70" />
               )}
             </div>
             <div className="space-y-1.5">
               {steps.map(step => {
                 const pct   = price > 0 ? (step.allocated / price) * 100 : 0;
-                const color = CAT_COLORS[step.category] || '#64748b';
+                const color = blockColor(step);
                 return (
                   <div key={step.id} className="flex items-center gap-2 text-xs">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
-                    <span className="text-slate-300 flex-1">{step.category}</span>
+                    <span className="text-slate-300 flex-1">{blockLabel(step)}</span>
                     <span className="text-white font-mono tabular-nums">${step.allocated.toFixed(2)}</span>
                     <span className="text-slate-500 font-mono w-10 text-right tabular-nums">{pct.toFixed(1)}%</span>
                   </div>
@@ -224,7 +255,7 @@ function FormulaEditor({ product, onSave, onClose }) {
                   <span className="w-2 h-2 rounded-full shrink-0 bg-rose-500" />
                   <span className="text-rose-400 flex-1">Unallocated</span>
                   <span className="text-rose-400 font-mono tabular-nums">${remaining.toFixed(2)}</span>
-                  <span className="text-rose-500 font-mono w-10 text-right tabular-nums">{((remaining / price) * 100).toFixed(1)}%</span>
+                  <span className="text-rose-500 font-mono w-10 text-right">{((remaining / price) * 100).toFixed(1)}%</span>
                 </div>
               )}
             </div>
@@ -244,15 +275,14 @@ function FormulaEditor({ product, onSave, onClose }) {
 
       {/* Footer */}
       <div className="shrink-0 px-5 py-4 border-t border-slate-800 flex gap-3 bg-slate-950">
-        <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-medium hover:bg-slate-700 transition-colors">
+        <button onClick={onClose} disabled={saving}
+          className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-medium hover:bg-slate-700 transition-colors disabled:opacity-50">
           Cancel
         </button>
-        <button
-          onClick={handleSave}
-          disabled={!canSave}
-          className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold transition-colors"
-        >
-          {product.id ? 'Save Changes' : 'Create Product'}
+        <button onClick={() => onSave({ ...product, name: name.trim(), startPrice: price, formula: blocks })}
+          disabled={!canSave || saving}
+          className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold transition-colors">
+          {saving ? 'Saving…' : product.id ? 'Save Changes' : 'Create Product'}
         </button>
       </div>
     </div>
@@ -271,19 +301,19 @@ function ProcessModal({ product, onClose }) {
         <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div>
             <h3 className="text-white font-bold font-broske">{product.name}</h3>
-            <p className="text-slate-400 text-xs mt-0.5">Revenue allocation breakdown</p>
+            <p className="text-slate-400 text-xs mt-0.5">Revenue allocation breakdown · Start: <span className="font-mono text-white">${product.startPrice.toFixed(2)}</span></p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center">✕</button>
         </div>
         <div className="px-5 py-5 space-y-2 pb-8">
-          {/* Start */}
           <div className="flex items-center justify-between px-4 py-3 bg-blue-900/20 border border-blue-800/40 rounded-xl">
             <span className="text-blue-300 font-broske text-xs uppercase tracking-wider">Formula Start</span>
             <span className="text-white font-bold text-2xl font-mono tabular-nums">${product.startPrice.toFixed(2)}</span>
           </div>
 
           {steps.map((step, idx) => {
-            const color = CAT_COLORS[step.category] || CAT_COLORS.Other;
+            const color = blockColor(step);
+            const label = blockLabel(step);
             return (
               <div key={step.id} className="space-y-1">
                 <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-800 bg-slate-800/60">
@@ -291,7 +321,7 @@ function ProcessModal({ product, onClose }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
-                      <span className="text-sm font-medium" style={{ color }}>{step.category}</span>
+                      <span className="text-sm font-medium" style={{ color }}>{label}</span>
                       <span className="text-slate-600 text-xs">
                         {step.type === 'fixed'
                           ? `$${parseFloat(step.value || 0).toFixed(2)} fixed`
@@ -312,7 +342,6 @@ function ProcessModal({ product, onClose }) {
             );
           })}
 
-          {/* Net remaining */}
           <div className={`flex items-center justify-between px-4 py-3 rounded-xl border font-bold mt-2 ${balanced ? 'bg-emerald-900/20 border-emerald-800/40' : 'bg-rose-900/20 border-rose-800/40'}`}>
             <span className={`font-broske text-xs uppercase tracking-wider ${balanced ? 'text-emerald-400' : 'text-rose-400'}`}>Net Remaining</span>
             <span className={`font-mono text-2xl tabular-nums ${balanced ? 'text-emerald-400' : 'text-rose-400'}`}>${remaining.toFixed(2)}</span>
@@ -325,34 +354,103 @@ function ProcessModal({ product, onClose }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function BusinessExpenses() {
-  const [products,   setProducts]   = useState(() => {
-    try { return JSON.parse(localStorage.getItem('biz_products')) || []; }
-    catch { return []; }
-  });
+export default function BusinessExpenses({ token }) {
+  const [products,   setProducts]   = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
+  const [saving,     setSaving]     = useState(false);
   const [editing,    setEditing]    = useState(null);
   const [processing, setProcessing] = useState(null);
 
-  function persist(ps) {
-    setProducts(ps);
-    localStorage.setItem('biz_products', JSON.stringify(ps));
-  }
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Ensure the tab exists and has headers
+      await ensureSheetTab(token, SHEET);
+      const rows = await readRange(token, `${SHEET}!A:D`);
 
-  function handleSave(product) {
-    if (product.id) {
-      persist(products.map(p => p.id === product.id ? product : p));
-    } else {
-      persist([...products, { ...product, id: uid() }]);
+      if (!rows.length || !rows[0]?.length) {
+        // Sheet is empty — write headers
+        await batchUpdateCells(token, HEADERS.map((h, i) => ({
+          range: `${SHEET}!${String.fromCharCode(65 + i)}1`,
+          value: h,
+        })));
+        setProducts([]);
+        return;
+      }
+
+      // Skip header row; filter empty rows
+      const [, ...dataRows] = rows;
+      const parsed = dataRows
+        .map((row, idx) => {
+          const id = row[0];
+          if (!id || id === 'ID') return null;
+          let formula = [];
+          try { formula = JSON.parse(row[3] || '[]'); } catch { formula = []; }
+          return {
+            id,
+            name: row[1] || '',
+            startPrice: parseFloat(row[2]) || 0,
+            formula,
+            _rowNum: idx + 2, // 1-indexed, row 1 is header
+          };
+        })
+        .filter(Boolean);
+      setProducts(parsed);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
     }
-    setEditing(null);
+  }, [token]);
+
+  useEffect(() => { if (token) load(); }, [token, load]);
+
+  async function handleSave(product) {
+    setSaving(true);
+    try {
+      if (product.id && product._rowNum) {
+        // Edit existing row
+        await batchUpdateCells(token, [
+          { range: `${SHEET}!B${product._rowNum}`, value: product.name },
+          { range: `${SHEET}!C${product._rowNum}`, value: product.startPrice },
+          { range: `${SHEET}!D${product._rowNum}`, value: JSON.stringify(product.formula) },
+        ]);
+      } else {
+        // New product
+        const newId = uid();
+        await appendRow(token, `${SHEET}!A:D`, [
+          newId,
+          product.name,
+          product.startPrice,
+          JSON.stringify(product.formula),
+        ]);
+      }
+      setEditing(null);
+      await load();
+    } catch (e) {
+      alert(`Error saving: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleDelete(id) {
-    if (!window.confirm('Delete this product?')) return;
-    persist(products.filter(p => p.id !== id));
+  async function handleDelete(product) {
+    if (!window.confirm(`Delete "${product.name}"?`)) return;
+    setSaving(true);
+    try {
+      await clearRow(token, `${SHEET}!A${product._rowNum}:D${product._rowNum}`);
+      await load();
+    } catch (e) {
+      alert(`Error deleting: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  // Summary stats
+  if (loading) return <LoadingSpinner />;
+
   const avgProfit = products.length > 0
     ? products.reduce((s, p) => {
         const { steps } = computeFormula(p.startPrice, p.formula);
@@ -366,7 +464,7 @@ export default function BusinessExpenses() {
       <div className="px-4 pt-4 pb-3 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white">Business Expenses</h1>
-          <p className="text-slate-500 text-xs mt-0.5">Product revenue allocation formulas</p>
+          <p className="text-slate-500 text-xs mt-0.5">Product revenue allocation · synced to Sheets</p>
         </div>
         <button
           onClick={() => setEditing({ name: '', startPrice: 0, formula: [] })}
@@ -377,8 +475,15 @@ export default function BusinessExpenses() {
       </div>
 
       <div className="px-4 space-y-4">
+        {error && (
+          <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm space-y-2">
+            <p className="font-medium">Could not load Business Products sheet</p>
+            <p className="text-xs text-red-500">{error}</p>
+            <p className="text-xs text-slate-500">Make sure you have access to the spreadsheet, then <button onClick={load} className="text-blue-400 underline">retry</button>.</p>
+          </div>
+        )}
 
-        {/* Summary strip */}
+        {/* Summary */}
         {products.length > 0 && (
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-slate-800 rounded-xl p-3">
@@ -393,12 +498,12 @@ export default function BusinessExpenses() {
         )}
 
         {/* Empty state */}
-        {products.length === 0 && (
+        {!error && products.length === 0 && (
           <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-3">
             <p className="text-4xl">💼</p>
             <p className="text-white font-semibold font-broske">No products yet</p>
             <p className="text-slate-500 text-sm leading-relaxed">
-              Add a product and define how its revenue is allocated across COGS, profit, fees, and more.
+              Add a product and define how its revenue is allocated across COGS, profit, fees, and more. Data syncs to your Google Sheet.
             </p>
             <button
               onClick={() => setEditing({ name: '', startPrice: 0, formula: [] })}
@@ -437,10 +542,9 @@ export default function BusinessExpenses() {
                   {product.startPrice > 0 && steps.length > 0 && (
                     <div className="flex h-3 rounded-full overflow-hidden mb-3">
                       {steps.map(step => (
-                        <div
-                          key={step.id}
-                          style={{ width: `${(step.allocated / product.startPrice) * 100}%`, background: CAT_COLORS[step.category] || '#64748b' }}
-                          title={`${step.category}: $${step.allocated.toFixed(2)}`}
+                        <div key={step.id}
+                          style={{ width: `${(step.allocated / product.startPrice) * 100}%`, background: blockColor(step) }}
+                          title={`${blockLabel(step)}: $${step.allocated.toFixed(2)}`}
                         />
                       ))}
                       {remaining > 0 && (
@@ -461,34 +565,31 @@ export default function BusinessExpenses() {
                         Profit ${profitAmt.toFixed(2)}
                       </span>
                     )}
-                    {steps.filter(st => st.category !== 'COGS' && st.category !== 'Profit').map(st => (
-                      <span key={st.id} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-400 font-mono tabular-nums">
-                        {st.category} ${st.allocated.toFixed(2)}
-                      </span>
-                    ))}
+                    {steps
+                      .filter(st => st.category !== 'COGS' && st.category !== 'Profit')
+                      .map(st => (
+                        <span key={st.id} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-400 font-mono tabular-nums">
+                          {blockLabel(st)} ${st.allocated.toFixed(2)}
+                        </span>
+                      ))}
                   </div>
                 </div>
 
                 {/* Action row */}
                 <div className="flex border-t border-slate-700/80">
-                  <button
-                    onClick={() => setProcessing(product)}
-                    className="flex-1 py-2.5 text-xs font-semibold text-blue-400 hover:bg-slate-700 transition-colors"
-                  >
+                  <button onClick={() => setProcessing(product)}
+                    className="flex-1 py-2.5 text-xs font-semibold text-blue-400 hover:bg-slate-700 transition-colors">
                     Process
                   </button>
                   <div className="w-px bg-slate-700" />
-                  <button
-                    onClick={() => setEditing(product)}
-                    className="flex-1 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-700 transition-colors"
-                  >
+                  <button onClick={() => setEditing(product)}
+                    className="flex-1 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-700 transition-colors">
                     Edit
                   </button>
                   <div className="w-px bg-slate-700" />
-                  <button
-                    onClick={() => handleDelete(product.id)}
-                    className="px-4 py-2.5 text-xs font-medium text-rose-500 hover:bg-slate-700 transition-colors"
-                  >
+                  <button onClick={() => handleDelete(product)}
+                    disabled={saving}
+                    className="px-4 py-2.5 text-xs font-medium text-rose-500 hover:bg-slate-700 transition-colors disabled:opacity-50">
                     ✕
                   </button>
                 </div>
@@ -498,8 +599,13 @@ export default function BusinessExpenses() {
         </div>
       </div>
 
-      {editing    && <FormulaEditor product={editing}    onSave={handleSave}                onClose={() => setEditing(null)}    />}
-      {processing && <ProcessModal  product={processing}                   onClose={() => setProcessing(null)} />}
+      {editing    && <FormulaEditor product={editing}    onSave={handleSave} onClose={() => setEditing(null)}    saving={saving} />}
+      {processing && <ProcessModal  product={processing}                     onClose={() => setProcessing(null)} />}
+      {saving && !editing && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 pointer-events-none">
+          <LoadingSpinner />
+        </div>
+      )}
     </div>
   );
 }

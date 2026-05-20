@@ -90,6 +90,24 @@ export async function batchUpdateCells(token, data) {
   });
 }
 
+// Create a sheet tab if it doesn't already exist
+export async function ensureSheetTab(token, title) {
+  try {
+    await request(token, SPREADSHEET_ID, ':batchUpdate', {
+      method: 'POST',
+      body: JSON.stringify({ requests: [{ addSheet: { properties: { title } } }] }),
+    });
+  } catch { /* sheet already exists — that's fine */ }
+}
+
+// Clear all cells in a row range (soft-delete a row)
+export async function clearRow(token, range) {
+  return request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(range)}:clear`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
 export function rowsToObjects(rows) {
   if (!rows.length) return [];
   const [headers, ...data] = rows;
