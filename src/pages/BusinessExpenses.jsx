@@ -23,7 +23,6 @@ const CAT_COLORS = {
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
-// Display name for a block — uses customName when category is Other
 function blockLabel(block) {
   return (block.category === 'Other' && block.customName?.trim()) ? block.customName.trim() : block.category;
 }
@@ -31,7 +30,6 @@ function blockColor(block) {
   return CAT_COLORS[block.category] || CAT_COLORS.Other;
 }
 
-// Waterfall computation: each % is taken from remaining pool
 function computeFormula(startPrice, blocks) {
   let remaining = startPrice;
   const steps = blocks.map(block => {
@@ -45,27 +43,128 @@ function computeFormula(startPrice, blocks) {
   return { steps, remaining };
 }
 
+function profitMarginPct(steps, startPrice) {
+  const profitStep = steps.find(st => st.category === 'Profit');
+  if (!profitStep || startPrice <= 0) return null;
+  return (profitStep.allocated / startPrice) * 100;
+}
+
+// ── Redistribute Remainder panel ───────────────────────────────────────────────
+
+function RedistPanel({ blocks, steps, remaining, onApply, onCancel }) {
+  const n = blocks.length;
+  const [sliders, setSliders] = useState(() =>
+    blocks.map(b => ({ id: b.id, pct: n > 0 ? 100 / n : 0 }))
+  );
+
+  function updatePct(id, rawVal) {
+    const newPct = Math.min(100, Math.max(0, parseFloat(rawVal)));
+    setSliders(prev => {
+      const old = prev.find(r => r.id === id).pct;
+      const diff = newPct - old;
+      const others = prev.filter(r => r.id !== id);
+      const othersTotal = others.reduce((s, r) => s + r.pct, 0);
+      return prev.map(r => {
+        if (r.id === id) return { ...r, pct: newPct };
+        if (othersTotal === 0) return r;
+        return { ...r, pct: Math.max(0, r.pct - diff * (r.pct / othersTotal)) };
+      });
+    });
+  }
+
+  function apply() {
+    const totalPct = sliders.reduce((s, r) => s + r.pct, 0);
+    if (totalPct <= 0) return;
+    // Convert each step to fixed, merging its share of remaining
+    const newBlocks = blocks.map(block => {
+      const sl = sliders.find(r => r.id === block.id);
+      if (!sl) return block;
+      const shareOfRemainder = remaining * (sl.pct / totalPct);
+      const currentAllocated = steps.find(st => st.id === block.id)?.allocated || 0;
+      const newAbsolute = currentAllocated + shareOfRemainder;
+      return { ...block, type: 'fixed', value: String(newAbsolute.toFixed(4)) };
+    });
+    onApply(newBlocks);
+  }
+
+  return (
+    <div className="bg-amber-900/20 border border-amber-800/40 rounded-2xl p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-amber-300 text-xs font-broske uppercase tracking-wider">Redistribute Remainder</p>
+          <p className="text-white font-mono font-bold tabular-nums">${remaining.toFixed(2)} to split</p>
+        </div>
+        <button onClick={onCancel} className="text-slate-500 text-xs hover:text-slate-300 transition-colors">✕ Cancel</button>
+      </div>
+
+      <div className="space-y-3">
+        {sliders.map(sl => {
+          const block = blocks.find(b => b.id === sl.id);
+          if (!block) return null;
+          const label = blockLabel(block);
+          const color = blockColor(block);
+          const assignedAmt = remaining * (sl.pct / 100);
+          return (
+            <div key={sl.id} className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                  <span className="text-slate-200">{label}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 font-mono tabular-nums">{sl.pct.toFixed(1)}%</span>
+                  <span className="text-white font-mono font-bold tabular-nums w-16 text-right">+${assignedAmt.toFixed(2)}</span>
+                </div>
+              </div>
+              <input
+                type="range"
+                min="0" max="100" step="0.5"
+                value={sl.pct}
+                onChange={e => updatePct(sl.id, e.target.value)}
+                className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                style={{ accentColor: color }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center justify-between pt-1">
+        <p className="text-slate-500 text-xs">Applies as fixed amounts · converts % steps</p>
+        <button
+          onClick={apply}
+          className="bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+        >
+          Apply Split
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Formula Editor ─────────────────────────────────────────────────────────────
 
 function FormulaEditor({ product, onSave, onClose, saving }) {
-  const [name,       setName]       = useState(product.name || '');
-  const [startPrice, setStartPrice] = useState(product.startPrice > 0 ? String(product.startPrice) : '');
-  const [blocks,     setBlocks]     = useState(product.formula?.length ? product.formula : []);
+  const [name,        setName]        = useState(product.name || '');
+  const [startPrice,  setStartPrice]  = useState(product.startPrice > 0 ? String(product.startPrice) : '');
+  const [blocks,      setBlocks]      = useState(product.formula?.length ? product.formula : []);
+  const [showRedist,  setShowRedist]  = useState(false);
 
   const price = parseFloat(startPrice) || 0;
   const { steps, remaining } = computeFormula(price, blocks);
   const balanced = Math.abs(remaining) < 0.001;
   const canSave  = name.trim() && price > 0 && balanced;
+  const margin   = profitMarginPct(steps, price);
 
   function addBlock() {
     setBlocks(b => [...b, { id: uid(), category: 'COGS', type: 'fixed', value: '', customName: '' }]);
+    setShowRedist(false);
   }
-  function removeBlock(id) { setBlocks(b => b.filter(bl => bl.id !== id)); }
+  function removeBlock(id) { setBlocks(b => b.filter(bl => bl.id !== id)); setShowRedist(false); }
   function updateBlock(id, key, val) {
     setBlocks(b => b.map(bl => {
       if (bl.id !== id) return bl;
       const updated = { ...bl, [key]: val };
-      // Clear customName when switching away from Other
       if (key === 'category' && val !== 'Other') updated.customName = '';
       return updated;
     }));
@@ -73,16 +172,17 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
 
   return (
     <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
-      {/* Header */}
       <div className="shrink-0 border-b border-slate-800 px-5 py-4 flex items-center justify-between">
         <div>
           <h2 className="text-white font-bold text-lg font-broske">{product.id ? 'Edit Formula' : 'New Product'}</h2>
-          <p className="text-slate-400 text-xs mt-0.5">Waterfall — each % is of the remaining pool</p>
+          <p className="text-slate-400 text-xs mt-0.5">
+            Waterfall — each % is of the remaining pool
+            {margin !== null && <span className="ml-2 text-emerald-400 font-medium">{margin.toFixed(1)}% margin</span>}
+          </p>
         </div>
         <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">✕</button>
       </div>
 
-      {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 pb-36">
 
         {/* Name + Price */}
@@ -116,7 +216,6 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
         <div className="space-y-2">
           <p className="text-slate-400 text-xs uppercase tracking-wider font-broske">Allocation Steps</p>
 
-          {/* Starting pool indicator */}
           {price > 0 && (
             <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-900/20 border border-blue-800/40 rounded-xl">
               <span className="text-blue-400 text-xs font-broske uppercase tracking-wider w-12 shrink-0">Start</span>
@@ -133,11 +232,9 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
             const pct   = price > 0 ? (step.allocated / price) * 100 : 0;
             return (
               <div key={step.id} className="space-y-1.5">
-                {/* Block editor */}
                 <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 space-y-2">
                   <div className="flex items-center gap-2">
                     <span className="text-slate-600 text-xs font-mono w-4 text-center shrink-0">{idx + 1}</span>
-                    {/* Category dropdown */}
                     <select
                       value={step.category}
                       onChange={e => updateBlock(step.id, 'category', e.target.value)}
@@ -145,7 +242,6 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
                     >
                       {BUILT_IN_CATS.map(c => <option key={c}>{c}</option>)}
                     </select>
-                    {/* $ / % toggle */}
                     <div className="flex bg-slate-800 rounded-lg p-0.5 shrink-0">
                       {[['fixed','$'],['percent','%']].map(([t, lbl]) => (
                         <button key={t} onClick={() => updateBlock(step.id, 'type', t)}
@@ -154,7 +250,6 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
                         </button>
                       ))}
                     </div>
-                    {/* Value */}
                     <input
                       type="number" step="0.01" min="0"
                       value={step.value}
@@ -168,7 +263,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
                     </button>
                   </div>
 
-                  {/* Custom name input — only shown when category is Other */}
+                  {/* Custom name when "Other" */}
                   {step.category === 'Other' && (
                     <div className="flex items-center gap-2 ml-5">
                       <span className="text-slate-500 text-xs shrink-0">Custom name:</span>
@@ -177,12 +272,11 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
                         onChange={e => updateBlock(step.id, 'customName', e.target.value)}
                         placeholder="e.g. Platform cut, Packaging…"
                         className="flex-1 bg-slate-800 text-white rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-600"
-                        autoFocus
                       />
                     </div>
                   )}
 
-                  {/* Allocation result row */}
+                  {/* Result row */}
                   <div className="flex items-center gap-2 ml-5">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
                     <span className="text-xs font-medium shrink-0" style={{ color }}>{label}</span>
@@ -194,7 +288,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
                   </div>
                 </div>
 
-                {/* Remaining after this step */}
+                {/* Remaining after step */}
                 <div className={`flex items-center gap-3 px-4 py-2 rounded-lg border ${Math.abs(step.remainingAfter) < 0.001 ? 'bg-emerald-900/20 border-emerald-800/40' : 'bg-slate-900/60 border-slate-800/60'}`}>
                   <span className="text-slate-500 text-[10px] uppercase tracking-wider shrink-0">Remaining</span>
                   <span className={`font-mono text-sm font-bold tabular-nums ${Math.abs(step.remainingAfter) < 0.001 ? 'text-emerald-400' : 'text-slate-300'}`}>
@@ -222,10 +316,35 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
           </button>
         </div>
 
+        {/* Redistribute remainder panel */}
+        {remaining > 0.001 && blocks.length > 0 && (
+          showRedist ? (
+            <RedistPanel
+              blocks={blocks}
+              steps={steps}
+              remaining={remaining}
+              onApply={newBlocks => { setBlocks(newBlocks); setShowRedist(false); }}
+              onCancel={() => setShowRedist(false)}
+            />
+          ) : (
+            <button
+              onClick={() => setShowRedist(true)}
+              className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-amber-700/50 text-amber-400 hover:bg-amber-900/20 transition-colors"
+            >
+              ⇄ Redistribute ${remaining.toFixed(2)} remainder across steps
+            </button>
+          )
+        )}
+
         {/* Summary stacked bar */}
         {price > 0 && steps.length > 0 && (
           <div className="bg-slate-900 rounded-2xl p-4 space-y-3">
-            <p className="text-slate-400 text-xs uppercase tracking-wider font-broske">Allocation Summary</p>
+            <div className="flex items-center justify-between">
+              <p className="text-slate-400 text-xs uppercase tracking-wider font-broske">Allocation Summary</p>
+              {margin !== null && (
+                <span className="text-emerald-400 text-xs font-bold">{margin.toFixed(1)}% profit margin</span>
+              )}
+            </div>
             <div className="flex h-5 rounded-full overflow-hidden bg-slate-800">
               {steps.map(step => (
                 <div key={step.id}
@@ -273,7 +392,6 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
         )}
       </div>
 
-      {/* Footer */}
       <div className="shrink-0 px-5 py-4 border-t border-slate-800 flex gap-3 bg-slate-950">
         <button onClick={onClose} disabled={saving}
           className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-medium hover:bg-slate-700 transition-colors disabled:opacity-50">
@@ -294,6 +412,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
 function ProcessModal({ product, onClose }) {
   const { steps, remaining } = computeFormula(product.startPrice, product.formula);
   const balanced = Math.abs(remaining) < 0.001;
+  const margin   = profitMarginPct(steps, product.startPrice);
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end z-50">
@@ -301,7 +420,12 @@ function ProcessModal({ product, onClose }) {
         <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div>
             <h3 className="text-white font-bold font-broske">{product.name}</h3>
-            <p className="text-slate-400 text-xs mt-0.5">Revenue allocation breakdown · Start: <span className="font-mono text-white">${product.startPrice.toFixed(2)}</span></p>
+            <div className="flex items-center gap-3 mt-0.5">
+              <p className="text-slate-400 text-xs">Start: <span className="font-mono text-white">${product.startPrice.toFixed(2)}</span></p>
+              {margin !== null && (
+                <span className="text-emerald-400 text-xs font-bold">{margin.toFixed(1)}% profit margin</span>
+              )}
+            </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center">✕</button>
         </div>
@@ -352,6 +476,89 @@ function ProcessModal({ product, onClose }) {
   );
 }
 
+// ── Comparison table ───────────────────────────────────────────────────────────
+
+function CompareTable({ products }) {
+  if (products.length === 0) return (
+    <div className="bg-slate-900 rounded-2xl p-8 text-center">
+      <p className="text-slate-500 text-sm">No products to compare yet</p>
+    </div>
+  );
+
+  const rows = products.map(p => {
+    const { steps } = computeFormula(p.startPrice, p.formula);
+    const cogs    = steps.find(st => st.category === 'COGS')?.allocated    || 0;
+    const profit  = steps.find(st => st.category === 'Profit')?.allocated  || 0;
+    const margin  = p.startPrice > 0 ? (profit / p.startPrice) * 100 : 0;
+    const balanced = Math.abs(computeFormula(p.startPrice, p.formula).remaining) < 0.001;
+    return { p, steps, cogs, profit, margin, balanced };
+  });
+
+  // Best margin for bar scaling
+  const maxMargin = Math.max(...rows.map(r => r.margin), 1);
+
+  return (
+    <div className="space-y-2">
+      {/* Header */}
+      <div className="grid grid-cols-5 gap-2 px-3 py-2 text-[10px] text-slate-500 uppercase tracking-wider">
+        <div className="col-span-2">Product</div>
+        <div className="text-right">COGS</div>
+        <div className="text-right">Profit</div>
+        <div className="text-right">Margin</div>
+      </div>
+
+      {rows.map(({ p, cogs, profit, margin, balanced }) => (
+        <div key={p.id} className="bg-slate-800 rounded-xl p-3 space-y-2">
+          <div className="grid grid-cols-5 gap-2 items-center">
+            <div className="col-span-2 min-w-0">
+              <p className="text-white text-sm font-medium truncate">{p.name}</p>
+              <p className="text-slate-500 text-[10px] font-mono">${p.startPrice.toFixed(2)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-blue-300 text-sm font-mono tabular-nums">${cogs.toFixed(2)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-emerald-400 text-sm font-mono tabular-nums">${profit.toFixed(2)}</p>
+            </div>
+            <div className="text-right">
+              <p className={`text-sm font-bold font-mono tabular-nums ${margin >= 20 ? 'text-emerald-400' : margin >= 10 ? 'text-amber-400' : 'text-rose-400'}`}>
+                {margin.toFixed(1)}%
+              </p>
+            </div>
+          </div>
+          {/* Margin bar */}
+          <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
+            <div className="h-1.5 rounded-full transition-all"
+              style={{ width: `${(margin / maxMargin) * 100}%`, background: margin >= 20 ? '#10b981' : margin >= 10 ? '#f59e0b' : '#f43f5e' }} />
+          </div>
+        </div>
+      ))}
+
+      {/* Totals row */}
+      {rows.length > 1 && (
+        <div className="bg-slate-900 rounded-xl p-3">
+          <div className="grid grid-cols-5 gap-2 items-center">
+            <div className="col-span-2">
+              <p className="text-slate-400 text-xs font-broske uppercase tracking-wider">Average</p>
+            </div>
+            <div className="text-right">
+              <p className="text-blue-300 text-xs font-mono tabular-nums">${(rows.reduce((s, r) => s + r.cogs, 0) / rows.length).toFixed(2)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-emerald-400 text-xs font-mono tabular-nums">${(rows.reduce((s, r) => s + r.profit, 0) / rows.length).toFixed(2)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-slate-300 text-xs font-bold font-mono tabular-nums">
+                {(rows.reduce((s, r) => s + r.margin, 0) / rows.length).toFixed(1)}%
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function BusinessExpenses({ token }) {
@@ -361,17 +568,16 @@ export default function BusinessExpenses({ token }) {
   const [saving,     setSaving]     = useState(false);
   const [editing,    setEditing]    = useState(null);
   const [processing, setProcessing] = useState(null);
+  const [viewMode,   setViewMode]   = useState('cards'); // 'cards' | 'compare'
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // Ensure the tab exists and has headers
       await ensureSheetTab(token, SHEET);
       const rows = await readRange(token, `${SHEET}!A:D`);
 
       if (!rows.length || !rows[0]?.length) {
-        // Sheet is empty — write headers
         await batchUpdateCells(token, HEADERS.map((h, i) => ({
           range: `${SHEET}!${String.fromCharCode(65 + i)}1`,
           value: h,
@@ -380,7 +586,6 @@ export default function BusinessExpenses({ token }) {
         return;
       }
 
-      // Skip header row; filter empty rows
       const [, ...dataRows] = rows;
       const parsed = dataRows
         .map((row, idx) => {
@@ -388,13 +593,7 @@ export default function BusinessExpenses({ token }) {
           if (!id || id === 'ID') return null;
           let formula = [];
           try { formula = JSON.parse(row[3] || '[]'); } catch { formula = []; }
-          return {
-            id,
-            name: row[1] || '',
-            startPrice: parseFloat(row[2]) || 0,
-            formula,
-            _rowNum: idx + 2, // 1-indexed, row 1 is header
-          };
+          return { id, name: row[1] || '', startPrice: parseFloat(row[2]) || 0, formula, _rowNum: idx + 2 };
         })
         .filter(Boolean);
       setProducts(parsed);
@@ -411,21 +610,13 @@ export default function BusinessExpenses({ token }) {
     setSaving(true);
     try {
       if (product.id && product._rowNum) {
-        // Edit existing row
         await batchUpdateCells(token, [
           { range: `${SHEET}!B${product._rowNum}`, value: product.name },
           { range: `${SHEET}!C${product._rowNum}`, value: product.startPrice },
           { range: `${SHEET}!D${product._rowNum}`, value: JSON.stringify(product.formula) },
         ]);
       } else {
-        // New product
-        const newId = uid();
-        await appendRow(token, `${SHEET}!A:D`, [
-          newId,
-          product.name,
-          product.startPrice,
-          JSON.stringify(product.formula),
-        ]);
+        await appendRow(token, `${SHEET}!A:D`, [uid(), product.name, product.startPrice, JSON.stringify(product.formula)]);
       }
       setEditing(null);
       await load();
@@ -451,16 +642,15 @@ export default function BusinessExpenses({ token }) {
 
   if (loading) return <LoadingSpinner />;
 
-  const avgProfit = products.length > 0
+  const avgMargin = products.length > 0
     ? products.reduce((s, p) => {
         const { steps } = computeFormula(p.startPrice, p.formula);
-        return s + (steps.find(st => st.category === 'Profit')?.allocated || 0);
+        return s + (profitMarginPct(steps, p.startPrice) || 0);
       }, 0) / products.length
     : 0;
 
   return (
     <div className="pb-24">
-      {/* Header */}
       <div className="px-4 pt-4 pb-3 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white">Business Expenses</h1>
@@ -479,21 +669,44 @@ export default function BusinessExpenses({ token }) {
           <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm space-y-2">
             <p className="font-medium">Could not load Business Products sheet</p>
             <p className="text-xs text-red-500">{error}</p>
-            <p className="text-xs text-slate-500">Make sure you have access to the spreadsheet, then <button onClick={load} className="text-blue-400 underline">retry</button>.</p>
+            <button onClick={load} className="text-blue-400 underline text-xs">Retry</button>
           </div>
         )}
 
-        {/* Summary */}
+        {/* Summary strip */}
         {products.length > 0 && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="bg-slate-800 rounded-xl p-3">
               <p className="text-slate-500 text-[10px] uppercase tracking-wider">Products</p>
               <p className="text-white font-bold text-xl mt-0.5 font-mono">{products.length}</p>
             </div>
             <div className="bg-slate-800 rounded-xl p-3">
-              <p className="text-slate-500 text-[10px] uppercase tracking-wider">Avg Profit / Item</p>
-              <p className="text-emerald-400 font-bold text-xl mt-0.5 font-mono tabular-nums">${avgProfit.toFixed(2)}</p>
+              <p className="text-slate-500 text-[10px] uppercase tracking-wider">Avg Profit</p>
+              <p className="text-emerald-400 font-bold text-xl mt-0.5 font-mono tabular-nums">
+                ${(products.reduce((s, p) => {
+                  const { steps } = computeFormula(p.startPrice, p.formula);
+                  return s + (steps.find(st => st.category === 'Profit')?.allocated || 0);
+                }, 0) / products.length).toFixed(2)}
+              </p>
             </div>
+            <div className="bg-slate-800 rounded-xl p-3">
+              <p className="text-slate-500 text-[10px] uppercase tracking-wider">Avg Margin</p>
+              <p className={`font-bold text-xl mt-0.5 font-mono tabular-nums ${avgMargin >= 20 ? 'text-emerald-400' : avgMargin >= 10 ? 'text-amber-400' : 'text-rose-400'}`}>
+                {avgMargin.toFixed(1)}%
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* View toggle */}
+        {products.length > 0 && (
+          <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
+            {[['cards','Cards'],['compare','Compare']].map(([v, lbl]) => (
+              <button key={v} onClick={() => setViewMode(v)}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+                {lbl}
+              </button>
+            ))}
           </div>
         )}
 
@@ -502,9 +715,7 @@ export default function BusinessExpenses({ token }) {
           <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-3">
             <p className="text-4xl">💼</p>
             <p className="text-white font-semibold font-broske">No products yet</p>
-            <p className="text-slate-500 text-sm leading-relaxed">
-              Add a product and define how its revenue is allocated across COGS, profit, fees, and more. Data syncs to your Google Sheet.
-            </p>
+            <p className="text-slate-500 text-sm leading-relaxed">Add a product and define how its revenue is allocated across COGS, profit, fees, and more.</p>
             <button
               onClick={() => setEditing({ name: '', startPrice: 0, formula: [] })}
               className="mt-1 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-colors"
@@ -514,89 +725,91 @@ export default function BusinessExpenses({ token }) {
           </div>
         )}
 
-        {/* Product cards */}
-        <div className="space-y-3">
-          {products.map(product => {
-            const { steps, remaining } = computeFormula(product.startPrice, product.formula);
-            const balanced  = Math.abs(remaining) < 0.001;
-            const profitAmt = steps.find(st => st.category === 'Profit')?.allocated || 0;
-            const cogsAmt   = steps.find(st => st.category === 'COGS')?.allocated   || 0;
+        {/* Compare view */}
+        {viewMode === 'compare' && <CompareTable products={products} />}
 
-            return (
-              <div key={product.id} className="bg-slate-800 rounded-2xl overflow-hidden">
-                <div className="px-4 pt-4 pb-3">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="min-w-0">
-                      <p className="text-white font-semibold truncate">{product.name}</p>
-                      <p className="text-slate-400 text-xs mt-0.5">
-                        Start: <span className="font-mono text-white tabular-nums">${product.startPrice.toFixed(2)}</span>
-                        {' · '}{product.formula.length} step{product.formula.length !== 1 ? 's' : ''}
-                      </p>
+        {/* Cards view */}
+        {viewMode === 'cards' && (
+          <div className="space-y-3">
+            {products.map(product => {
+              const { steps, remaining } = computeFormula(product.startPrice, product.formula);
+              const balanced  = Math.abs(remaining) < 0.001;
+              const profitAmt = steps.find(st => st.category === 'Profit')?.allocated || 0;
+              const cogsAmt   = steps.find(st => st.category === 'COGS')?.allocated   || 0;
+              const margin    = profitMarginPct(steps, product.startPrice);
+
+              return (
+                <div key={product.id} className="bg-slate-800 rounded-2xl overflow-hidden">
+                  <div className="px-4 pt-4 pb-3">
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-white font-semibold truncate">{product.name}</p>
+                          {margin !== null && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${margin >= 20 ? 'bg-emerald-900/50 text-emerald-300' : margin >= 10 ? 'bg-amber-900/50 text-amber-300' : 'bg-rose-900/50 text-rose-300'}`}>
+                              {margin.toFixed(1)}% margin
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-slate-400 text-xs mt-0.5">
+                          Start: <span className="font-mono text-white tabular-nums">${product.startPrice.toFixed(2)}</span>
+                          {' · '}{product.formula.length} step{product.formula.length !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${balanced ? 'bg-emerald-900/50 text-emerald-300' : 'bg-rose-900/50 text-rose-300'}`}>
+                        {balanced ? '✓' : `$${remaining.toFixed(2)} left`}
+                      </span>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${balanced ? 'bg-emerald-900/50 text-emerald-300' : 'bg-rose-900/50 text-rose-300'}`}>
-                      {balanced ? '✓ Balanced' : `$${remaining.toFixed(2)} left`}
-                    </span>
-                  </div>
 
-                  {/* Stacked allocation bar */}
-                  {product.startPrice > 0 && steps.length > 0 && (
-                    <div className="flex h-3 rounded-full overflow-hidden mb-3">
-                      {steps.map(step => (
-                        <div key={step.id}
-                          style={{ width: `${(step.allocated / product.startPrice) * 100}%`, background: blockColor(step) }}
-                          title={`${blockLabel(step)}: $${step.allocated.toFixed(2)}`}
-                        />
-                      ))}
-                      {remaining > 0 && (
-                        <div style={{ width: `${(remaining / product.startPrice) * 100}%` }} className="bg-rose-900/60" />
+                    {/* Stacked bar */}
+                    {product.startPrice > 0 && steps.length > 0 && (
+                      <div className="flex h-3 rounded-full overflow-hidden mb-3">
+                        {steps.map(step => (
+                          <div key={step.id}
+                            style={{ width: `${(step.allocated / product.startPrice) * 100}%`, background: blockColor(step) }}
+                            title={`${blockLabel(step)}: $${step.allocated.toFixed(2)}`}
+                          />
+                        ))}
+                        {remaining > 0 && <div style={{ width: `${(remaining / product.startPrice) * 100}%` }} className="bg-rose-900/60" />}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                      {cogsAmt > 0 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 font-mono tabular-nums">COGS ${cogsAmt.toFixed(2)}</span>
                       )}
-                    </div>
-                  )}
-
-                  {/* Key stat chips */}
-                  <div className="flex flex-wrap gap-2">
-                    {cogsAmt > 0 && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 font-mono tabular-nums">
-                        COGS ${cogsAmt.toFixed(2)}
-                      </span>
-                    )}
-                    {profitAmt > 0 && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-300 font-mono tabular-nums">
-                        Profit ${profitAmt.toFixed(2)}
-                      </span>
-                    )}
-                    {steps
-                      .filter(st => st.category !== 'COGS' && st.category !== 'Profit')
-                      .map(st => (
+                      {profitAmt > 0 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-300 font-mono tabular-nums">Profit ${profitAmt.toFixed(2)}</span>
+                      )}
+                      {steps.filter(st => st.category !== 'COGS' && st.category !== 'Profit').map(st => (
                         <span key={st.id} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-400 font-mono tabular-nums">
                           {blockLabel(st)} ${st.allocated.toFixed(2)}
                         </span>
                       ))}
+                    </div>
+                  </div>
+
+                  <div className="flex border-t border-slate-700/80">
+                    <button onClick={() => setProcessing(product)}
+                      className="flex-1 py-2.5 text-xs font-semibold text-blue-400 hover:bg-slate-700 transition-colors">
+                      Process
+                    </button>
+                    <div className="w-px bg-slate-700" />
+                    <button onClick={() => setEditing(product)}
+                      className="flex-1 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-700 transition-colors">
+                      Edit
+                    </button>
+                    <div className="w-px bg-slate-700" />
+                    <button onClick={() => handleDelete(product)} disabled={saving}
+                      className="px-4 py-2.5 text-xs font-medium text-rose-500 hover:bg-slate-700 transition-colors disabled:opacity-50">
+                      ✕
+                    </button>
                   </div>
                 </div>
-
-                {/* Action row */}
-                <div className="flex border-t border-slate-700/80">
-                  <button onClick={() => setProcessing(product)}
-                    className="flex-1 py-2.5 text-xs font-semibold text-blue-400 hover:bg-slate-700 transition-colors">
-                    Process
-                  </button>
-                  <div className="w-px bg-slate-700" />
-                  <button onClick={() => setEditing(product)}
-                    className="flex-1 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-700 transition-colors">
-                    Edit
-                  </button>
-                  <div className="w-px bg-slate-700" />
-                  <button onClick={() => handleDelete(product)}
-                    disabled={saving}
-                    className="px-4 py-2.5 text-xs font-medium text-rose-500 hover:bg-slate-700 transition-colors disabled:opacity-50">
-                    ✕
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {editing    && <FormulaEditor product={editing}    onSave={handleSave} onClose={() => setEditing(null)}    saving={saving} />}
