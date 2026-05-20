@@ -11,9 +11,7 @@ const ACCOUNT_ICONS = {
 };
 
 const PRIORITY_LABEL = { 1: 'Essential', 2: 'Stability', 3: 'Optional' };
-const PRIORITY_COLOR  = { 1: 'text-emerald-400', 2: 'text-amber-400', 3: 'text-slate-500' };
-
-const ACCOUNT_ORDER = ['Checking','Outside Payment','Savings','Cash','Business Tax','Subscription'];
+const ACCOUNT_ORDER  = ['Checking', 'Outside Payment', 'Savings', 'Cash', 'Business Tax', 'Subscription'];
 
 function fmt(n)  { return (n != null && !isNaN(n)) ? `$${Number(n).toFixed(2)}` : '—'; }
 function pm(val) { const n = parseFloat(String(val || '').replace(/[$,\s]/g, '')); return isNaN(n) ? 0 : n; }
@@ -23,25 +21,34 @@ function todayStr() {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 
+// Priority-first allocation: fill P1 items completely before P2, then P3
 function calcDeposits(expenses, income) {
-  const totalAllowance = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
-  if (!totalAllowance || !income) return [];
-  return expenses
+  if (!income) return [];
+  const eligible = expenses
     .filter(e => pm(e['Monthly Allowance ($)']) > 0)
-    .map(e => {
-      const allowance = pm(e['Monthly Allowance ($)']);
-      const pct = allowance / totalAllowance;
-      return {
-        type:     e['Type']     || '',
-        account:  e['Account']  || 'Other',
-        expense:  e['Expense']  || '',
-        priority: parseInt(e['Priority']) || 2,
-        allowance,
-        pct,
-        deposit:  pct * income,
-      };
-    })
-    .sort((a, b) => a.priority - b.priority || b.deposit - a.deposit);
+    .map(e => ({
+      type:      e['Type']     || '',
+      account:   e['Account']  || 'Other',
+      expense:   e['Expense']  || '',
+      priority:  parseInt(e['Priority']) || 2,
+      allowance: pm(e['Monthly Allowance ($)']),
+    }))
+    .sort((a, b) => a.priority - b.priority || b.allowance - a.allowance);
+
+  let remaining = income;
+  return eligible.map(e => {
+    const deposit  = Math.min(e.allowance, Math.max(0, remaining));
+    remaining      = Math.max(0, remaining - deposit);
+    const coverage = e.allowance > 0 ? deposit / e.allowance : 0;
+    const pct      = income > 0 ? deposit / income : 0;
+    return { ...e, deposit, pct, coverage };
+  });
+}
+
+function CoverageChip({ coverage }) {
+  if (coverage >= 1)      return <span className="text-[10px] font-medium text-emerald-400 bg-emerald-900/40 px-1.5 py-0.5 rounded-full">✓ Full</span>;
+  if (coverage > 0)       return <span className="text-[10px] font-medium text-amber-400  bg-amber-900/40  px-1.5 py-0.5 rounded-full">~ Partial</span>;
+  return                         <span className="text-[10px] font-medium text-rose-400   bg-rose-900/40   px-1.5 py-0.5 rounded-full">✗ Unfunded</span>;
 }
 
 export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose }) {
@@ -59,7 +66,17 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   const stillNeeded    = Math.max(0, totalAllowance - totalCovered);
   const coveragePct    = totalAllowance > 0 ? (totalCovered / totalAllowance) * 100 : 0;
 
-  // Group by account
+  // Priority tier summaries for the header display
+  const tierTotals = useMemo(() => {
+    const t = { 1: { budget: 0, deposit: 0 }, 2: { budget: 0, deposit: 0 }, 3: { budget: 0, deposit: 0 } };
+    deposits.forEach(d => {
+      const p = d.priority <= 3 ? d.priority : 3;
+      t[p].budget  += d.allowance;
+      t[p].deposit += d.deposit;
+    });
+    return t;
+  }, [deposits]);
+
   const byAccount = useMemo(() => {
     const map = {};
     deposits.forEach(d => {
@@ -80,8 +97,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
       : `Income processed: ${fmt(amount)}`;
 
     try {
-      // Append one transaction per expense category to Allocation Transactions
       for (const d of deposits) {
+        if (d.deposit <= 0) continue;
         await appendRow(token, 'Allocation Transactions!A:F', [
           date,
           d.type,
@@ -105,7 +122,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
       const g = byAccount[acct];
       if (!g) return;
       lines.push(`${ACCOUNT_ICONS[acct]?.icon || ''} ${acct}: ${fmt(g.total)}`);
-      g.items.forEach(d => lines.push(`  • ${d.type}: ${fmt(d.deposit)}`));
+      g.items.forEach(d => lines.push(`  • ${d.type}: ${fmt(d.deposit)} (${(d.coverage * 100).toFixed(0)}% funded)`));
       lines.push('');
     });
     navigator.clipboard.writeText(lines.join('\n'));
@@ -121,7 +138,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           <div className="text-5xl">✅</div>
           <h2 className="text-white text-xl font-bold">Income Processed!</h2>
           <p className="text-slate-400 text-sm">
-            {deposits.length} deposits totalling <span className="text-emerald-400 font-semibold">{fmt(amount)}</span> have been logged to your Allocation Transactions sheet.
+            {deposits.filter(d => d.deposit > 0).length} deposits totalling{' '}
+            <span className="text-emerald-400 font-semibold">{fmt(amount)}</span> logged to Allocation Transactions.
           </p>
           <button onClick={onClose} className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors">
             Done
@@ -139,7 +157,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         <div className="flex items-center justify-between p-5 border-b border-slate-700 shrink-0">
           <div>
             <h2 className="text-white font-bold text-lg">Process Income</h2>
-            <p className="text-slate-400 text-xs mt-0.5">Deposits auto-logged to Allocation Transactions</p>
+            <p className="text-slate-400 text-xs mt-0.5">Priority-first: P1 → P2 → P3</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:bg-slate-600 flex items-center justify-center">✕</button>
         </div>
@@ -170,6 +188,31 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
               className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
             />
           </div>
+
+          {/* Priority tier summary */}
+          {amount > 0 && (
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              {[
+                { p: 1, label: 'Essential', color: '#f43f5e', textClass: 'text-rose-400' },
+                { p: 2, label: 'Stability', color: '#f59e0b', textClass: 'text-amber-400' },
+                { p: 3, label: 'Optional',  color: '#8b5cf6', textClass: 'text-violet-400' },
+              ].map(({ p, label, color, textClass }) => {
+                const tier = tierTotals[p];
+                const tierPct = tier.budget > 0 ? (tier.deposit / tier.budget) * 100 : 0;
+                return (
+                  <div key={p} className="bg-slate-800 rounded-xl p-2.5 space-y-1.5">
+                    <p className={`text-[10px] font-bold ${textClass}`}>P{p} {label}</p>
+                    <p className="text-white text-xs font-mono font-bold tabular-nums">{fmt(tier.deposit)}</p>
+                    <div className="w-full bg-slate-700 rounded-full h-1 overflow-hidden">
+                      <div className="h-1 rounded-full" style={{ width: `${Math.min(tierPct, 100)}%`, background: color }} />
+                    </div>
+                    <p className="text-slate-500 text-[10px]">{tierPct.toFixed(0)}%</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {amount > 0 && (
             <div className="flex justify-between items-center text-xs">
               <span className="text-slate-500">Monthly goal: <span className="text-slate-300">{fmt(totalAllowance)}</span></span>
@@ -192,7 +235,6 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             const style = ACCOUNT_ICONS[acct] || { icon: '💰', color: 'text-slate-300', bg: 'bg-slate-800 border-slate-700' };
             return (
               <div key={acct} className={`rounded-2xl overflow-hidden border ${style.bg}`}>
-                {/* Account header */}
                 <div className="px-4 py-3 flex justify-between items-center">
                   <div className="flex items-center gap-2">
                     <span className="text-lg">{style.icon}</span>
@@ -200,18 +242,26 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                   </div>
                   <div className="text-right">
                     <p className={`text-lg font-bold ${style.color}`}>{fmt(group.total)}</p>
-                    <p className="text-slate-500 text-xs">{((group.total / amount) * 100).toFixed(1)}%</p>
+                    <p className="text-slate-500 text-xs">{((group.total / amount) * 100).toFixed(1)}% of deposit</p>
                   </div>
                 </div>
-                {/* Line items */}
                 <div className="bg-slate-800/80 divide-y divide-slate-700/40">
                   {group.items.map((d, i) => (
-                    <div key={i} className="px-4 py-2 flex justify-between items-center">
-                      <div>
-                        <p className="text-white text-sm">{d.type}</p>
-                        <p className={`text-xs ${PRIORITY_COLOR[d.priority]}`}>P{d.priority} {PRIORITY_LABEL[d.priority]} · {(d.pct * 100).toFixed(1)}%</p>
+                    <div key={i} className="px-4 py-2.5 flex justify-between items-center gap-3">
+                      <div className="min-w-0">
+                        <p className="text-white text-sm truncate">{d.type}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className={`text-[10px] ${d.priority === 1 ? 'text-rose-400' : d.priority === 2 ? 'text-amber-400' : 'text-violet-400'}`}>
+                            P{d.priority} {PRIORITY_LABEL[d.priority]}
+                          </span>
+                          <span className="text-slate-600 text-[10px]">·</span>
+                          <span className="text-slate-500 text-[10px]">goal {fmt(d.allowance)}</span>
+                        </div>
                       </div>
-                      <p className="text-white text-sm font-semibold">{fmt(d.deposit)}</p>
+                      <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                        <p className="text-white text-sm font-semibold">{fmt(d.deposit)}</p>
+                        <CoverageChip coverage={d.coverage} />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -226,16 +276,16 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                 <span className="text-white font-bold">{fmt(amount)}</span>
               </div>
               {alreadyProcessed > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">Previously processed</span>
-                  <span className="text-slate-300">{fmt(alreadyProcessed)}</span>
-                </div>
-              )}
-              {alreadyProcessed > 0 && (
-                <div className="flex justify-between text-sm border-t border-slate-700 pt-2">
-                  <span className="text-slate-400">Total covered</span>
-                  <span className="text-white font-bold">{fmt(totalCovered)}</span>
-                </div>
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-400">Previously processed</span>
+                    <span className="text-slate-300">{fmt(alreadyProcessed)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm border-t border-slate-700 pt-2">
+                    <span className="text-slate-400">Total covered</span>
+                    <span className="text-white font-bold">{fmt(totalCovered)}</span>
+                  </div>
+                </>
               )}
               {stillNeeded > 0 && (
                 <div className="flex justify-between text-sm">
@@ -269,7 +319,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
               disabled={logging}
               className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-sm font-bold transition-colors"
             >
-              {logging ? 'Logging…' : `✓ Process & Log ${deposits.length} Deposits`}
+              {logging ? 'Logging…' : `✓ Process & Log ${deposits.filter(d => d.deposit > 0).length} Deposits`}
             </button>
           </div>
         )}

@@ -3,11 +3,16 @@
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
+    color-scheme: dark;
+    background-color: #020617;
   }
   body {
     background-color: #020617; /* slate-950 */
     color: white;
     font-family: system-ui, -apple-system, sans-serif;
+  }
+  input, select, textarea, button {
+    color-scheme: dark;
   }
 }
 
