@@ -161,6 +161,16 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
     setShowRedist(false);
   }
   function removeBlock(id) { setBlocks(b => b.filter(bl => bl.id !== id)); setShowRedist(false); }
+  function moveBlock(id, dir) {
+    setBlocks(b => {
+      const idx = b.findIndex(bl => bl.id === id);
+      const next = idx + dir;
+      if (next < 0 || next >= b.length) return b;
+      const arr = [...b];
+      [arr[idx], arr[next]] = [arr[next], arr[idx]];
+      return arr;
+    });
+  }
   function updateBlock(id, key, val) {
     setBlocks(b => b.map(bl => {
       if (bl.id !== id) return bl;
@@ -234,6 +244,12 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
               <div key={step.id} className="space-y-1.5">
                 <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 space-y-2">
                   <div className="flex items-center gap-2">
+                    <div className="flex flex-col shrink-0">
+                      <button onClick={() => moveBlock(step.id, -1)} disabled={idx === 0}
+                        className="w-5 h-4 flex items-center justify-center text-slate-600 hover:text-slate-300 disabled:opacity-20 transition-colors text-[10px] leading-none">▲</button>
+                      <button onClick={() => moveBlock(step.id, 1)} disabled={idx === blocks.length - 1}
+                        className="w-5 h-4 flex items-center justify-center text-slate-600 hover:text-slate-300 disabled:opacity-20 transition-colors text-[10px] leading-none">▼</button>
+                    </div>
                     <span className="text-slate-600 text-xs font-mono w-4 text-center shrink-0">{idx + 1}</span>
                     <select
                       value={step.category}
@@ -409,33 +425,100 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
 
 // ── Process modal ──────────────────────────────────────────────────────────────
 
-function ProcessModal({ product, onClose }) {
-  const { steps, remaining } = computeFormula(product.startPrice, product.formula);
+const TRANS_SHEET = 'Business Transactions';
+
+function ProcessModal({ product, token, onClose }) {
+  const [inputMode, setInputMode] = useState('amount'); // 'amount' | 'quantity'
+  const [inputVal,  setInputVal]  = useState(String(product.startPrice));
+  const [submitting, setSubmitting] = useState(false);
+  const [done,       setDone]       = useState(false);
+
+  const qty     = parseFloat(inputVal) || 0;
+  const revenue = inputMode === 'quantity' ? qty * product.startPrice : qty;
+
+  const { steps, remaining } = computeFormula(revenue, product.formula);
   const balanced = Math.abs(remaining) < 0.001;
-  const margin   = profitMarginPct(steps, product.startPrice);
+  const margin   = profitMarginPct(steps, revenue);
+
+  async function handleProcess() {
+    if (!balanced || revenue <= 0) return;
+    setSubmitting(true);
+    try {
+      await ensureSheetTab(token, TRANS_SHEET);
+      const today = new Date().toISOString().slice(0, 10);
+      const allocJSON = JSON.stringify(
+        steps.reduce((obj, st) => { obj[blockLabel(st)] = st.allocated.toFixed(4); return obj; }, {})
+      );
+      await appendRow(token, `${TRANS_SHEET}!A:G`, [
+        today,
+        product.name,
+        inputMode === 'quantity' ? qty : '',
+        product.startPrice.toFixed(2),
+        revenue.toFixed(2),
+        margin !== null ? (margin.toFixed(2) + '%') : '',
+        allocJSON,
+      ]);
+      setDone(true);
+      setTimeout(onClose, 1400);
+    } catch (e) {
+      alert(`Error processing: ${e.message}`);
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end z-50">
-      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[88vh] overflow-y-auto">
-        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div>
             <h3 className="text-white font-bold font-broske">{product.name}</h3>
-            <div className="flex items-center gap-3 mt-0.5">
-              <p className="text-slate-400 text-xs">Start: <span className="font-mono text-white">${product.startPrice.toFixed(2)}</span></p>
-              {margin !== null && (
-                <span className="text-emerald-400 text-xs font-bold">{margin.toFixed(1)}% profit margin</span>
-              )}
-            </div>
+            <p className="text-slate-400 text-xs mt-0.5">Unit price: <span className="font-mono text-slate-300">${product.startPrice.toFixed(2)}</span></p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center">✕</button>
         </div>
-        <div className="px-5 py-5 space-y-2 pb-8">
-          <div className="flex items-center justify-between px-4 py-3 bg-blue-900/20 border border-blue-800/40 rounded-xl">
-            <span className="text-blue-300 font-broske text-xs uppercase tracking-wider">Formula Start</span>
-            <span className="text-white font-bold text-2xl font-mono tabular-nums">${product.startPrice.toFixed(2)}</span>
+
+        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-3">
+          {/* Input mode toggle + value */}
+          <div className="bg-blue-900/20 border border-blue-800/40 rounded-2xl p-4 space-y-3">
+            <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
+              {[['amount','$ Amount received'],['quantity','# Quantity sold']].map(([m, lbl]) => (
+                <button key={m} onClick={() => { setInputMode(m); setInputVal(''); }}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${inputMode === m ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg font-bold">
+                {inputMode === 'amount' ? '$' : '#'}
+              </span>
+              <input
+                type="number" step={inputMode === 'amount' ? '0.01' : '1'} min="0"
+                value={inputVal}
+                onChange={e => setInputVal(e.target.value)}
+                placeholder={inputMode === 'amount' ? '0.00' : '0'}
+                autoFocus
+                className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 font-mono tabular-nums placeholder-slate-600"
+              />
+            </div>
+
+            {inputMode === 'quantity' && qty > 0 && (
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>{qty} × ${product.startPrice.toFixed(2)}</span>
+                <span className="text-white font-bold font-mono tabular-nums">= ${revenue.toFixed(2)} total</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              <span className="text-blue-300 font-broske text-xs uppercase tracking-wider">Formula Start</span>
+              <span className="text-white font-bold text-2xl font-mono tabular-nums">${revenue.toFixed(2)}</span>
+            </div>
           </div>
 
-          {steps.map((step, idx) => {
+          {/* Waterfall steps */}
+          {revenue > 0 && steps.map((step, idx) => {
             const color = blockColor(step);
             const label = blockLabel(step);
             return (
@@ -458,7 +541,7 @@ function ProcessModal({ product, onClose }) {
                 <div className="flex items-center gap-2 px-4">
                   <div className="flex-1 bg-slate-800 rounded-full h-1 overflow-hidden">
                     <div className="h-1 rounded-full bg-slate-700"
-                      style={{ width: `${product.startPrice > 0 ? (step.remainingAfter / product.startPrice) * 100 : 0}%` }} />
+                      style={{ width: `${revenue > 0 ? (step.remainingAfter / revenue) * 100 : 0}%` }} />
                   </div>
                   <span className="text-slate-600 text-[10px] font-mono shrink-0">${step.remainingAfter.toFixed(2)} left</span>
                 </div>
@@ -466,10 +549,35 @@ function ProcessModal({ product, onClose }) {
             );
           })}
 
-          <div className={`flex items-center justify-between px-4 py-3 rounded-xl border font-bold mt-2 ${balanced ? 'bg-emerald-900/20 border-emerald-800/40' : 'bg-rose-900/20 border-rose-800/40'}`}>
-            <span className={`font-broske text-xs uppercase tracking-wider ${balanced ? 'text-emerald-400' : 'text-rose-400'}`}>Net Remaining</span>
-            <span className={`font-mono text-2xl tabular-nums ${balanced ? 'text-emerald-400' : 'text-rose-400'}`}>${remaining.toFixed(2)}</span>
-          </div>
+          {/* Net remaining */}
+          {revenue > 0 && (
+            <div className={`flex items-center justify-between px-4 py-3 rounded-xl border font-bold ${balanced ? 'bg-emerald-900/20 border-emerald-800/40' : 'bg-rose-900/20 border-rose-800/40'}`}>
+              <div>
+                <span className={`font-broske text-xs uppercase tracking-wider block ${balanced ? 'text-emerald-400' : 'text-rose-400'}`}>Net Remaining</span>
+                {margin !== null && balanced && (
+                  <span className="text-emerald-300 text-xs">{margin.toFixed(1)}% profit margin</span>
+                )}
+              </div>
+              <span className={`font-mono text-2xl tabular-nums ${balanced ? 'text-emerald-400' : 'text-rose-400'}`}>${remaining.toFixed(2)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Process button */}
+        <div className="shrink-0 px-5 py-4 border-t border-slate-800 bg-slate-900">
+          {done ? (
+            <div className="w-full py-3.5 rounded-2xl bg-emerald-700/30 border border-emerald-700/50 text-emerald-300 font-bold text-center text-sm">
+              ✓ Recorded to Business Transactions
+            </div>
+          ) : (
+            <button
+              onClick={handleProcess}
+              disabled={!balanced || revenue <= 0 || submitting}
+              className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm transition-colors"
+            >
+              {submitting ? 'Saving…' : !revenue ? 'Enter an amount to process' : !balanced ? `Can't process — $${remaining.toFixed(2)} unallocated` : 'Process & Record'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -813,7 +921,7 @@ export default function BusinessExpenses({ token }) {
       </div>
 
       {editing    && <FormulaEditor product={editing}    onSave={handleSave} onClose={() => setEditing(null)}    saving={saving} />}
-      {processing && <ProcessModal  product={processing}                     onClose={() => setProcessing(null)} />}
+      {processing && <ProcessModal  product={processing} token={token}        onClose={() => setProcessing(null)} />}
       {saving && !editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 pointer-events-none">
           <LoadingSpinner />

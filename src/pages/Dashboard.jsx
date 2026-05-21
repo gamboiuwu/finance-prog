@@ -52,6 +52,8 @@ export default function Dashboard({ token }) {
   const [expLogging, setExpLogging]     = useState(false);
   const [expLogDone, setExpLogDone]     = useState(false);
   const [showBills, setShowBills]       = useState(false);
+  const [showCommCalc, setShowCommCalc] = useState(false);
+  const [showBudget, setShowBudget]     = useState(false);
   const [showStatement, setShowStatement] = useState(false);
   const [stmtLoading, setStmtLoading]   = useState(false);
   const [stmtTxns, setStmtTxns]         = useState([]);
@@ -182,17 +184,24 @@ export default function Dashboard({ token }) {
     const mo = now.getMonth() + 1;
     const yr = now.getFullYear();
     try {
-      const rows = await readRange(token, 'Allocation Transactions!A:F');
+      const rows = await readRange(token, 'Allocation Transactions!A:F', 'UNFORMATTED_VALUE');
       const [, ...data] = rows;
+      const parseAmt = v => {
+        if (v == null || v === '') return 0;
+        const s = String(v).trim();
+        const neg = s.startsWith('(') || s.startsWith('-');
+        const n = parseFloat(s.replace(/[$,\s()]/g, '').replace(/^-/, ''));
+        return isNaN(n) ? 0 : neg ? -n : n;
+      };
       const txns = data
         .filter(r => r[0])
         .filter(r => {
-          const parts = (r[0] || '').split('/');
+          const parts = String(r[0] || '').split('/');
           return parseInt(parts[0]) === mo && parseInt(parts[2]) === yr;
         })
         .map(r => ({
           date: r[0], type: r[1] || '',
-          amount: parseFloat(r[2]) || 0,
+          amount: parseAmt(r[2]),
           desc: r[3] || '', account: r[4] || '',
           done: r[5] === 'TRUE' || r[5] === true,
         }))
@@ -500,6 +509,22 @@ ${stmtTxns.length ? `
           <p className="text-violet-200 font-semibold text-sm">Bill Tracker</p>
           <p className="text-violet-400 text-xs">Monthly expense breakdown</p>
         </button>
+        <button
+          onClick={() => setShowCommCalc(true)}
+          className="bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-700/40 rounded-2xl p-4 flex flex-col gap-1 text-left transition-colors"
+        >
+          <span className="text-xl">🎨</span>
+          <p className="text-indigo-200 font-semibold text-sm">Commission Calc</p>
+          <p className="text-indigo-400 text-xs">Price your art fairly</p>
+        </button>
+        <button
+          onClick={() => setShowBudget(true)}
+          className="bg-sky-900/40 hover:bg-sky-900/60 border border-sky-700/40 rounded-2xl p-4 flex flex-col gap-1 text-left transition-colors"
+        >
+          <span className="text-xl">📊</span>
+          <p className="text-sky-200 font-semibold text-sm">Budget Analyzer</p>
+          <p className="text-sky-400 text-xs">50/30/20 breakdown</p>
+        </button>
       </div>
 
       {/* ── Stat cards ──────────────────────────────────────── */}
@@ -800,6 +825,201 @@ ${stmtTxns.length ? `
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Commission Price Calculator ──────────────────────── */}
+      {showCommCalc && (() => {
+        function CommCalc() {
+          const [hours,       setHours]       = useState('');
+          const [rate,        setRate]        = useState(() => localStorage.getItem('commCalcRate') || '');
+          const [materials,   setMaterials]   = useState('');
+          const [platformFee, setPlatformFee] = useState('0');
+          const [margin,      setMargin]      = useState('20');
+          const [copied,      setCopied]      = useState(false);
+
+          const h   = parseFloat(hours)       || 0;
+          const r   = parseFloat(rate)        || 0;
+          const mat = parseFloat(materials)   || 0;
+          const fee = parseFloat(platformFee) || 0;
+          const mrg = parseFloat(margin)      || 0;
+
+          const base      = h * r + mat;
+          const withFee   = fee < 100 ? base / (1 - fee / 100) : base;
+          const suggested = mrg < 100 ? withFee / (1 - mrg / 100) : withFee;
+          const profit    = suggested - withFee;
+          const feeAmt    = withFee - base;
+          const labor     = h * r;
+
+          function copy() {
+            navigator.clipboard.writeText(suggested.toFixed(2));
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }
+
+          return (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50">
+              <div className="bg-slate-900 w-full rounded-t-3xl max-h-[88vh] overflow-y-auto">
+                <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-white font-bold font-broske">Commission Price Calculator</h3>
+                    <p className="text-slate-400 text-xs mt-0.5">Time · materials · fees · margin</p>
+                  </div>
+                  <button onClick={() => setShowCommCalc(false)} className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center">✕</button>
+                </div>
+                <div className="px-5 py-5 space-y-4 pb-8">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Hours</label>
+                      <input type="number" min="0" step="0.5" value={hours} onChange={e => setHours(e.target.value)} placeholder="0"
+                        className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Hourly Rate ($)</label>
+                      <input type="number" min="0" step="0.5" value={rate}
+                        onChange={e => setRate(e.target.value)}
+                        onBlur={e => localStorage.setItem('commCalcRate', e.target.value)}
+                        placeholder="0.00"
+                        className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Materials ($)</label>
+                      <input type="number" min="0" step="0.01" value={materials} onChange={e => setMaterials(e.target.value)} placeholder="0.00"
+                        className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Platform Fee (%)</label>
+                      <input type="number" min="0" max="99" step="0.5" value={platformFee} onChange={e => setPlatformFee(e.target.value)} placeholder="0"
+                        className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Desired Profit Margin (%)</label>
+                    <input type="number" min="0" max="99" step="1" value={margin} onChange={e => setMargin(e.target.value)} placeholder="20"
+                      className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+                  </div>
+
+                  {base > 0 && (
+                    <div className="bg-indigo-900/30 border border-indigo-700/40 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-indigo-300 text-xs uppercase tracking-wider font-broske">Suggested Price</p>
+                          <p className="text-white text-4xl font-bold font-mono tabular-nums mt-1">${suggested.toFixed(2)}</p>
+                        </div>
+                        <button onClick={copy}
+                          className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${copied ? 'bg-emerald-600 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
+                          {copied ? '✓ Copied' : 'Copy'}
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        {labor > 0   && <span className="bg-slate-700/60 text-slate-300 px-2.5 py-1 rounded-full font-mono">Labor ${labor.toFixed(2)}</span>}
+                        {mat > 0     && <span className="bg-slate-700/60 text-slate-300 px-2.5 py-1 rounded-full font-mono">Materials ${mat.toFixed(2)}</span>}
+                        {feeAmt > 0  && <span className="bg-rose-900/40 text-rose-300 px-2.5 py-1 rounded-full font-mono">Fees ${feeAmt.toFixed(2)}</span>}
+                        {profit > 0  && <span className="bg-emerald-900/40 text-emerald-300 px-2.5 py-1 rounded-full font-mono">Profit ${profit.toFixed(2)}</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
+        return <CommCalc key="comm-calc" />;
+      })()}
+
+      {/* ── 50/30/20 Budget Analyzer ──────────────────────────── */}
+      {showBudget && (() => {
+        const needsAmt  = expenses.filter(e => String(e['Priority'] ?? '3') === '1').reduce((s, e) => s + (parseFloat(e['Actual Spend']) || 0), 0);
+        const wantsAmt  = expenses.filter(e => ['2','3'].includes(String(e['Priority'] ?? '3'))).reduce((s, e) => s + (parseFloat(e['Actual Spend']) || 0), 0);
+        const savingsAmt = Math.max(0, income - needsAmt - wantsAmt);
+
+        const needsPct   = income > 0 ? (needsAmt  / income) * 100 : 0;
+        const wantsPct   = income > 0 ? (wantsAmt  / income) * 100 : 0;
+        const savingsPct = income > 0 ? (savingsAmt / income) * 100 : 0;
+
+        const buckets = [
+          { label: 'Needs', target: 50, actual: needsPct,   amt: needsAmt,   targetAmt: income * 0.5, color: '#3b82f6', items: expenses.filter(e => String(e['Priority'] ?? '3') === '1') },
+          { label: 'Wants', target: 30, actual: wantsPct,   amt: wantsAmt,   targetAmt: income * 0.3, color: '#a855f7', items: expenses.filter(e => ['2','3'].includes(String(e['Priority'] ?? '3'))) },
+          { label: 'Savings', target: 20, actual: savingsPct, amt: savingsAmt, targetAmt: income * 0.2, color: '#10b981', items: [] },
+        ];
+
+        const furthest = [...buckets].sort((a, b) => Math.abs(b.actual - b.target) - Math.abs(a.actual - a.target))[0];
+        let recommendation = '';
+        if (income === 0) {
+          recommendation = 'No income recorded this month yet.';
+        } else if (furthest.actual > furthest.target + 10) {
+          recommendation = `${furthest.label} are ${furthest.actual.toFixed(0)}% of income — $${(furthest.amt - furthest.targetAmt).toFixed(0)} over the ${furthest.target}% target.`;
+        } else if (furthest.actual < furthest.target - 10) {
+          recommendation = `${furthest.label} are ${furthest.actual.toFixed(0)}% of income — $${(furthest.targetAmt - furthest.amt).toFixed(0)} below the ${furthest.target}% target.`;
+        } else {
+          recommendation = `All three buckets are within 10% of their targets — great balance!`;
+        }
+
+        return (
+          <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
+            <div className="shrink-0 border-b border-slate-800 px-5 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-white font-bold text-lg font-broske">50/30/20 Analyzer</h2>
+                <p className="text-slate-400 text-xs mt-0.5">{currentMonth} {currentYear} · Income: ${income.toFixed(2)}</p>
+              </div>
+              <button onClick={() => setShowBudget(false)} className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">✕</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 pb-24">
+              {income === 0 && (
+                <div className="bg-slate-800 rounded-2xl p-6 text-center">
+                  <p className="text-slate-400 text-sm">No income data for this month yet.</p>
+                </div>
+              )}
+
+              {buckets.map(b => {
+                const over = b.actual > b.target + 10;
+                const under = b.actual < b.target - 10;
+                const barColor = over ? '#ef4444' : under ? '#f59e0b' : b.color;
+                const pct = Math.min(100, b.actual);
+                return (
+                  <div key={b.label} className="bg-slate-800 rounded-2xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-white font-semibold font-broske">{b.label}</p>
+                        <p className="text-slate-400 text-xs">Target: {b.target}% · ${b.targetAmt.toFixed(0)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-mono font-bold text-white tabular-nums">${b.amt.toFixed(2)}</p>
+                        <p className={`text-xs font-mono ${over ? 'text-rose-400' : under ? 'text-amber-400' : 'text-emerald-400'}`}>{b.actual.toFixed(1)}%</p>
+                      </div>
+                    </div>
+                    <div className="relative h-3 bg-slate-700 rounded-full overflow-hidden">
+                      <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{ width: `${pct}%`, background: barColor }} />
+                      <div className="absolute inset-y-0 border-r-2 border-white/40" style={{ left: `${b.target}%` }} />
+                    </div>
+                    <p className="text-slate-500 text-[10px]">White line = {b.target}% target</p>
+
+                    {b.items.length > 0 && (
+                      <div className="space-y-1 pt-1 border-t border-slate-700">
+                        {b.items.map((e, i) => {
+                          const allw = parseFloat(e['Monthly Allowance ($)']) || 0;
+                          const sp   = parseFloat(e['Actual Spend']) || 0;
+                          return (
+                            <div key={i} className="flex items-center justify-between text-xs">
+                              <span className="text-slate-300 flex-1 truncate">{e['Type'] || '—'}</span>
+                              <span className="text-slate-400 font-mono tabular-nums ml-2">${sp.toFixed(2)}</span>
+                              <span className="text-slate-600 font-mono w-14 text-right tabular-nums">/ ${allw.toFixed(2)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div className="bg-sky-900/30 border border-sky-700/40 rounded-2xl p-4">
+                <p className="text-sky-300 text-xs font-broske uppercase tracking-wider mb-1">Recommendation</p>
+                <p className="text-white text-sm leading-relaxed">{recommendation}</p>
               </div>
             </div>
           </div>
