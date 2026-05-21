@@ -7,6 +7,11 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import ProcessIncome from '../components/ProcessIncome';
 import { ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
+function pm(val) {
+  if (!val && val !== 0) return 0;
+  const n = parseFloat(String(val).replace(/[$,\s]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
 function fmt(val) {
   const n = parseFloat(String(val ?? '').replace(/[$,\s]/g, ''));
   if (isNaN(n)) return '—';
@@ -231,7 +236,7 @@ export default function Dashboard({ token }) {
     // Group expenses by priority
     const priGroups = ['1','2','3'].map(p => ({
       p, label: { '1':'Essential','2':'Stability','3':'Optional' }[p],
-      items: expenses.filter(e => String(e['Priority'] ?? '3') === p && parseFloat(e['Monthly Allowance ($)']) > 0),
+      items: expenses.filter(e => String(e['Priority'] ?? '3') === p && pm(e['Monthly Allowance ($)']) > 0),
     })).filter(g => g.items.length);
 
     // Group transactions by type
@@ -312,8 +317,8 @@ ${priGroups.length ? priGroups.map(g => `
     <thead><tr><th>Item</th><th>Account</th><th class="amt">Allowance</th><th class="amt">Spent</th><th class="amt">Remaining</th></tr></thead>
     <tbody>
       ${g.items.map(e => {
-        const allw = parseFloat(e['Monthly Allowance ($)']) || 0;
-        const sp   = parseFloat(e['Actual Spend'])          || 0;
+        const allw = pm(e['Monthly Allowance ($)']);
+        const sp   = pm(e['Actual Spend']);
         const rem  = allw - sp;
         return `<tr>
           <td>${e['Type'] || '—'}</td>
@@ -325,9 +330,9 @@ ${priGroups.length ? priGroups.map(g => `
       }).join('')}
       <tr style="font-weight:bold;background:#fafafa">
         <td colspan="2">Subtotal</td>
-        <td class="amt">${fmtAmt(g.items.reduce((s,e)=>s+parseFloat(e['Monthly Allowance ($)']),0))}</td>
-        <td class="amt">${fmtAmt(g.items.reduce((s,e)=>s+parseFloat(e['Actual Spend']||0),0))}</td>
-        <td class="amt">${fmtAmt(g.items.reduce((s,e)=>s+(parseFloat(e['Monthly Allowance ($)'])-parseFloat(e['Actual Spend']||0)),0))}</td>
+        <td class="amt">${fmtAmt(g.items.reduce((s,e)=>s+pm(e['Monthly Allowance ($)']),0))}</td>
+        <td class="amt">${fmtAmt(g.items.reduce((s,e)=>s+pm(e['Actual Spend']),0))}</td>
+        <td class="amt">${fmtAmt(g.items.reduce((s,e)=>s+(pm(e['Monthly Allowance ($)'])-pm(e['Actual Spend'])),0))}</td>
       </tr>
     </tbody>
   </table><br/>
@@ -710,8 +715,8 @@ ${stmtTxns.length ? `
 
       {/* ── Bill Tracker modal (full-screen) ─────────────────── */}
       {showBills && (() => {
-        const billExpenses = expenses.filter(e => parseFloat(e['Monthly Allowance ($)']) > 0);
-        const totalBudget  = billExpenses.reduce((s, e) => s + (parseFloat(e['Monthly Allowance ($)']) || 0), 0);
+        const billExpenses = expenses.filter(e => pm(e['Monthly Allowance ($)']) > 0);
+        const totalBudget  = billExpenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
 
         const priorityMeta = {
           '1': { label: 'Essential',  color: '#f43f5e', text: 'text-rose-400',   badge: 'bg-rose-900/50 text-rose-300'   },
@@ -730,13 +735,13 @@ ${stmtTxns.length ? `
           const idx = priorityCounts[p] ?? 0;
           priorityCounts[p] = idx + 1;
           const palette = PIE_PALETTE[p] || PIE_PALETTE['3'];
-          return { name: e['Type'] || e['Expense'] || '—', value: parseFloat(e['Monthly Allowance ($)']), color: palette[idx % palette.length], priority: p };
+          return { name: e['Type'] || e['Expense'] || '—', value: pm(e['Monthly Allowance ($)']), color: palette[idx % palette.length], priority: p };
         });
 
         const priorityTotals = {};
         billExpenses.forEach(e => {
           const p = String(e['Priority'] ?? '3');
-          priorityTotals[p] = (priorityTotals[p] || 0) + (parseFloat(e['Monthly Allowance ($)']) || 0);
+          priorityTotals[p] = (priorityTotals[p] || 0) + pm(e['Monthly Allowance ($)']);
         });
 
         const grouped = ['1','2','3'].map(p => ({
@@ -802,7 +807,7 @@ ${stmtTxns.length ? `
                     </div>
                     <div className="space-y-2">
                       {items.map((e, i) => {
-                        const amt = parseFloat(e['Monthly Allowance ($)']) || 0;
+                        const amt = pm(e['Monthly Allowance ($)']);
                         const pct = totalBudget > 0 ? (amt / totalBudget) * 100 : 0;
                         return (
                           <div key={i} className="bg-slate-900 rounded-xl px-4 py-3 space-y-1.5">
@@ -932,8 +937,8 @@ ${stmtTxns.length ? `
 
       {/* ── 50/30/20 Budget Analyzer ──────────────────────────── */}
       {showBudget && (() => {
-        const needsAmt  = expenses.filter(e => String(e['Priority'] ?? '3') === '1').reduce((s, e) => s + (parseFloat(e['Actual Spend']) || 0), 0);
-        const wantsAmt  = expenses.filter(e => ['2','3'].includes(String(e['Priority'] ?? '3'))).reduce((s, e) => s + (parseFloat(e['Actual Spend']) || 0), 0);
+        const needsAmt  = expenses.filter(e => String(e['Priority'] ?? '3') === '1').reduce((s, e) => s + pm(e['Actual Spend']), 0);
+        const wantsAmt  = expenses.filter(e => ['2','3'].includes(String(e['Priority'] ?? '3'))).reduce((s, e) => s + pm(e['Actual Spend']), 0);
         const savingsAmt = Math.max(0, income - needsAmt - wantsAmt);
 
         const needsPct   = income > 0 ? (needsAmt  / income) * 100 : 0;
@@ -1001,8 +1006,8 @@ ${stmtTxns.length ? `
                     {b.items.length > 0 && (
                       <div className="space-y-1 pt-1 border-t border-slate-700">
                         {b.items.map((e, i) => {
-                          const allw = parseFloat(e['Monthly Allowance ($)']) || 0;
-                          const sp   = parseFloat(e['Actual Spend']) || 0;
+                          const allw = pm(e['Monthly Allowance ($)']);
+                          const sp   = pm(e['Actual Spend']);
                           return (
                             <div key={i} className="flex items-center justify-between text-xs">
                               <span className="text-slate-300 flex-1 truncate">{e['Type'] || '—'}</span>
@@ -1106,7 +1111,7 @@ ${stmtTxns.length ? `
                   barClr: { '1':'#f43f5e','2':'f59e0b','3':'#8b5cf6' }[p],
                   bg:     { '1':'bg-rose-950/40','2':'bg-amber-950/40','3':'bg-violet-950/40' }[p],
                   border: { '1':'border-rose-800/40','2':'border-amber-800/40','3':'border-violet-800/40' }[p],
-                  items: expenses.filter(e => String(e['Priority'] ?? '3') === p && parseFloat(e['Monthly Allowance ($)']) > 0),
+                  items: expenses.filter(e => String(e['Priority'] ?? '3') === p && pm(e['Monthly Allowance ($)']) > 0),
                 })).filter(g => g.items.length);
 
                 const SectionLabel = ({ children }) => (
@@ -1267,7 +1272,7 @@ ${stmtTxns.length ? `
                     {priGroups.length > 0 && (() => {
                       const bvaData = priGroups.map(g => ({
                         name: g.label,
-                        budget: g.items.reduce((s, e) => s + (parseFloat(e['Monthly Allowance ($)']) || 0), 0),
+                        budget: g.items.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0),
                         actual: g.items.reduce((s, e) => s + (parseFloat(e['Actual Spend'] || 0)), 0),
                         color: { '1':'#f43f5e','2':'#f59e0b','3':'#8b5cf6' }[g.p],
                       }));
@@ -1304,7 +1309,7 @@ ${stmtTxns.length ? `
                       <SectionLabel>Budget Allocation</SectionLabel>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         {priGroups.map(g => {
-                          const gAllw = g.items.reduce((s, e) => s + (parseFloat(e['Monthly Allowance ($)']) || 0), 0);
+                          const gAllw = g.items.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
                           const gSpent = g.items.reduce((s, e) => s + (parseFloat(e['Actual Spend'] || 0)), 0);
                           const gPct = gAllw > 0 ? Math.min((gSpent / gAllw) * 100, 100) : 0;
                           const priBarClr = { '1':'#f43f5e','2':'#f59e0b','3':'#8b5cf6' }[g.p];
@@ -1336,7 +1341,7 @@ ${stmtTxns.length ? `
                               {/* Items */}
                               <div className="divide-y divide-slate-800/60">
                                 {g.items.map((e, i) => {
-                                  const allw = parseFloat(e['Monthly Allowance ($)']) || 0;
+                                  const allw = pm(e['Monthly Allowance ($)']);
                                   const sp   = parseFloat(e['Actual Spend'] || 0);
                                   const pct  = allw > 0 ? Math.min((sp / allw) * 100, 100) : 0;
                                   const over = sp > allw && allw > 0;
