@@ -1046,6 +1046,12 @@ function SalesView({ token, products }) {
     return () => { cancelled = true; };
   }, [token, refreshCount]);
 
+  // Keep the sales list live while this tab is open — re-fetch every 30s.
+  useEffect(() => {
+    const id = setInterval(() => setRefreshCount(c => c + 1), 30000);
+    return () => clearInterval(id);
+  }, []);
+
   const now = new Date();
   const filtered = useMemo(() => {
     if (period === 'all') return transactions;
@@ -1355,7 +1361,7 @@ function SalesView({ token, products }) {
         </>
       )}
 
-      {showProcess && budgetExpenses.length > 0 && (
+      {showProcess && (
         <ProcessIncome
           expenses={budgetExpenses}
           token={token}
@@ -1643,7 +1649,10 @@ export default function BusinessExpenses({ token }) {
           product={processing}
           token={token}
           onClose={() => setProcessing(null)}
-          onSuccess={() => setSalesRefreshKey(k => k + 1)}
+          onSuccess={() => {
+            setSalesRefreshKey(k => k + 1);
+            setViewMode('sales');   // auto-switch to Sales tab so the user sees the new transaction immediately
+          }}
         />
       )}
       {saving && !editing && (
