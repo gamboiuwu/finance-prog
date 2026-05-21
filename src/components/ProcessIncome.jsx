@@ -344,28 +344,33 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           {!histLoading && (
             <div className="grid grid-cols-3 gap-2 pt-1">
               {[
-                { p: 1, label: 'Essential', color: '#f43f5e', textClass: 'text-rose-400' },
-                { p: 2, label: 'Stability', color: '#f59e0b', textClass: 'text-amber-400' },
-                { p: 3, label: 'Optional',  color: '#8b5cf6', textClass: 'text-violet-400' },
-              ].map(({ p, label, color, textClass }) => {
-                const tier     = tierTotals[p];
-                const total    = tier.already + (amount > 0 ? tier.deposit : 0);
-                const tierPct  = tier.budget > 0 ? (total / tier.budget) * 100 : 0;
+                { p: 1, label: 'Essential', color: '#f43f5e', gradFrom: 'from-rose-950/60',   gradTo: 'to-slate-800', border: 'border-rose-800/30',   textClass: 'text-rose-400'   },
+                { p: 2, label: 'Stability', color: '#f59e0b', gradFrom: 'from-amber-950/60',  gradTo: 'to-slate-800', border: 'border-amber-800/30',  textClass: 'text-amber-400'  },
+                { p: 3, label: 'Optional',  color: '#8b5cf6', gradFrom: 'from-violet-950/60', gradTo: 'to-slate-800', border: 'border-violet-800/30', textClass: 'text-violet-400' },
+              ].map(({ p, label, color, gradFrom, gradTo, border, textClass }) => {
+                const tier       = tierTotals[p];
+                const total      = tier.already + (amount > 0 ? tier.deposit : 0);
+                const tierPct    = tier.budget > 0 ? Math.min((total / tier.budget) * 100, 100) : 0;
+                const alreadyPct = tier.budget > 0 ? Math.min((tier.already / tier.budget) * 100, 100) : 0;
+                const newPct     = tier.budget > 0 ? Math.min((amount > 0 ? tier.deposit / tier.budget * 100 : 0), 100) : 0;
+                const isFull     = tierPct >= 100;
                 return (
-                  <div key={p} className="bg-slate-800 rounded-xl p-2.5 space-y-1.5">
-                    <p className={`text-[10px] font-bold ${textClass}`}>P{p} {label}</p>
-                    <p className="text-white text-xs font-mono font-bold tabular-nums">{fmt(total)}</p>
-                    {tier.already > 0 && amount > 0 && (
-                      <p className="text-slate-500 text-[10px] font-mono">{fmt(tier.already)} + {fmt(tier.deposit)}</p>
-                    )}
-                    <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                      {/* Already-contributed shown as solid base */}
-                      <div className="h-1.5 rounded-full flex overflow-hidden">
-                        <div style={{ width: `${Math.min(tier.budget > 0 ? (tier.already / tier.budget) * 100 : 0, 100)}%`, background: color, opacity: 0.4 }} />
-                        <div style={{ width: `${Math.min(tier.budget > 0 ? (amount > 0 ? tier.deposit / tier.budget * 100 : 0) : 0, 100)}%`, background: color }} />
+                  <div key={p} className={`bg-gradient-to-b ${gradFrom} ${gradTo} rounded-xl p-3 border ${border} space-y-2`}>
+                    <p className={`text-[9px] font-bold uppercase tracking-wider ${textClass}`}>P{p} {label}</p>
+                    <div className="flex items-end justify-between gap-1">
+                      <p className="text-white text-sm font-bold font-mono tabular-nums leading-none">{fmt(total)}</p>
+                      <p className={`text-xl font-black tabular-nums leading-none ${isFull ? 'text-emerald-400' : textClass}`}>
+                        {tierPct.toFixed(0)}<span className="text-[10px] font-bold">%</span>
+                      </p>
+                    </div>
+                    {/* Segmented bar: faded = already, solid = new */}
+                    <div className="w-full bg-slate-900/60 rounded-full h-3 overflow-hidden">
+                      <div className="h-3 flex overflow-hidden rounded-full">
+                        <div style={{ width: `${alreadyPct}%`, background: color, opacity: 0.35 }} className="transition-all duration-300" />
+                        <div style={{ width: `${newPct}%`, background: `linear-gradient(90deg, ${color}cc, ${color})` }} className="transition-all duration-300" />
                       </div>
                     </div>
-                    <p className="text-slate-500 text-[10px]">{tierPct.toFixed(0)}% of goal</p>
+                    <p className="text-slate-600 text-[9px] font-mono">{tier.budget > 0 ? fmt(tier.budget) : '—'} goal</p>
                   </div>
                 );
               })}

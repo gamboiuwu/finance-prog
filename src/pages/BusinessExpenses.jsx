@@ -474,6 +474,11 @@ function ProcessModal({ product, token, onClose }) {
     setSubmitting(true);
     try {
       await ensureSheetTab(token, TRANS_SHEET);
+      // Write header row if sheet is empty so SalesView can detect it
+      const existing = await readRange(token, `${TRANS_SHEET}!A1:G1`);
+      if (!existing.length || !existing[0]?.length) {
+        await appendRow(token, `${TRANS_SHEET}!A:G`, ['Date', 'Product', 'Quantity', 'Unit Price', 'Revenue', 'Margin %', 'Allocation']);
+      }
       const today = new Date().toISOString().slice(0, 10);
       const allocJSON = JSON.stringify(
         steps.reduce((obj, st) => { obj[blockLabel(st)] = st.allocated.toFixed(4); return obj; }, {})
@@ -734,8 +739,10 @@ function SalesView({ token, products }) {
     setLoading(true);
     readRange(token, `${TRANS_SHEET}!A:G`, 'UNFORMATTED_VALUE')
       .then(rows => {
-        if (rows.length < 2) { setTransactions([]); return; }
-        const [, ...data] = rows;
+        if (!rows.length) { setTransactions([]); return; }
+        // Skip header row if present (first cell is the text 'Date')
+        const data = String(rows[0]?.[0] || '').toLowerCase() === 'date' ? rows.slice(1) : rows;
+        if (!data.length) { setTransactions([]); return; }
         const parsed = data
           .filter(r => r[0] || r[1])
           .map((r, idx) => {

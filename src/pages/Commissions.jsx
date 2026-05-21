@@ -174,16 +174,60 @@ export default function Commissions({ token }) {
       </div>
 
       {/* Summary */}
-      <div className="bg-slate-800 rounded-2xl p-4 grid grid-cols-2 gap-4">
-        <div>
-          <p className="text-slate-400 text-xs uppercase tracking-wider">Potential</p>
-          <p className="text-white text-xl font-bold mt-1">${totalPotential.toFixed(2)}</p>
-        </div>
-        <div>
-          <p className="text-slate-400 text-xs uppercase tracking-wider">Paid</p>
-          <p className="text-emerald-400 text-xl font-bold mt-1">${totalPaid.toFixed(2)}</p>
-        </div>
-      </div>
+      {(() => {
+        const outstanding = Math.max(0, totalPotential - totalPaid);
+        const collectPct  = totalPotential > 0 ? Math.min((totalPaid / totalPotential) * 100, 100) : 0;
+        const collectColor = collectPct >= 80 ? '#10b981' : collectPct >= 50 ? '#f59e0b' : '#f43f5e';
+        const completedCount = inquiries.filter(i => (i['Status'] || '').toLowerCase().includes('complet')).length;
+        const completePct = inquiries.length > 0 ? (completedCount / inquiries.length) * 100 : 0;
+        return (
+          <div className="bg-gradient-to-br from-slate-800 via-slate-800 to-slate-900 rounded-2xl border border-slate-700/50 overflow-hidden shadow-lg">
+            {/* Top row — two stat blocks */}
+            <div className="grid grid-cols-2 divide-x divide-slate-700/50">
+              <div className="p-4 space-y-1">
+                <p className="text-slate-400 text-[10px] uppercase tracking-widest font-medium">Potential</p>
+                <p className="text-white text-2xl font-black tabular-nums">${totalPotential.toFixed(2)}</p>
+                <p className="text-slate-500 text-[10px]">{inquiries.length} inquiry{inquiries.length !== 1 ? 's' : ''}</p>
+              </div>
+              <div className="p-4 space-y-1 bg-emerald-900/10">
+                <p className="text-slate-400 text-[10px] uppercase tracking-widest font-medium">Collected</p>
+                <p className="text-emerald-400 text-2xl font-black tabular-nums">${totalPaid.toFixed(2)}</p>
+                <p className="text-slate-500 text-[10px]">${outstanding.toFixed(2)} outstanding</p>
+              </div>
+            </div>
+
+            {/* Collection progress bar */}
+            <div className="px-4 pb-3 pt-1 space-y-1.5">
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-slate-500 uppercase tracking-wider">Collection Rate</span>
+                <span className="font-bold tabular-nums" style={{ color: collectColor }}>{collectPct.toFixed(0)}%</span>
+              </div>
+              <div className="w-full bg-slate-700/60 rounded-full h-2.5 overflow-hidden">
+                <div
+                  className="h-2.5 rounded-full transition-all duration-500"
+                  style={{ width: `${collectPct}%`, background: `linear-gradient(90deg, ${collectColor}99, ${collectColor})` }}
+                />
+              </div>
+            </div>
+
+            {/* Completion progress bar */}
+            {inquiries.length > 0 && (
+              <div className="px-4 pb-4 space-y-1.5">
+                <div className="flex justify-between items-center text-[10px]">
+                  <span className="text-slate-500 uppercase tracking-wider">Completion</span>
+                  <span className="font-bold tabular-nums text-sky-400">{completedCount}/{inquiries.length} done</span>
+                </div>
+                <div className="w-full bg-slate-700/60 rounded-full h-2.5 overflow-hidden">
+                  <div
+                    className="h-2.5 rounded-full transition-all duration-500"
+                    style={{ width: `${completePct}%`, background: 'linear-gradient(90deg, #0ea5e999, #38bdf8)' }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* List */}
       <div className="space-y-3">
