@@ -111,19 +111,19 @@ export default function Dashboard({ token }) {
     m => m['Month'] === currentMonth && String(m['Year']) === String(currentYear)
   );
 
-  const income      = parseFloat(current?.['Total Processed Income']) || 0;
-  const unprocessed = parseFloat(current?.['Unprocessed Income'])     || 0;
-  const spent       = parseFloat(current?.['Total Spent'])            || 0;
-  const goal        = parseFloat(current?.['Allowance Goal'])         || 0;
+  const income      = pm(current?.['Total Processed Income']);
+  const unprocessed = pm(current?.['Unprocessed Income']);
+  const spent       = pm(current?.['Total Spent']);
+  const goal        = pm(current?.['Allowance Goal']);
   const net         = income - spent;
   const goalPct     = goal > 0 ? (income / goal) * 100 : 0;
   const spendPct    = income > 0 ? (spent / income) * 100 : 0;
 
   const chartData = allMonths
-    .filter(m => parseFloat(m['Total Processed Income']) > 0)
+    .filter(m => pm(m['Total Processed Income']) > 0)
     .map(m => {
-      const inc = parseFloat(m['Total Processed Income']) || 0;
-      const spt = parseFloat(m['Total Spent'])            || 0;
+      const inc = pm(m['Total Processed Income']);
+      const spt = pm(m['Total Spent']);
       return { month: m['Month']?.slice(0, 3), income: inc, spent: spt, net: inc - spt };
     });
 
@@ -229,9 +229,9 @@ export default function Dashboard({ token }) {
       if (n == null || isNaN(n)) return '—';
       return n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
     };
-    const income = parseFloat(current?.['Total Processed Income']) || 0;
-    const spent  = parseFloat(current?.['Total Spent'])            || 0;
-    const goal   = parseFloat(current?.['Allowance Goal'])         || 0;
+    const income = pm(current?.['Total Processed Income']);
+    const spent  = pm(current?.['Total Spent']);
+    const goal   = pm(current?.['Allowance Goal']);
     const net    = income - spent;
 
     // Group expenses by priority
@@ -617,9 +617,9 @@ ${stmtTxns.length ? `
           <p className="text-slate-300 font-medium text-sm mb-3 font-broske tracking-wide">Past Monthly Reports</p>
           <div className="space-y-2">
             {pastMonths.map((m, i) => {
-              const mIncome = parseFloat(m['Total Processed Income']) || 0;
-              const mSpent  = parseFloat(m['Total Spent'])            || 0;
-              const mGoal   = parseFloat(m['Allowance Goal'])         || 0;
+              const mIncome = pm(m['Total Processed Income']);
+              const mSpent  = pm(m['Total Spent']);
+              const mGoal   = pm(m['Allowance Goal']);
               const mNet    = mIncome - mSpent;
               const mPct    = mGoal > 0 ? Math.min((mIncome / mGoal) * 100, 100) : 0;
               return (
@@ -648,9 +648,9 @@ ${stmtTxns.length ? `
       <div>
         <p className="text-slate-300 font-medium text-sm mb-3 font-broske tracking-wide">Full Year</p>
         <div className="bg-slate-800 rounded-2xl overflow-hidden">
-          {allMonths.filter(m => parseFloat(m['Total Processed Income']) > 0 || parseFloat(m['Allowance Goal']) > 0).map((m, i, arr) => {
-            const mIncome = parseFloat(m['Total Processed Income']) || 0;
-            const mSpent  = parseFloat(m['Total Spent'])            || 0;
+          {allMonths.filter(m => pm(m['Total Processed Income']) > 0 || pm(m['Allowance Goal']) > 0).map((m, i, arr) => {
+            const mIncome = pm(m['Total Processed Income']);
+            const mSpent  = pm(m['Total Spent']);
             const isCur   = m['Month'] === currentMonth;
             return (
               <div key={i} className={`flex justify-between items-center px-4 py-3 ${i < arr.length - 1 ? 'border-b border-slate-700' : ''} ${isCur ? 'bg-blue-900/20' : ''}`}>
@@ -1207,10 +1207,10 @@ ${stmtTxns.length ? `
 
               {!stmtLoading && !stmtError && (() => {
                 const fmtS = n => n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
-                const totalIncome = parseFloat(current?.['Total Processed Income']) || 0;
-                const totalSpent  = parseFloat(current?.['Total Spent'])            || 0;
+                const totalIncome = pm(current?.['Total Processed Income']);
+                const totalSpent  = pm(current?.['Total Spent']);
                 const netSaved    = totalIncome - totalSpent;
-                const goalAmt     = parseFloat(current?.['Allowance Goal'])         || 0;
+                const goalAmt     = pm(current?.['Allowance Goal']);
 
                 // Spending by category — negative transactions only, grouped by type
                 const catSpend = {};
