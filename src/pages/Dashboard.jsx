@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { readRange, readReportLinks, appendRow } from '../lib/sheets';
+import { readRange, readReportLinks, appendRow, ensureSheetTab } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
 import { SHEETS, MONTHS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -16,6 +16,40 @@ function fmt(val) {
   const n = parseFloat(String(val ?? '').replace(/[$,\s]/g, ''));
   if (isNaN(n)) return '—';
   return n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
+}
+
+const SUB_CYCLES = ['monthly', 'annual', 'weekly', 'biweekly'];
+
+function nextRenewal(startDateStr, cycle) {
+  if (!startDateStr) return null;
+  const start = new Date(startDateStr + 'T12:00:00');
+  if (isNaN(start)) return null;
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  if (cycle === 'annual') {
+    const d = new Date(start); d.setFullYear(today.getFullYear());
+    if (d < today) d.setFullYear(d.getFullYear() + 1);
+    return d;
+  }
+  if (cycle === 'monthly') {
+    const d = new Date(start); d.setFullYear(today.getFullYear()); d.setMonth(today.getMonth());
+    if (d < today) d.setMonth(d.getMonth() + 1);
+    return d;
+  }
+  if (cycle === 'weekly' || cycle === 'biweekly') {
+    const period = cycle === 'weekly' ? 7 : 14;
+    const elapsed = Math.floor((today - start) / 86400000);
+    const rem = period - (elapsed % period);
+    const d = new Date(today); d.setDate(d.getDate() + (rem === period ? 0 : rem));
+    return d;
+  }
+  return null;
+}
+
+function daysUntil(date) {
+  if (!date) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(date); d.setHours(0, 0, 0, 0);
+  return Math.round((d - today) / 86400000);
 }
 
 function StatCard({ label, value, sub, color = 'text-white' }) {
@@ -61,6 +95,9 @@ export default function Dashboard({ token }) {
   const [showBudget, setShowBudget]         = useState(false);
   const [showMonthClose, setShowMonthClose] = useState(false);
   const [showStatement, setShowStatement]   = useState(false);
+  const [subscriptions, setSubscriptions]   = useState([]);
+  const [showSubs, setShowSubs]             = useState(false);
+  const [calMonth, setCalMonth]             = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
   const [stmtLoading, setStmtLoading]   = useState(false);
   const [stmtTxns, setStmtTxns]         = useState([]);
   const [stmtError, setStmtError]       = useState(null);
@@ -77,8 +114,9 @@ export default function Dashboard({ token }) {
       readRange(token, `${SHEETS.MONTHLY_EXPENSES}!A1:T40`),
       readReportLinks(token),
       fetchGasPrices().catch(() => null),
+      readRange(token, 'Subscriptions!A:E').catch(() => []),
     ])
-      .then(([summaryRows, expRows, links, gas]) => {
+      .then(([summaryRows, expRows, links, gas, subRows]) => {
         setReportLinks(links);
 
         if (summaryRows.length) {
@@ -98,6 +136,13 @@ export default function Dashboard({ token }) {
         if (gas) {
           const nyc = gas.byRegion['Y35NY']?.products['EPMR']?.value;
           setGasPrice({ value: nyc, period: gas.period });
+        }
+
+        if (subRows.length > 1) {
+          const [hdr, ...data] = subRows;
+          setSubscriptions(data.filter(r => r[0]).map(r =>
+            hdr.reduce((o, h, i) => { o[h] = r[i] ?? ''; return o; }, {})
+          ));
         }
       })
       .catch(e => setError(e.message))
@@ -555,6 +600,128 @@ ${stmtTxns.length ? `
         </button>
       </div>
 
+      {/* ── Subscriptions button ────────────────────────────── */}
+      <button
+        onClick={() => setShowSubs(true)}
+        className="w-full bg-teal-900/30 hover:bg-teal-900/50 border border-teal-700/40 rounded-2xl px-4 py-3 flex items-center justify-between transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-xl">🔁</span>
+          <div className="text-left">
+            <p className="text-teal-200 font-semibold text-sm">Subscriptions</p>
+            <p className="text-teal-500 text-xs">
+              {subscriptions.length > 0
+                ? `${subscriptions.length} active · next due: ${(() => {
+                    const upcoming = subscriptions
+                      .map(s => ({ ...s, next: nextRenewal(s['Start Date'], (s['Cycle'] || 'monthly').toLowerCase()) }))
+                      .filter(s => s.next)
+                      .sort((a, b) => a.next - b.next)[0];
+                    if (!upcoming) return '—';
+                    const d = daysUntil(upcoming.next);
+                    return d === 0 ? `${upcoming.Name} today` : d === 1 ? `${upcoming.Name} tomorrow` : `${upcoming.Name} in ${d}d`;
+                  })()}`
+                : 'Track recurring bills'}
+            </p>
+          </div>
+        </div>
+        <span className="text-teal-500 text-xs">→</span>
+      </button>
+
+      {/* ── Bill Calendar ────────────────────────────────────── */}
+      {(() => {
+        const { y, m } = calMonth;
+        const firstDay = new Date(y, m, 1).getDay();
+        const daysInMo = new Date(y, m + 1, 0).getDate();
+        const todayD   = now.getFullYear() === y && now.getMonth() === m ? now.getDate() : -1;
+        const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+        // Map day-of-month → list of due subscriptions
+        const dueDays = {};
+        subscriptions.forEach(s => {
+          const next = nextRenewal(s['Start Date'], (s['Cycle'] || 'monthly').toLowerCase());
+          if (!next || next.getFullYear() !== y || next.getMonth() !== m) return;
+          const d = next.getDate();
+          if (!dueDays[d]) dueDays[d] = [];
+          dueDays[d].push(s['Name'] || '?');
+        });
+
+        // Upcoming in next 14 days
+        const upcoming = subscriptions
+          .map(s => ({ ...s, next: nextRenewal(s['Start Date'], (s['Cycle'] || 'monthly').toLowerCase()) }))
+          .filter(s => s.next)
+          .map(s => ({ ...s, days: daysUntil(s.next) }))
+          .filter(s => s.days !== null && s.days >= 0 && s.days <= 14)
+          .sort((a, b) => a.days - b.days);
+
+        const cells = [];
+        for (let i = 0; i < firstDay; i++) cells.push(null);
+        for (let d = 1; d <= daysInMo; d++) cells.push(d);
+
+        return (
+          <div className="bg-slate-800 rounded-2xl p-3 space-y-3">
+            {/* Calendar header */}
+            <div className="flex items-center justify-between">
+              <button onClick={() => setCalMonth(prev => {
+                let nm = prev.m - 1, ny = prev.y;
+                if (nm < 0) { nm = 11; ny--; }
+                return { y: ny, m: nm };
+              })} className="w-7 h-7 rounded-lg bg-slate-700 text-slate-300 flex items-center justify-center text-xs hover:bg-slate-600 transition-colors">‹</button>
+              <p className="text-white text-sm font-semibold">{MONTH_NAMES[m]} {y}</p>
+              <button onClick={() => setCalMonth(prev => {
+                let nm = prev.m + 1, ny = prev.y;
+                if (nm > 11) { nm = 0; ny++; }
+                return { y: ny, m: nm };
+              })} className="w-7 h-7 rounded-lg bg-slate-700 text-slate-300 flex items-center justify-center text-xs hover:bg-slate-600 transition-colors">›</button>
+            </div>
+
+            {/* Day labels */}
+            <div className="grid grid-cols-7 gap-0.5">
+              {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
+                <div key={d} className="text-center text-[9px] text-slate-500 uppercase tracking-wider py-0.5">{d}</div>
+              ))}
+              {cells.map((d, i) => {
+                if (!d) return <div key={`e-${i}`} />;
+                const isToday = d === todayD;
+                const events  = dueDays[d] || [];
+                return (
+                  <div key={d} className={`rounded-lg p-0.5 flex flex-col items-center gap-0.5 ${isToday ? 'bg-slate-600' : events.length ? 'bg-teal-900/30' : ''}`}>
+                    <span className={`text-[11px] font-medium leading-none pt-0.5 ${isToday ? 'text-white font-bold' : 'text-slate-400'}`}>{d}</span>
+                    {events.length > 0 && (
+                      <div className="flex gap-0.5 flex-wrap justify-center">
+                        {events.slice(0, 3).map((_, ei) => (
+                          <span key={ei} className="w-1 h-1 rounded-full bg-teal-400 inline-block" />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Upcoming list */}
+            {upcoming.length > 0 ? (
+              <div className="space-y-1 border-t border-slate-700 pt-2">
+                <p className="text-slate-500 text-[10px] uppercase tracking-wider">Due next 14 days</p>
+                {upcoming.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0" />
+                      <span className="text-slate-200 truncate">{s['Name']}</span>
+                      {s['Amount'] && <span className="text-slate-500 font-mono shrink-0">${parseFloat(s['Amount'] || 0).toFixed(2)}</span>}
+                    </div>
+                    <span className={`shrink-0 font-medium ${s.days === 0 ? 'text-rose-400' : s.days <= 3 ? 'text-amber-400' : 'text-teal-400'}`}>
+                      {s.days === 0 ? 'Today' : s.days === 1 ? 'Tomorrow' : `in ${s.days}d`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : subscriptions.length === 0 ? (
+              <p className="text-slate-600 text-xs text-center border-t border-slate-700 pt-2">Add subscriptions to see due dates</p>
+            ) : null}
+          </div>
+        );
+      })()}
+
       {/* ── Stat cards ──────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Income"   value={fmt(income)}  sub={unprocessed > 0 ? `+${fmt(unprocessed)} unprocessed` : undefined} color="text-emerald-400" />
@@ -837,9 +1004,21 @@ ${stmtTxns.length ? `
                             <div className="flex justify-between items-center gap-2">
                               <div className="min-w-0">
                                 <span className="text-white text-sm">{e['Type'] || e['Expense'] || '—'}</span>
-                                {e['Account'] === 'Subscription' && (
-                                  <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-violet-900/60 text-violet-300">sub</span>
-                                )}
+                                {e['Account'] === 'Subscription' && (() => {
+                                  const sub = subscriptions.find(s => s['Name']?.toLowerCase() === (e['Type'] || e['Expense'] || '').toLowerCase());
+                                  const next = sub ? nextRenewal(sub['Start Date'], (sub['Cycle'] || 'monthly').toLowerCase()) : null;
+                                  const days = daysUntil(next);
+                                  return (
+                                    <>
+                                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-violet-900/60 text-violet-300">sub</span>
+                                      {days !== null && (
+                                        <span className={`ml-1 text-xs px-1.5 py-0.5 rounded font-medium ${days === 0 ? 'bg-rose-900/60 text-rose-300' : days <= 3 ? 'bg-amber-900/60 text-amber-300' : 'bg-teal-900/40 text-teal-300'}`}>
+                                          {days === 0 ? 'due today' : days === 1 ? 'due tomorrow' : `${days}d`}
+                                        </span>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </div>
                               <span className="text-white font-semibold text-sm shrink-0">${amt.toFixed(2)}</span>
                             </div>
@@ -857,6 +1036,145 @@ ${stmtTxns.length ? `
             </div>
           </div>
         );
+      })()}
+
+      {/* ── Subscriptions modal ─────────────────────────────── */}
+      {showSubs && (() => {
+        function SubsModal() {
+          const [subs, setSubs]         = useState(subscriptions);
+          const [adding, setAdding]     = useState(false);
+          const [saving, setSaving]     = useState(false);
+          const [form, setForm]         = useState({ Name: '', 'Start Date': '', Cycle: 'monthly', Amount: '', Notes: '' });
+          const [err, setErr]           = useState(null);
+
+          async function saveNew() {
+            if (!form.Name.trim()) return;
+            setSaving(true); setErr(null);
+            try {
+              await ensureSheetTab(token, 'Subscriptions');
+              const existing = await readRange(token, 'Subscriptions!A1:E1');
+              if (!existing.length || !existing[0]?.length) {
+                await appendRow(token, 'Subscriptions!A:E', ['Name','Start Date','Cycle','Amount','Notes']);
+              }
+              await appendRow(token, 'Subscriptions!A:E', [
+                form.Name.trim(), form['Start Date'], form.Cycle, form.Amount, form.Notes,
+              ]);
+              const newEntry = { ...form };
+              const updated = [...subs, newEntry];
+              setSubs(updated);
+              setSubscriptions(updated);
+              setForm({ Name: '', 'Start Date': '', Cycle: 'monthly', Amount: '', Notes: '' });
+              setAdding(false);
+            } catch (e) { setErr(e.message); }
+            finally { setSaving(false); }
+          }
+
+          return (
+            <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
+              <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+                <div>
+                  <h2 className="text-white font-bold text-lg">🔁 Subscriptions</h2>
+                  <p className="text-slate-400 text-xs mt-0.5">Recurring bills & renewal tracking</p>
+                </div>
+                <button onClick={() => setShowSubs(false)} className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">✕</button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 pb-24">
+                {subs.length === 0 && !adding && (
+                  <div className="text-center py-10 space-y-2">
+                    <p className="text-4xl">🔁</p>
+                    <p className="text-white font-semibold">No subscriptions yet</p>
+                    <p className="text-slate-500 text-sm">Add your first subscription to track renewals.</p>
+                  </div>
+                )}
+
+                {subs.map((s, i) => {
+                  const cycle = (s['Cycle'] || 'monthly').toLowerCase();
+                  const next = nextRenewal(s['Start Date'], cycle);
+                  const days = daysUntil(next);
+                  const amt  = parseFloat(s['Amount'] || 0);
+                  const startFmt = s['Start Date']
+                    ? new Date(s['Start Date'] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : '—';
+                  const nextFmt = next
+                    ? next.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : '—';
+                  return (
+                    <div key={i} className="bg-slate-800 rounded-2xl p-4 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-white font-semibold truncate">{s['Name']}</p>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-teal-900/50 text-teal-300 capitalize">{cycle}</span>
+                            {amt > 0 && <span className="text-white font-mono text-xs tabular-nums">${amt.toFixed(2)}</span>}
+                          </div>
+                        </div>
+                        {days !== null && (
+                          <span className={`text-xs font-bold px-2 py-1 rounded-xl shrink-0 ${days === 0 ? 'bg-rose-900/60 text-rose-300' : days <= 3 ? 'bg-amber-900/60 text-amber-300' : 'bg-teal-900/40 text-teal-300'}`}>
+                            {days === 0 ? 'Due today' : days === 1 ? 'Tomorrow' : `${days}d left`}
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
+                        <div>
+                          <p className="text-slate-600 text-[10px] uppercase tracking-wider">Started</p>
+                          <p className="text-slate-300">{startFmt}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-600 text-[10px] uppercase tracking-wider">Next renewal</p>
+                          <p className="text-slate-300">{nextFmt}</p>
+                        </div>
+                      </div>
+                      {s['Notes'] && <p className="text-slate-500 text-xs">{s['Notes']}</p>}
+                    </div>
+                  );
+                })}
+
+                {adding && (
+                  <div className="bg-slate-800 rounded-2xl p-4 space-y-3">
+                    <p className="text-white font-semibold text-sm">New Subscription</p>
+                    {[['Name','text','Name (e.g. Netflix)'],['Start Date','date',''],['Amount','number','0.00'],['Notes','text','Notes (optional)']].map(([field, type, ph]) => (
+                      <div key={field}>
+                        <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1">{field}</label>
+                        <input type={type} placeholder={ph} step={type === 'number' ? '0.01' : undefined}
+                          value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
+                          className="w-full bg-slate-700 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 placeholder-slate-600"/>
+                      </div>
+                    ))}
+                    <div>
+                      <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Cycle</label>
+                      <div className="grid grid-cols-4 gap-1 bg-slate-700 rounded-xl p-1">
+                        {SUB_CYCLES.map(c => (
+                          <button key={c} onClick={() => setForm(f => ({ ...f, Cycle: c }))}
+                            className={`py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${form.Cycle === c ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {err && <p className="text-red-400 text-xs">{err}</p>}
+                    <div className="flex gap-2">
+                      <button onClick={() => { setAdding(false); setErr(null); }} className="flex-1 py-2.5 rounded-xl bg-slate-700 text-slate-300 text-sm font-medium">Cancel</button>
+                      <button onClick={saveNew} disabled={!form.Name.trim() || saving}
+                        className="flex-1 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white text-sm font-bold transition-colors">
+                        {saving ? 'Saving…' : 'Add'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {!adding && (
+                <div className="shrink-0 px-5 py-4 border-t border-slate-800">
+                  <button onClick={() => setAdding(true)} className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-sm transition-colors">
+                    + Add Subscription
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        }
+        return <SubsModal key="subs-modal" />;
       })()}
 
       {/* ── Commission Price Calculator ──────────────────────── */}
