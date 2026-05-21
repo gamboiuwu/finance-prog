@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { appendRow } from '../lib/sheets';
+import { useState, useMemo, useEffect } from 'react';
+import { appendRow, readRange } from '../lib/sheets';
 
 const ACCOUNT_ICONS = {
   'Checking':        { icon: '🏧', color: 'text-blue-400',    bg: 'bg-blue-900/30 border-blue-800/40'     },
@@ -21,36 +21,44 @@ function todayStr() {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 
-function calcDeposits(expenses, income, mode) {
+// Deposits fill each category's *remaining gap* (goal minus already contributed).
+// Priority mode: fill P1 gaps before P2, then P3.
+// Proportional mode: distribute proportionally across remaining gaps.
+function calcDeposits(expenses, income, mode, alreadyByType = {}) {
   if (!income) return [];
   const eligible = expenses
     .filter(e => pm(e['Monthly Allowance ($)']) > 0)
-    .map(e => ({
-      type:      e['Type']     || '',
-      account:   e['Account']  || 'Other',
-      expense:   e['Expense']  || '',
-      priority:  parseInt(e['Priority']) || 2,
-      allowance: pm(e['Monthly Allowance ($)']),
-    }))
+    .map(e => {
+      const allowance  = pm(e['Monthly Allowance ($)']);
+      const already    = alreadyByType[e['Type'] || ''] || 0;
+      const stillNeeds = Math.max(0, allowance - already);
+      return {
+        type:      e['Type']    || '',
+        account:   e['Account'] || 'Other',
+        expense:   e['Expense'] || '',
+        priority:  parseInt(e['Priority']) || 2,
+        allowance,
+        already,
+        stillNeeds,
+      };
+    })
     .sort((a, b) => a.priority - b.priority || b.allowance - a.allowance);
 
   if (mode === 'proportional') {
-    const totalAllowance = eligible.reduce((s, e) => s + e.allowance, 0);
+    const totalNeeds = eligible.reduce((s, e) => s + e.stillNeeds, 0);
     return eligible.map(e => {
-      const pct     = totalAllowance > 0 ? e.allowance / totalAllowance : 0;
-      const deposit = pct * income;
-      // coverage = what fraction of their allowance they'd receive IF income = totalAllowance
-      const coverage = totalAllowance > 0 ? income / totalAllowance : 0;
-      return { ...e, deposit, pct, coverage: Math.min(coverage, 1) };
+      const deposit  = totalNeeds > 0 ? Math.min(e.stillNeeds, (e.stillNeeds / totalNeeds) * income) : 0;
+      const coverage = e.allowance > 0 ? (e.already + deposit) / e.allowance : 0;
+      return { ...e, deposit, pct: income > 0 ? deposit / income : 0, coverage };
     });
   }
 
-  // Priority-first: fill P1 completely before P2, then P3
+  // Priority-first: fill each category's remaining gap before moving to lower priorities
   let remaining = income;
   return eligible.map(e => {
-    const deposit  = Math.min(e.allowance, Math.max(0, remaining));
+    const deposit  = Math.min(e.stillNeeds, Math.max(0, remaining));
     remaining      = Math.max(0, remaining - deposit);
-    const coverage = e.allowance > 0 ? deposit / e.allowance : 0;
+    const coverage = e.allowance > 0 ? (e.already + deposit) / e.allowance : 0;
     return { ...e, deposit, pct: income > 0 ? deposit / income : 0, coverage };
   });
 }
@@ -62,26 +70,59 @@ function CoverageChip({ coverage }) {
 }
 
 export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose }) {
-  const [income, setIncome]     = useState('');
-  const [source, setSource]     = useState('');
-  const [mode, setMode]         = useState('priority'); // 'priority' | 'proportional'
-  const [logging, setLogging]   = useState(false);
-  const [done, setDone]         = useState(false);
-  const [logError, setLogError] = useState(null);
-  const [copied, setCopied]     = useState(false);
+  const [income,        setIncome]       = useState('');
+  const [source,        setSource]       = useState('');
+  const [mode,          setMode]         = useState('priority');
+  const [logging,       setLogging]      = useState(false);
+  const [done,          setDone]         = useState(false);
+  const [logError,      setLogError]     = useState(null);
+  const [copied,        setCopied]       = useState(false);
+  const [alreadyByType, setAlreadyByType] = useState({});
+  const [histLoading,   setHistLoading]  = useState(true);
+
+  // Load this month's already-deposited amounts per category
+  useEffect(() => {
+    if (!token) { setHistLoading(false); return; }
+    const mo = new Date().getMonth() + 1;
+    const yr = new Date().getFullYear();
+    readRange(token, 'Allocation Transactions!A:F', 'UNFORMATTED_VALUE')
+      .then(rows => {
+        const [, ...data] = rows;
+        const map = {};
+        data
+          .filter(r => r[0])
+          .filter(r => {
+            const parts = String(r[0]).split('/');
+            return parseInt(parts[0]) === mo && parseInt(parts[2]) === yr;
+          })
+          .forEach(r => {
+            const type = r[1] || '';
+            const amt  = parseFloat(r[2]) || 0;
+            if (amt > 0) map[type] = (map[type] || 0) + amt;
+          });
+        setAlreadyByType(map);
+      })
+      .catch(() => {})
+      .finally(() => setHistLoading(false));
+  }, [token]);
 
   const amount         = parseFloat(income) || 0;
-  const deposits       = useMemo(() => calcDeposits(expenses, amount, mode), [expenses, amount, mode]);
+  const deposits       = useMemo(
+    () => calcDeposits(expenses, amount, mode, alreadyByType),
+    [expenses, amount, mode, alreadyByType]
+  );
   const totalAllowance = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
-  const totalCovered   = alreadyProcessed + amount;
+  const totalAlready   = Object.values(alreadyByType).reduce((s, v) => s + v, 0);
+  const totalCovered   = totalAlready + amount;
   const stillNeeded    = Math.max(0, totalAllowance - totalCovered);
   const coveragePct    = totalAllowance > 0 ? (totalCovered / totalAllowance) * 100 : 0;
 
   const tierTotals = useMemo(() => {
-    const t = { 1: { budget: 0, deposit: 0 }, 2: { budget: 0, deposit: 0 }, 3: { budget: 0, deposit: 0 } };
+    const t = { 1: { budget: 0, already: 0, deposit: 0 }, 2: { budget: 0, already: 0, deposit: 0 }, 3: { budget: 0, already: 0, deposit: 0 } };
     deposits.forEach(d => {
       const p = Math.min(Math.max(d.priority, 1), 3);
       t[p].budget  += d.allowance;
+      t[p].already += d.already;
       t[p].deposit += d.deposit;
     });
     return t;
@@ -105,7 +146,6 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     const desc = source
       ? `Income processed: ${fmt(amount)} from ${source}`
       : `Income processed: ${fmt(amount)}`;
-
     try {
       for (const d of deposits) {
         if (d.deposit <= 0) continue;
@@ -127,7 +167,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
       const g = byAccount[acct];
       if (!g) return;
       lines.push(`${ACCOUNT_ICONS[acct]?.icon || ''} ${acct}: ${fmt(g.total)}`);
-      g.items.forEach(d => lines.push(`  • ${d.type}: ${fmt(d.deposit)} (${(d.coverage * 100).toFixed(0)}% funded)`));
+      g.items.forEach(d => lines.push(`  • ${d.type}: ${fmt(d.deposit)} (${(d.coverage * 100).toFixed(0)}% funded, ${fmt(d.already)} prior)`));
       lines.push('');
     });
     navigator.clipboard.writeText(lines.join('\n'));
@@ -163,7 +203,9 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         <div className="flex items-center justify-between p-5 border-b border-slate-700 shrink-0">
           <div>
             <h2 className="text-white font-bold text-lg">Process Income</h2>
-            <p className="text-slate-400 text-xs mt-0.5">Deposits auto-logged to Allocation Transactions</p>
+            <p className="text-slate-400 text-xs mt-0.5">
+              {histLoading ? 'Loading month history…' : `${fmt(totalAlready)} already deposited this month`}
+            </p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:bg-slate-600 flex items-center justify-center">✕</button>
         </div>
@@ -175,9 +217,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             <button
               onClick={() => setMode('priority')}
               className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
-                mode === 'priority'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                mode === 'priority' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               🎯 Priority First
@@ -185,20 +225,15 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             <button
               onClick={() => setMode('proportional')}
               className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
-                mode === 'proportional'
-                  ? 'bg-violet-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                mode === 'proportional' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               ⚖️ Proportional
             </button>
           </div>
-          {mode === 'priority' && (
-            <p className="text-slate-600 text-[10px] mt-1.5">P1 items fully funded first, then P2, then P3</p>
-          )}
-          {mode === 'proportional' && (
-            <p className="text-slate-600 text-[10px] mt-1.5">Each item gets its % share of income regardless of priority</p>
-          )}
+          <p className="text-slate-600 text-[10px] mt-1.5">
+            {mode === 'priority' ? 'P1 gaps filled first, then P2, then P3' : 'Each category gets its proportional share of remaining gap'}
+          </p>
         </div>
 
         {/* Inputs */}
@@ -228,44 +263,74 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             />
           </div>
 
-          {/* Priority tier summary */}
-          {amount > 0 && (
+          {/* Priority tier summary — shows already + this deposit */}
+          {!histLoading && (
             <div className="grid grid-cols-3 gap-2 pt-1">
               {[
                 { p: 1, label: 'Essential', color: '#f43f5e', textClass: 'text-rose-400' },
                 { p: 2, label: 'Stability', color: '#f59e0b', textClass: 'text-amber-400' },
                 { p: 3, label: 'Optional',  color: '#8b5cf6', textClass: 'text-violet-400' },
               ].map(({ p, label, color, textClass }) => {
-                const tier    = tierTotals[p];
-                const tierPct = tier.budget > 0 ? (tier.deposit / tier.budget) * 100 : 0;
+                const tier     = tierTotals[p];
+                const total    = tier.already + (amount > 0 ? tier.deposit : 0);
+                const tierPct  = tier.budget > 0 ? (total / tier.budget) * 100 : 0;
                 return (
                   <div key={p} className="bg-slate-800 rounded-xl p-2.5 space-y-1.5">
                     <p className={`text-[10px] font-bold ${textClass}`}>P{p} {label}</p>
-                    <p className="text-white text-xs font-mono font-bold tabular-nums">{fmt(tier.deposit)}</p>
-                    <div className="w-full bg-slate-700 rounded-full h-1 overflow-hidden">
-                      <div className="h-1 rounded-full" style={{ width: `${Math.min(tierPct, 100)}%`, background: color }} />
+                    <p className="text-white text-xs font-mono font-bold tabular-nums">{fmt(total)}</p>
+                    {tier.already > 0 && amount > 0 && (
+                      <p className="text-slate-500 text-[10px] font-mono">{fmt(tier.already)} + {fmt(tier.deposit)}</p>
+                    )}
+                    <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                      {/* Already-contributed shown as solid base */}
+                      <div className="h-1.5 rounded-full flex overflow-hidden">
+                        <div style={{ width: `${Math.min(tier.budget > 0 ? (tier.already / tier.budget) * 100 : 0, 100)}%`, background: color, opacity: 0.4 }} />
+                        <div style={{ width: `${Math.min(tier.budget > 0 ? (amount > 0 ? tier.deposit / tier.budget * 100 : 0) : 0, 100)}%`, background: color }} />
+                      </div>
                     </div>
-                    <p className="text-slate-500 text-[10px]">{tierPct.toFixed(0)}%</p>
+                    <p className="text-slate-500 text-[10px]">{tierPct.toFixed(0)}% of goal</p>
                   </div>
                 );
               })}
             </div>
           )}
 
-          {amount > 0 && (
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-500">Monthly goal: <span className="text-slate-300">{fmt(totalAllowance)}</span></span>
-              <span className={`font-semibold ${coveragePct >= 100 ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {coveragePct.toFixed(0)}% covered{alreadyProcessed > 0 ? ' (incl. prior)' : ''}
-              </span>
-            </div>
-          )}
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-slate-500">Monthly goal: <span className="text-slate-300">{fmt(totalAllowance)}</span></span>
+            <span className={`font-semibold ${coveragePct >= 100 ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {coveragePct.toFixed(0)}% covered
+            </span>
+          </div>
         </div>
 
-        {/* Breakdown */}
+        {/* Breakdown by account */}
         <div className="overflow-y-auto flex-1 p-4 space-y-3">
-          {amount <= 0 && (
-            <p className="text-slate-600 text-center py-12 text-sm">Enter an amount above to see where it goes</p>
+          {amount <= 0 && !histLoading && (
+            <div className="space-y-2">
+              <p className="text-slate-600 text-center py-4 text-sm">Enter an amount above to see where it goes</p>
+              {/* Show current month state even without entering amount */}
+              {Object.keys(alreadyByType).length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-slate-500 text-xs uppercase tracking-wider px-1">Already deposited this month</p>
+                  {expenses
+                    .filter(e => pm(e['Monthly Allowance ($)']) > 0 && alreadyByType[e['Type'] || ''] > 0)
+                    .map((e, i) => {
+                      const already   = alreadyByType[e['Type'] || ''] || 0;
+                      const allowance = pm(e['Monthly Allowance ($)']);
+                      const pct       = allowance > 0 ? (already / allowance) * 100 : 0;
+                      return (
+                        <div key={i} className="bg-slate-800/60 rounded-xl px-4 py-2.5 flex justify-between items-center gap-3">
+                          <div>
+                            <p className="text-white text-sm">{e['Type']}</p>
+                            <p className="text-slate-500 text-[10px]">goal {fmt(allowance)} · {pct.toFixed(0)}% funded</p>
+                          </div>
+                          <span className="text-emerald-400 font-mono font-semibold text-sm shrink-0">{fmt(already)}</span>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
           )}
 
           {amount > 0 && ACCOUNT_ORDER.map(acct => {
@@ -281,24 +346,43 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                   </div>
                   <div className="text-right">
                     <p className={`text-lg font-bold ${style.color}`}>{fmt(group.total)}</p>
-                    <p className="text-slate-500 text-xs">{((group.total / amount) * 100).toFixed(1)}% of deposit</p>
+                    <p className="text-slate-500 text-xs">{amount > 0 ? ((group.total / amount) * 100).toFixed(1) : 0}% of deposit</p>
                   </div>
                 </div>
                 <div className="bg-slate-800/80 divide-y divide-slate-700/40">
                   {group.items.map((d, i) => (
-                    <div key={i} className="px-4 py-2.5 flex justify-between items-center gap-3">
-                      <div className="min-w-0">
+                    <div key={i} className="px-4 py-3 flex justify-between items-start gap-3">
+                      <div className="min-w-0 flex-1">
                         <p className="text-white text-sm truncate">{d.type}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           <span className={`text-[10px] ${d.priority === 1 ? 'text-rose-400' : d.priority === 2 ? 'text-amber-400' : 'text-violet-400'}`}>
                             P{d.priority} {PRIORITY_LABEL[d.priority]}
                           </span>
                           <span className="text-slate-600 text-[10px]">·</span>
                           <span className="text-slate-500 text-[10px]">goal {fmt(d.allowance)}</span>
                         </div>
+                        {/* Already-contributed bar */}
+                        <div className="mt-1.5 space-y-0.5">
+                          <div className="flex h-2 bg-slate-700 rounded-full overflow-hidden">
+                            <div
+                              style={{ width: `${d.allowance > 0 ? Math.min((d.already / d.allowance) * 100, 100) : 0}%`, background: '#10b981', opacity: 0.5 }}
+                              title={`Already: ${fmt(d.already)}`}
+                            />
+                            <div
+                              style={{ width: `${d.allowance > 0 ? Math.min((d.deposit / d.allowance) * 100, 100) : 0}%`, background: '#3b82f6' }}
+                              title={`Adding: ${fmt(d.deposit)}`}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[10px] text-slate-600">
+                            {d.already > 0 && <span className="text-emerald-600">{fmt(d.already)} prior</span>}
+                            {d.stillNeeds > 0 && d.stillNeeds !== d.allowance && (
+                              <span className="ml-auto">{fmt(d.stillNeeds)} still needed</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
                       <div className="text-right shrink-0 flex flex-col items-end gap-1">
-                        <p className="text-white text-sm font-semibold">{fmt(d.deposit)}</p>
+                        <p className="text-white text-sm font-semibold">+{fmt(d.deposit)}</p>
                         <CoverageChip coverage={d.coverage} />
                       </div>
                     </div>
@@ -308,20 +392,21 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             );
           })}
 
+          {/* Summary totals */}
           {amount > 0 && (
             <div className="bg-slate-800 rounded-2xl p-4 border border-slate-600 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">This deposit</span>
                 <span className="text-white font-bold">{fmt(amount)}</span>
               </div>
-              {alreadyProcessed > 0 && (
+              {totalAlready > 0 && (
                 <>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-400">Previously processed</span>
-                    <span className="text-slate-300">{fmt(alreadyProcessed)}</span>
+                    <span className="text-slate-400">Already deposited this month</span>
+                    <span className="text-emerald-400">{fmt(totalAlready)}</span>
                   </div>
                   <div className="flex justify-between text-sm border-t border-slate-700 pt-2">
-                    <span className="text-slate-400">Total covered</span>
+                    <span className="text-slate-400">Total month coverage</span>
                     <span className="text-white font-bold">{fmt(totalCovered)}</span>
                   </div>
                 </>
@@ -332,11 +417,9 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                   <span className="text-amber-400 font-bold">{fmt(stillNeeded)}</span>
                 </div>
               )}
-              <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
-                <div className="h-2 rounded-full transition-all" style={{
-                  width: `${Math.min(coveragePct, 100)}%`,
-                  background: coveragePct >= 100 ? '#10b981' : '#3b82f6',
-                }} />
+              <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden flex">
+                <div style={{ width: `${totalAllowance > 0 ? Math.min((totalAlready / totalAllowance) * 100, 100) : 0}%`, background: '#10b981', opacity: 0.5 }} />
+                <div style={{ width: `${totalAllowance > 0 ? Math.min((amount / totalAllowance) * 100, 100) : 0}%`, background: '#3b82f6' }} />
               </div>
               <p className="text-slate-500 text-xs text-right">{coveragePct.toFixed(0)}% of {fmt(totalAllowance)} monthly goal</p>
             </div>
@@ -355,7 +438,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             </button>
             <button
               onClick={handleProcess}
-              disabled={logging}
+              disabled={logging || histLoading}
               className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-sm font-bold transition-colors"
             >
               {logging ? 'Logging…' : `✓ Process & Log ${deposits.filter(d => d.deposit > 0).length} Deposits`}

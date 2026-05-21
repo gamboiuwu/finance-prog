@@ -57,9 +57,10 @@ export default function Dashboard({ token }) {
   const [expLogging, setExpLogging]     = useState(false);
   const [expLogDone, setExpLogDone]     = useState(false);
   const [showBills, setShowBills]       = useState(false);
-  const [showCommCalc, setShowCommCalc] = useState(false);
-  const [showBudget, setShowBudget]     = useState(false);
-  const [showStatement, setShowStatement] = useState(false);
+  const [showCommCalc, setShowCommCalc]     = useState(false);
+  const [showBudget, setShowBudget]         = useState(false);
+  const [showMonthClose, setShowMonthClose] = useState(false);
+  const [showStatement, setShowStatement]   = useState(false);
   const [stmtLoading, setStmtLoading]   = useState(false);
   const [stmtTxns, setStmtTxns]         = useState([]);
   const [stmtError, setStmtError]       = useState(null);
@@ -398,6 +399,28 @@ ${stmtTxns.length ? `
           <span className="text-[10px] text-slate-300 font-medium">Statement</span>
         </button>
       </div>
+
+      {/* ── End-of-month close banner ───────────────────────── */}
+      {(() => {
+        const daysInMonth = new Date(currentYear, now.getMonth() + 1, 0).getDate();
+        const dayOfMonth  = now.getDate();
+        const isMonthEnd  = dayOfMonth >= daysInMonth - 4; // last 5 days
+        if (!isMonthEnd) return null;
+        return (
+          <div className="bg-gradient-to-r from-indigo-900/50 to-violet-900/50 border border-indigo-700/50 rounded-2xl p-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-indigo-200 font-bold text-sm font-broske">📅 {currentMonth} is ending</p>
+              <p className="text-indigo-400 text-xs mt-0.5">Ready to close the month and start fresh?</p>
+            </div>
+            <button
+              onClick={() => setShowMonthClose(true)}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors shrink-0"
+            >
+              Close Month
+            </button>
+          </div>
+        );
+      })()}
 
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex justify-between items-start">
@@ -1026,6 +1049,105 @@ ${stmtTxns.length ? `
                 <p className="text-sky-300 text-xs font-broske uppercase tracking-wider mb-1">Recommendation</p>
                 <p className="text-white text-sm leading-relaxed">{recommendation}</p>
               </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Month Close modal ───────────────────────────────── */}
+      {showMonthClose && (() => {
+        const totalAllowance = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+        const coveragePct    = totalAllowance > 0 ? (income / totalAllowance) * 100 : 0;
+        const priGroups = ['1','2','3'].map(p => {
+          const items = expenses.filter(e => String(e['Priority'] ?? '3') === p && pm(e['Monthly Allowance ($)']) > 0);
+          return {
+            p, label: { '1':'Essential','2':'Stability','3':'Optional' }[p],
+            budget: items.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0),
+            spent:  items.reduce((s, e) => s + pm(e['Actual Spend']), 0),
+          };
+        }).filter(g => g.budget > 0);
+
+        return (
+          <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
+            <div className="shrink-0 border-b border-slate-800 px-5 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-white font-bold text-lg font-broske">Close {currentMonth} {currentYear}</h2>
+                <p className="text-slate-400 text-xs mt-0.5">Review your month before starting fresh</p>
+              </div>
+              <button onClick={() => setShowMonthClose(false)} className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">✕</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 pb-8">
+              {/* Month summary */}
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Income',    value: fmt(income), color: 'text-emerald-400' },
+                  { label: 'Spent',     value: fmt(spent),  color: 'text-rose-400'    },
+                  { label: 'Net Flow',  value: fmt(net),    color: net >= 0 ? 'text-emerald-400' : 'text-rose-400' },
+                  { label: 'Coverage',  value: `${coveragePct.toFixed(0)}%`, color: coveragePct >= 100 ? 'text-emerald-400' : 'text-amber-400' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="bg-slate-800 rounded-2xl p-4">
+                    <p className="text-slate-500 text-[10px] uppercase tracking-wider">{label}</p>
+                    <p className={`text-xl font-bold font-mono mt-1 tabular-nums ${color}`}>{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Priority breakdown */}
+              <div className="bg-slate-800 rounded-2xl p-4 space-y-3">
+                <p className="text-slate-400 text-xs uppercase tracking-wider font-broske">Budget vs Actual</p>
+                {priGroups.map(g => {
+                  const pct    = g.budget > 0 ? (g.spent / g.budget) * 100 : 0;
+                  const over   = g.spent > g.budget;
+                  const colors = { '1': '#f43f5e', '2': '#f59e0b', '3': '#8b5cf6' };
+                  return (
+                    <div key={g.p} className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-300">P{g.p} {g.label}</span>
+                        <span className={over ? 'text-rose-400 font-bold' : 'text-slate-300'}>
+                          {fmt(g.spent)} / {fmt(g.budget)}
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+                        <div className="h-2 rounded-full" style={{ width: `${Math.min(pct, 100)}%`, background: colors[g.p] }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* What "closing" means */}
+              <div className="bg-blue-900/20 border border-blue-800/40 rounded-2xl p-4 space-y-2">
+                <p className="text-blue-300 font-broske text-xs uppercase tracking-wider">What happens when you close</p>
+                <ul className="text-slate-300 text-sm space-y-1.5">
+                  <li className="flex gap-2"><span className="text-blue-400 shrink-0">→</span>Your {currentMonth} data is preserved as history</li>
+                  <li className="flex gap-2"><span className="text-blue-400 shrink-0">→</span>Income processed resets to $0.00 for {currentMonth === 'December' ? 'January' : ['January','February','March','April','May','June','July','August','September','October','November','December'][now.getMonth() + 1]}</li>
+                  <li className="flex gap-2"><span className="text-blue-400 shrink-0">→</span>All category gaps reset — full monthly goals to fill again</li>
+                </ul>
+              </div>
+
+              <button
+                onClick={openStatement}
+                className="w-full py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors border border-slate-700"
+              >
+                📄 View Full {currentMonth} Statement First
+              </button>
+            </div>
+
+            {/* Finalize button */}
+            <div className="shrink-0 px-5 py-4 border-t border-slate-800 bg-slate-950">
+              <button
+                onClick={() => {
+                  setShowMonthClose(false);
+                  // Store in localStorage so dashboard shows "month closed" state
+                  const key = `closed_${currentMonth}_${currentYear}`;
+                  localStorage.setItem(key, 'true');
+                  // Brief success overlay handled by closing the modal
+                }}
+                className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm transition-colors"
+              >
+                ✓ Close {currentMonth} — Start {['January','February','March','April','May','June','July','August','September','October','November','December'][(now.getMonth() + 1) % 12]} Fresh
+              </button>
             </div>
           </div>
         );
