@@ -1041,109 +1041,232 @@ ${stmtTxns.length ? `
       {/* ── Subscriptions modal ─────────────────────────────── */}
       {showSubs && (() => {
         function SubsModal() {
-          const [subs, setSubs]         = useState(subscriptions);
-          const [adding, setAdding]     = useState(false);
-          const [saving, setSaving]     = useState(false);
-          const [form, setForm]         = useState({ Name: '', 'Start Date': '', Cycle: 'monthly', Amount: '', Notes: '' });
-          const [err, setErr]           = useState(null);
+          const [subs, setSubs]       = useState(subscriptions);
+          const [view, setView]       = useState('list');   // 'list' | 'import' | 'add'
+          const [saving, setSaving]   = useState(false);
+          const [err, setErr]         = useState(null);
+          const [form, setForm]       = useState({ Name: '', 'Start Date': '', Cycle: 'monthly', Amount: '', Notes: '' });
+
+          // Candidates from Monthly Expenses tagged as Subscription, not yet imported
+          const existingNames = new Set(subs.map(s => (s['Name'] || '').toLowerCase()));
+          const candidates = expenses
+            .filter(e => e['Account'] === 'Subscription' && (e['Type'] || e['Expense']))
+            .map(e => {
+              const name = e['Type'] || e['Expense'] || '';
+              return { name, amount: String(pm(e['Monthly Allowance ($)']) || ''), already: existingNames.has(name.toLowerCase()) };
+            });
+
+          // Per-candidate state: start date + cycle, keyed by name
+          const today = new Date().toISOString().slice(0, 10);
+          const [importFields, setImportFields] = useState(() =>
+            Object.fromEntries(candidates.map(c => [c.name, { startDate: today, cycle: 'monthly', selected: !c.already }]))
+          );
+
+          async function ensureHeader() {
+            await ensureSheetTab(token, 'Subscriptions');
+            const hdr = await readRange(token, 'Subscriptions!A1:E1');
+            if (!hdr.length || !hdr[0]?.length) {
+              await appendRow(token, 'Subscriptions!A:E', ['Name','Start Date','Cycle','Amount','Notes']);
+            }
+          }
+
+          async function importSelected() {
+            const toImport = candidates.filter(c => !c.already && importFields[c.name]?.selected);
+            if (!toImport.length) return;
+            setSaving(true); setErr(null);
+            try {
+              await ensureHeader();
+              for (const c of toImport) {
+                const f = importFields[c.name];
+                await appendRow(token, 'Subscriptions!A:E', [c.name, f.startDate, f.cycle, c.amount, '']);
+              }
+              const newEntries = toImport.map(c => ({
+                Name: c.name, 'Start Date': importFields[c.name].startDate,
+                Cycle: importFields[c.name].cycle, Amount: c.amount, Notes: '',
+              }));
+              const updated = [...subs, ...newEntries];
+              setSubs(updated);
+              setSubscriptions(updated);
+              setView('list');
+            } catch (e) { setErr(e.message); }
+            finally { setSaving(false); }
+          }
 
           async function saveNew() {
             if (!form.Name.trim()) return;
             setSaving(true); setErr(null);
             try {
-              await ensureSheetTab(token, 'Subscriptions');
-              const existing = await readRange(token, 'Subscriptions!A1:E1');
-              if (!existing.length || !existing[0]?.length) {
-                await appendRow(token, 'Subscriptions!A:E', ['Name','Start Date','Cycle','Amount','Notes']);
-              }
-              await appendRow(token, 'Subscriptions!A:E', [
-                form.Name.trim(), form['Start Date'], form.Cycle, form.Amount, form.Notes,
-              ]);
-              const newEntry = { ...form };
-              const updated = [...subs, newEntry];
+              await ensureHeader();
+              await appendRow(token, 'Subscriptions!A:E', [form.Name.trim(), form['Start Date'], form.Cycle, form.Amount, form.Notes]);
+              const updated = [...subs, { ...form, Name: form.Name.trim() }];
               setSubs(updated);
               setSubscriptions(updated);
               setForm({ Name: '', 'Start Date': '', Cycle: 'monthly', Amount: '', Notes: '' });
-              setAdding(false);
+              setView('list');
             } catch (e) { setErr(e.message); }
             finally { setSaving(false); }
           }
+
+          const unimportedCount = candidates.filter(c => !c.already).length;
 
           return (
             <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
               <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
                 <div>
                   <h2 className="text-white font-bold text-lg">🔁 Subscriptions</h2>
-                  <p className="text-slate-400 text-xs mt-0.5">Recurring bills & renewal tracking</p>
+                  <p className="text-slate-400 text-xs mt-0.5">
+                    {view === 'import' ? 'Import from Monthly Expenses' : view === 'add' ? 'New subscription' : 'Recurring bills & renewal tracking'}
+                  </p>
                 </div>
-                <button onClick={() => setShowSubs(false)} className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">✕</button>
+                <button onClick={() => view === 'list' ? setShowSubs(false) : setView('list')}
+                  className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">
+                  {view === 'list' ? '✕' : '‹'}
+                </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 pb-24">
-                {subs.length === 0 && !adding && (
-                  <div className="text-center py-10 space-y-2">
-                    <p className="text-4xl">🔁</p>
-                    <p className="text-white font-semibold">No subscriptions yet</p>
-                    <p className="text-slate-500 text-sm">Add your first subscription to track renewals.</p>
-                  </div>
-                )}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 pb-28">
 
-                {subs.map((s, i) => {
-                  const cycle = (s['Cycle'] || 'monthly').toLowerCase();
-                  const next = nextRenewal(s['Start Date'], cycle);
-                  const days = daysUntil(next);
-                  const amt  = parseFloat(s['Amount'] || 0);
-                  const startFmt = s['Start Date']
-                    ? new Date(s['Start Date'] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                    : '—';
-                  const nextFmt = next
-                    ? next.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                    : '—';
-                  return (
-                    <div key={i} className="bg-slate-800 rounded-2xl p-4 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-white font-semibold truncate">{s['Name']}</p>
-                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-teal-900/50 text-teal-300 capitalize">{cycle}</span>
-                            {amt > 0 && <span className="text-white font-mono text-xs tabular-nums">${amt.toFixed(2)}</span>}
+                {/* ── LIST VIEW ── */}
+                {view === 'list' && (
+                  <>
+                    {/* Import banner */}
+                    {unimportedCount > 0 && (
+                      <button onClick={() => setView('import')}
+                        className="w-full bg-teal-900/30 border border-teal-700/50 rounded-2xl px-4 py-3 flex items-center justify-between transition-colors hover:bg-teal-900/50">
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">📥</span>
+                          <div className="text-left">
+                            <p className="text-teal-200 font-semibold text-sm">Import from Budget</p>
+                            <p className="text-teal-500 text-xs">{unimportedCount} subscription{unimportedCount !== 1 ? 's' : ''} found in Monthly Expenses</p>
                           </div>
                         </div>
-                        {days !== null && (
-                          <span className={`text-xs font-bold px-2 py-1 rounded-xl shrink-0 ${days === 0 ? 'bg-rose-900/60 text-rose-300' : days <= 3 ? 'bg-amber-900/60 text-amber-300' : 'bg-teal-900/40 text-teal-300'}`}>
-                            {days === 0 ? 'Due today' : days === 1 ? 'Tomorrow' : `${days}d left`}
-                          </span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
-                        <div>
-                          <p className="text-slate-600 text-[10px] uppercase tracking-wider">Started</p>
-                          <p className="text-slate-300">{startFmt}</p>
-                        </div>
-                        <div>
-                          <p className="text-slate-600 text-[10px] uppercase tracking-wider">Next renewal</p>
-                          <p className="text-slate-300">{nextFmt}</p>
-                        </div>
-                      </div>
-                      {s['Notes'] && <p className="text-slate-500 text-xs">{s['Notes']}</p>}
-                    </div>
-                  );
-                })}
+                        <span className="text-teal-400 text-sm">→</span>
+                      </button>
+                    )}
 
-                {adding && (
-                  <div className="bg-slate-800 rounded-2xl p-4 space-y-3">
-                    <p className="text-white font-semibold text-sm">New Subscription</p>
+                    {subs.length === 0 && (
+                      <div className="text-center py-8 space-y-2">
+                        <p className="text-4xl">🔁</p>
+                        <p className="text-white font-semibold">No subscriptions yet</p>
+                        <p className="text-slate-500 text-sm">
+                          {unimportedCount > 0 ? 'Import from your budget above, or add manually.' : 'Add a subscription to track renewals.'}
+                        </p>
+                      </div>
+                    )}
+
+                    {subs.map((s, i) => {
+                      const cycle    = (s['Cycle'] || 'monthly').toLowerCase();
+                      const next     = nextRenewal(s['Start Date'], cycle);
+                      const days     = daysUntil(next);
+                      const amt      = parseFloat(s['Amount'] || 0);
+                      const startFmt = s['Start Date']
+                        ? new Date(s['Start Date'] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                        : '—';
+                      const nextFmt  = next
+                        ? next.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                        : '—';
+                      return (
+                        <div key={i} className="bg-slate-800 rounded-2xl p-4 space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-white font-semibold truncate">{s['Name']}</p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-teal-900/50 text-teal-300 capitalize">{cycle}</span>
+                                {amt > 0 && <span className="text-white font-mono text-xs tabular-nums">${amt.toFixed(2)}/mo</span>}
+                              </div>
+                            </div>
+                            {days !== null && (
+                              <span className={`text-xs font-bold px-2 py-1 rounded-xl shrink-0 ${days === 0 ? 'bg-rose-900/60 text-rose-300' : days <= 3 ? 'bg-amber-900/60 text-amber-300' : 'bg-teal-900/40 text-teal-300'}`}>
+                                {days === 0 ? 'Due today' : days === 1 ? 'Tomorrow' : `${days}d left`}
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <p className="text-slate-600 text-[10px] uppercase tracking-wider">Started</p>
+                              <p className="text-slate-300">{startFmt}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-600 text-[10px] uppercase tracking-wider">Next renewal</p>
+                              <p className="text-slate-300">{nextFmt}</p>
+                            </div>
+                          </div>
+                          {s['Notes'] && <p className="text-slate-500 text-xs">{s['Notes']}</p>}
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+
+                {/* ── IMPORT VIEW ── */}
+                {view === 'import' && (
+                  <>
+                    <p className="text-slate-400 text-xs leading-relaxed">
+                      These are expenses tagged as <span className="text-teal-300 font-medium">Subscription</span> in your Monthly Expenses sheet.
+                      Set the start date for each and tap Import.
+                    </p>
+                    {candidates.map(c => {
+                      const f = importFields[c.name] || { startDate: today, cycle: 'monthly', selected: false };
+                      return (
+                        <div key={c.name} className={`rounded-2xl p-4 space-y-3 border transition-colors ${c.already ? 'bg-slate-900 border-slate-800 opacity-60' : f.selected ? 'bg-slate-800 border-teal-700/50' : 'bg-slate-800 border-slate-700'}`}>
+                          <div className="flex items-center gap-3">
+                            {!c.already && (
+                              <button onClick={() => setImportFields(prev => ({ ...prev, [c.name]: { ...f, selected: !f.selected } }))}
+                                className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${f.selected ? 'bg-teal-600 border-teal-600' : 'border-slate-600'}`}>
+                                {f.selected && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                              </button>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-white font-semibold text-sm truncate">{c.name}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {c.amount && <span className="text-slate-400 font-mono text-xs">${parseFloat(c.amount).toFixed(2)}/mo</span>}
+                                {c.already && <span className="text-emerald-400 text-xs">✓ already imported</span>}
+                              </div>
+                            </div>
+                          </div>
+
+                          {!c.already && f.selected && (
+                            <div className="space-y-2.5 pl-8">
+                              <div>
+                                <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Start Date</label>
+                                <input type="date" value={f.startDate}
+                                  onChange={e => setImportFields(prev => ({ ...prev, [c.name]: { ...f, startDate: e.target.value } }))}
+                                  className="w-full bg-slate-700 text-white rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-500"/>
+                              </div>
+                              <div>
+                                <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Cycle</label>
+                                <div className="grid grid-cols-4 gap-1 bg-slate-700 rounded-xl p-0.5">
+                                  {SUB_CYCLES.map(cy => (
+                                    <button key={cy} onClick={() => setImportFields(prev => ({ ...prev, [c.name]: { ...f, cycle: cy } }))}
+                                      className={`py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${f.cycle === cy ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+                                      {cy}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {err && <p className="text-red-400 text-xs">{err}</p>}
+                  </>
+                )}
+
+                {/* ── ADD VIEW ── */}
+                {view === 'add' && (
+                  <div className="space-y-3">
                     {[['Name','text','Name (e.g. Netflix)'],['Start Date','date',''],['Amount','number','0.00'],['Notes','text','Notes (optional)']].map(([field, type, ph]) => (
                       <div key={field}>
                         <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1">{field}</label>
                         <input type={type} placeholder={ph} step={type === 'number' ? '0.01' : undefined}
                           value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
-                          className="w-full bg-slate-700 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 placeholder-slate-600"/>
+                          className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 placeholder-slate-600"/>
                       </div>
                     ))}
                     <div>
                       <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Cycle</label>
-                      <div className="grid grid-cols-4 gap-1 bg-slate-700 rounded-xl p-1">
+                      <div className="grid grid-cols-4 gap-1 bg-slate-800 rounded-xl p-1">
                         {SUB_CYCLES.map(c => (
                           <button key={c} onClick={() => setForm(f => ({ ...f, Cycle: c }))}
                             className={`py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${form.Cycle === c ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white'}`}>
@@ -1153,24 +1276,31 @@ ${stmtTxns.length ? `
                       </div>
                     </div>
                     {err && <p className="text-red-400 text-xs">{err}</p>}
-                    <div className="flex gap-2">
-                      <button onClick={() => { setAdding(false); setErr(null); }} className="flex-1 py-2.5 rounded-xl bg-slate-700 text-slate-300 text-sm font-medium">Cancel</button>
-                      <button onClick={saveNew} disabled={!form.Name.trim() || saving}
-                        className="flex-1 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white text-sm font-bold transition-colors">
-                        {saving ? 'Saving…' : 'Add'}
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
 
-              {!adding && (
-                <div className="shrink-0 px-5 py-4 border-t border-slate-800">
-                  <button onClick={() => setAdding(true)} className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-sm transition-colors">
+              {/* Footer buttons */}
+              <div className="shrink-0 px-5 py-4 border-t border-slate-800 space-y-2">
+                {view === 'list' && (
+                  <button onClick={() => setView('add')} className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-sm transition-colors">
                     + Add Subscription
                   </button>
-                </div>
-              )}
+                )}
+                {view === 'import' && (
+                  <button onClick={importSelected}
+                    disabled={saving || !candidates.some(c => !c.already && importFields[c.name]?.selected)}
+                    className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-bold text-sm transition-colors">
+                    {saving ? 'Importing…' : `Import ${candidates.filter(c => !c.already && importFields[c.name]?.selected).length} Selected`}
+                  </button>
+                )}
+                {view === 'add' && (
+                  <button onClick={saveNew} disabled={!form.Name.trim() || saving}
+                    className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-bold text-sm transition-colors">
+                    {saving ? 'Saving…' : 'Add Subscription'}
+                  </button>
+                )}
+              </div>
             </div>
           );
         }
