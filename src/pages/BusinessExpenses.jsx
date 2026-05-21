@@ -480,12 +480,12 @@ function ProcessModal({ product, token, onClose, onSuccess }) {
       if (!existing.length || !existing[0]?.length) {
         await appendRow(token, `${TRANS_SHEET}!A:H`, ['Date', 'Client', 'Product', 'Quantity', 'Unit Price', 'Revenue', 'Margin %', 'Allocation']);
       }
-      const today = new Date().toISOString().slice(0, 10);
+      const now = localDateTimeStr();
       const allocJSON = JSON.stringify(
         steps.reduce((obj, st) => { obj[blockLabel(st)] = st.allocated.toFixed(4); return obj; }, {})
       );
       await appendRow(token, `${TRANS_SHEET}!A:H`, [
-        today,
+        now,
         clientName.trim(),
         product.name,
         inputMode === 'quantity' ? qty : '',
@@ -724,6 +724,7 @@ function CompareTable({ products }) {
 
 function EditTransactionModal({ tx, products, token, onSave, onDelete, onClose }) {
   const [date,      setDate]      = useState(tx.date || '');
+  const [time,      setTime]      = useState(tx.time || '');
   const [client,    setClient]    = useState(tx.client || '');
   const [qty,       setQty]       = useState(String(tx.qty || ''));
   const [unitPrice, setUnitPrice] = useState(String(tx.unitPrice || ''));
@@ -752,6 +753,7 @@ function EditTransactionModal({ tx, products, token, onSave, onDelete, onClose }
       await onSave({
         ...tx,
         date,
+        time,
         client,
         qty: qty || '',
         unitPrice: parseFloat(unitPrice) || tx.unitPrice,
@@ -791,7 +793,7 @@ function EditTransactionModal({ tx, products, token, onSave, onDelete, onClose }
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
 
-          {/* Date + Client side by side */}
+          {/* Date + Time */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5">Date</label>
@@ -799,10 +801,17 @@ function EditTransactionModal({ tx, products, token, onSave, onDelete, onClose }
                 className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500"/>
             </div>
             <div>
-              <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5">Client</label>
-              <input value={client} onChange={e => setClient(e.target.value)} placeholder="(optional)"
-                className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500 placeholder-slate-600"/>
+              <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5">Time</label>
+              <input type="time" value={time} onChange={e => setTime(e.target.value)}
+                className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500"/>
             </div>
+          </div>
+
+          {/* Client */}
+          <div>
+            <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5">Client</label>
+            <input value={client} onChange={e => setClient(e.target.value)} placeholder="(optional)"
+              className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500 placeholder-slate-600"/>
           </div>
 
           {/* Qty + Unit Price */}
@@ -906,13 +915,45 @@ const PERIOD_OPTIONS = [
   { key: 'all',   label: 'All Time'   },
 ];
 
-function serialToISO(val) {
-  if (!val) return '';
+// Returns { date: 'YYYY-MM-DD', time: 'HH:MM' } from a Sheets serial or string.
+// Sheets stores datetimes as a decimal: integer = days since 1899-12-30, fractional = time-of-day fraction.
+// The fractional part represents LOCAL time (spreadsheet timezone), so we read it directly.
+function serialToDateTime(val) {
+  if (val === '' || val === null || val === undefined) return { date: '', time: '' };
   const n = Number(val);
-  if (!isNaN(n) && n > 1000 && !String(val).includes('-')) {
-    return new Date(Math.round((n - 25569) * 86400000)).toISOString().slice(0, 10);
+  const str = String(val);
+  if (!isNaN(n) && n > 1000 && !str.includes('-') && !str.includes('T') && !str.includes(' ')) {
+    const daySerial = Math.floor(n);
+    const timeFrac  = n - daySerial;
+    const date = new Date(Math.round((daySerial - 25569) * 86400000)).toISOString().slice(0, 10);
+    if (timeFrac > 0.0005) {
+      const totalMins = Math.round(timeFrac * 1440);
+      const time = `${String(Math.floor(totalMins / 60)).padStart(2, '0')}:${String(totalMins % 60).padStart(2, '0')}`;
+      return { date, time };
+    }
+    return { date, time: '' };
   }
-  return String(val).slice(0, 10);
+  const date = str.slice(0, 10);
+  const sep  = str[10];
+  const time = (sep === 'T' || sep === ' ') ? str.slice(11, 16) : '';
+  return { date, time };
+}
+
+function localDateTimeStr() {
+  const d   = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fmtDateTime(date, time) {
+  if (!date) return '—';
+  const d = new Date(date + 'T12:00:00');
+  const datePart = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  if (!time) return datePart;
+  const [h, m] = time.split(':').map(Number);
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${datePart} · ${h12}:${String(m).padStart(2, '0')} ${suffix}`;
 }
 
 function SalesView({ token, products }) {
@@ -979,10 +1020,12 @@ function SalesView({ token, products }) {
             if (!hasAny) return null;
             let allocs = {};
             try { allocs = JSON.parse(r[7] || '{}'); } catch { allocs = {}; }
+            const { date, time } = serialToDateTime(r[0]);
             return {
               id:        idx,
               rowNum:    idx + headerOffset,
-              date:      serialToISO(r[0]),
+              date,
+              time,
               client:    r[1] || '',
               product:   r[2] || '',
               qty:       r[3] || '',
@@ -1009,7 +1052,7 @@ function SalesView({ token, products }) {
     const prefix = period === 'month'
       ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
       : `${now.getFullYear()}`;
-    return transactions.filter(t => t.date.startsWith(prefix));
+    return transactions.filter(t => (t.date || '').startsWith(prefix));
   }, [transactions, period]);
 
   const { totalRevenue, categories, totalProfit } = useMemo(() => {
@@ -1048,8 +1091,9 @@ function SalesView({ token, products }) {
   async function handleEditSave(updated) {
     const rn = updated.rowNum;
     const allocJSON = JSON.stringify(updated.allocs);
+    const datetimeVal = updated.time ? `${updated.date} ${updated.time}` : updated.date;
     await batchUpdateCells(token, [
-      { range: `${TRANS_SHEET}!A${rn}`, value: updated.date },
+      { range: `${TRANS_SHEET}!A${rn}`, value: datetimeVal },
       { range: `${TRANS_SHEET}!B${rn}`, value: updated.client },
       { range: `${TRANS_SHEET}!C${rn}`, value: updated.product },
       { range: `${TRANS_SHEET}!D${rn}`, value: updated.qty },
@@ -1078,9 +1122,7 @@ function SalesView({ token, products }) {
       .slice()
       .sort((a, b) => (b.date > a.date ? 1 : -1))
       .forEach(t => {
-        const dateStr = t.date
-          ? new Date(t.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-          : '—';
+        const dateStr = fmtDateTime(t.date, t.time);
         let header = `[${dateStr}] ${t.product}`;
         if (t.qty) header += ` ×${t.qty} @ $${t.unitPrice.toFixed(2)}`;
         header += ` = $${t.revenue.toFixed(2)}`;
@@ -1238,9 +1280,6 @@ function SalesView({ token, products }) {
               .sort((a, b) => (b.date > a.date ? 1 : -1))
               .map((t, i) => {
                 const isOpen = expandedTx === i;
-                const dateStr = t.date
-                  ? new Date(t.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                  : '—';
                 return (
                   <div key={i} className="bg-slate-800 rounded-xl overflow-hidden">
                     <button
@@ -1252,7 +1291,7 @@ function SalesView({ token, products }) {
                           <p className="text-white text-sm font-medium truncate">{t.product}</p>
                           <p className="text-slate-500 text-xs mt-0.5">
                             {t.client ? <span className="text-slate-400">{t.client} · </span> : null}
-                            {dateStr}
+                            {fmtDateTime(t.date, t.time)}
                             {t.qty ? ` · ×${t.qty}` : ''}
                             {t.margin ? ` · ${t.margin}` : ''}
                           </p>
