@@ -38,14 +38,98 @@ const HEADERS = ['ID', 'Category', 'Variant', 'BasePrice', 'ExtraChar', 'BgSimpl
 
 const VARIANTS_SUGGEST = ['Icon/Headshot', 'Bust', 'Half-Body', 'Full Body', 'Simple', 'Complex', 'Multi-character', 'Chibi', 'Expression Sheet', 'Turnaround', 'Walk Cycle', 'Short Loop'];
 
+// Words that suggest a cell contains a size/variant name (grid column headers)
+const VARIANT_KEYWORDS = ['headshot', 'bust', 'half', 'full', 'chibi', 'icon', 'body', 'head', 'simple', 'complex', 'ref', 'turnaround', 'expression', 'loop', 'cycle'];
+
 function uid() {
   return Array.from(crypto.getRandomValues(new Uint8Array(4)))
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
 }
 
-function fmt(n) {
-  return Number(n || 0).toFixed(2);
+function pm(v) { const n = parseFloat(String(v ?? '').replace(/[$,\s]/g, '')); return isNaN(n) ? 0 : n; }
+function fmt(n) { return Number(n || 0).toFixed(2); }
+
+// ── Format detection & migration helpers ──────────────────────────────────────
+
+function isSchemaFormat(rows) {
+  return rows.length > 0 && String(rows[0]?.[0]).trim() === 'ID';
+}
+
+function looksLikeVariant(str) {
+  const s = String(str || '').toLowerCase();
+  return VARIANT_KEYWORDS.some(k => s.includes(k));
+}
+
+// Grid format: top-left cell empty/category-label, other header cells are variant names
+// e.g.  [""/"Type", "Headshot", "Bust", "Half-Body", "Full Body", "Chibi"]
+function isGridFormat(rows) {
+  if (rows.length < 2) return false;
+  const header = rows[0] || [];
+  return header.slice(1).filter(Boolean).some(h => looksLikeVariant(h));
+}
+
+function parseGridToTiers(rows) {
+  const variants = rows[0].slice(1).map(h => String(h).trim()).filter(Boolean);
+  const tiers = [];
+  rows.slice(1).forEach(row => {
+    const category = String(row[0] || '').trim();
+    if (!category) return;
+    variants.forEach((variant, i) => {
+      const price = pm(row[i + 1]);
+      if (price <= 0) return;
+      tiers.push({
+        ID: uid(), Category: category, Variant: variant,
+        BasePrice: price, ExtraChar: '', BgSimple: '', BgComplex: '',
+        RushPct: '', CommercialPct: '', TimeHours: '', Notes: '', Active: 'TRUE',
+      });
+    });
+  });
+  return tiers;
+}
+
+// List format: rows have Category, Variant (or Type/Size), and a price column
+function isListFormat(rows) {
+  if (rows.length < 2) return false;
+  const headers = (rows[0] || []).map(h => String(h).toLowerCase());
+  return headers.some(h => h.includes('category') || h.includes('type'))
+      && headers.some(h => h.includes('price') || h.includes('cost') || h.includes('base'));
+}
+
+function parseListToTiers(rows) {
+  const h = (rows[0] || []).map(s => String(s).toLowerCase());
+  const ci = h.findIndex(s => s.includes('category') || s.includes('type'));
+  const vi = h.findIndex(s => s.includes('variant') || s.includes('size') || s.includes('option') || s.includes('style'));
+  const pi = h.findIndex(s => s.includes('price') || s.includes('base') || s.includes('cost'));
+  if (ci < 0 || pi < 0) return [];
+  return rows.slice(1)
+    .filter(r => r[ci] && pm(r[pi]) > 0)
+    .map(r => ({
+      ID: uid(),
+      Category: String(r[ci] || '').trim(),
+      Variant:  vi >= 0 ? String(r[vi] || '').trim() : '',
+      BasePrice: pm(r[pi]),
+      ExtraChar: '', BgSimple: '', BgComplex: '',
+      RushPct: '', CommercialPct: '', TimeHours: '', Notes: '', Active: 'TRUE',
+    }));
+}
+
+function rowToTier(row, rowNum) {
+  return {
+    ID:            String(row[0]  || ''),
+    Category:      String(row[1]  || ''),
+    Variant:       String(row[2]  || ''),
+    BasePrice:     row[3]  != null ? row[3]  : '',
+    ExtraChar:     row[4]  != null ? row[4]  : '',
+    BgSimple:      row[5]  != null ? row[5]  : '',
+    BgComplex:     row[6]  != null ? row[6]  : '',
+    RushPct:       row[7]  != null ? row[7]  : '',
+    CommercialPct: row[8]  != null ? row[8]  : '',
+    TimeHours:     row[9]  != null ? row[9]  : '',
+    Notes:         String(row[10] || ''),
+    Active:        row[11] !== false && row[11] !== 'FALSE',
+    _rowNum:       rowNum,
+  };
 }
 
 // ── Price calculator logic ────────────────────────────────────────────────────
@@ -732,6 +816,7 @@ export default function CommissionPrices({ token }) {
   const [editing,  setEditing]  = useState(null);   // tier object or {} for new
   const [selCat,   setSelCat]   = useState('All');
   const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'grid'
+  const [migrated, setMigrated] = useState(null);   // null | count of migrated tiers
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
@@ -742,7 +827,7 @@ export default function CommissionPrices({ token }) {
       await ensureSheetTab(token, SHEET);
       const rows = await readRange(token, `${SHEET}!A:L`, 'UNFORMATTED_VALUE');
 
-      // Write headers if sheet is empty
+      // ── Case 1: Empty sheet — write headers and start fresh ──────────────
       if (!rows.length || !rows[0]?.length) {
         await batchUpdateCells(token, HEADERS.map((h, i) => ({
           range: `${SHEET}!${String.fromCharCode(65 + i)}1`,
@@ -752,35 +837,52 @@ export default function CommissionPrices({ token }) {
         return;
       }
 
-      const [headerRow, ...dataRows] = rows;
+      // ── Case 2: Already in schema format — parse directly ────────────────
+      if (isSchemaFormat(rows)) {
+        const parsed = rows.slice(1)
+          .map((row, idx) => {
+            if (!row[0] || row[0] === 'ID') return null;
+            return rowToTier(row, idx + 2);
+          })
+          .filter(Boolean);
+        setTiers(parsed);
+        return;
+      }
 
-      // Ensure the first row is actually our header row (not data)
-      const isHeader = headerRow[0] === 'ID' || headerRow[0] === undefined;
-      const actualData = isHeader ? dataRows : rows;
+      // ── Case 3: Foreign format — auto-detect and migrate ─────────────────
+      let convertedTiers = [];
+      if (isGridFormat(rows))       convertedTiers = parseGridToTiers(rows);
+      else if (isListFormat(rows))  convertedTiers = parseListToTiers(rows);
+      else                          convertedTiers = parseGridToTiers(rows); // best guess
 
-      const parsed = actualData
-        .map((row, idx) => {
-          const id = row[0];
-          if (!id || id === 'ID') return null;
-          return {
-            ID:            row[0]  || '',
-            Category:      row[1]  || '',
-            Variant:       row[2]  || '',
-            BasePrice:     row[3]  != null ? row[3]  : '',
-            ExtraChar:     row[4]  != null ? row[4]  : '',
-            BgSimple:      row[5]  != null ? row[5]  : '',
-            BgComplex:     row[6]  != null ? row[6]  : '',
-            RushPct:       row[7]  != null ? row[7]  : '',
-            CommercialPct: row[8]  != null ? row[8]  : '',
-            TimeHours:     row[9]  != null ? row[9]  : '',
-            Notes:         row[10] || '',
-            Active:        row[11] !== false && row[11] !== 'FALSE',
-            _rowNum:       idx + 2, // 1-indexed, +1 for header
-          };
-        })
-        .filter(Boolean);
+      if (convertedTiers.length === 0) {
+        setTiers([]);
+        return;
+      }
 
-      setTiers(parsed);
+      // Overwrite sheet: clear → write new headers → append converted rows
+      await clearRow(token, `${SHEET}!A1:L500`);
+      await batchUpdateCells(token, HEADERS.map((h, i) => ({
+        range: `${SHEET}!${String.fromCharCode(65 + i)}1`,
+        value: h,
+      })));
+      for (const t of convertedTiers) {
+        await appendRow(token, `${SHEET}!A:L`, [
+          t.ID, t.Category, t.Variant, t.BasePrice,
+          t.ExtraChar, t.BgSimple, t.BgComplex,
+          t.RushPct, t.CommercialPct, t.TimeHours,
+          t.Notes, t.Active,
+        ]);
+      }
+
+      // Build tier objects with row numbers without a second fetch
+      const finalTiers = convertedTiers.map((t, idx) => ({
+        ...t,
+        Active: true,
+        _rowNum: idx + 2,
+      }));
+      setTiers(finalTiers);
+      setMigrated(convertedTiers.length);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -898,6 +1000,17 @@ export default function CommissionPrices({ token }) {
       </div>
 
       <div className="px-4 space-y-4">
+        {/* ── Migration banner ── */}
+        {migrated !== null && (
+          <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-emerald-300 text-sm font-medium">✓ Imported {migrated} tier{migrated !== 1 ? 's' : ''} from your existing sheet</p>
+              <p className="text-emerald-600 text-xs mt-0.5">Add-on prices (extra char, backgrounds, rush, commercial) can now be set per tier via Edit.</p>
+            </div>
+            <button onClick={() => setMigrated(null)} className="text-emerald-600 hover:text-emerald-400 text-lg shrink-0">✕</button>
+          </div>
+        )}
+
         {/* ── Error banner ── */}
         {error && (
           <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-4 text-sm space-y-2">
