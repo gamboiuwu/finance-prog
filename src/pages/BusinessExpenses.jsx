@@ -222,7 +222,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
               onChange={e => setName(e.target.value)}
               placeholder="e.g. Stickers, Prints, Commissions…"
               autoFocus
-              className="w-full bg-slate-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
+              className="w-full bg-slate-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-green-500 placeholder-slate-600"
             />
           </div>
           <div>
@@ -234,7 +234,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
                 value={startPrice}
                 onChange={e => setStartPrice(e.target.value)}
                 placeholder="0.00"
-                className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 font-mono tabular-nums placeholder-slate-600"
+                className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-green-500 font-mono tabular-nums placeholder-slate-600"
               />
             </div>
           </div>
@@ -245,11 +245,11 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
           <p className="text-slate-400 text-xs uppercase tracking-wider font-broske">Allocation Steps</p>
 
           {price > 0 && (
-            <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-900/20 border border-blue-800/40 rounded-xl">
-              <span className="text-blue-400 text-xs font-broske uppercase tracking-wider w-12 shrink-0">Start</span>
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-green-900/20 border border-green-800/40 rounded-xl">
+              <span className="text-green-400 text-xs font-broske uppercase tracking-wider w-12 shrink-0">Start</span>
               <span className="text-white font-bold font-mono tabular-nums">${price.toFixed(2)}</span>
               <div className="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                <div className="h-1.5 rounded-full bg-blue-500 w-full" />
+                <div className="h-1.5 rounded-full bg-green-500 w-full" />
               </div>
             </div>
           )}
@@ -272,14 +272,14 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
                     <select
                       value={step.category}
                       onChange={e => updateBlock(step.id, 'category', e.target.value)}
-                      className="flex-1 bg-slate-800 text-white rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                      className="flex-1 bg-slate-800 text-white rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-green-500"
                     >
                       {BUILT_IN_CATS.map(c => <option key={c}>{c}</option>)}
                     </select>
                     <div className="flex bg-slate-800 rounded-lg p-0.5 shrink-0">
                       {[['fixed','$'],['percent','%']].map(([t, lbl]) => (
                         <button key={t} onClick={() => updateBlock(step.id, 'type', t)}
-                          className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${step.type === t ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+                          className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${step.type === t ? 'bg-green-600 text-white' : 'text-slate-400 hover:text-white'}`}>
                           {lbl}
                         </button>
                       ))}
@@ -289,7 +289,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
                       value={step.value}
                       onChange={e => updateBlock(step.id, 'value', e.target.value)}
                       placeholder="0"
-                      className="w-20 bg-slate-800 text-white rounded-lg px-2 py-1.5 text-sm text-right outline-none focus:ring-1 focus:ring-blue-500 font-mono tabular-nums shrink-0"
+                      className="w-20 bg-slate-800 text-white rounded-lg px-2 py-1.5 text-sm text-right outline-none focus:ring-1 focus:ring-green-500 font-mono tabular-nums shrink-0"
                     />
                     <button onClick={() => removeBlock(step.id)}
                       className="w-7 h-7 rounded-lg bg-slate-800 text-slate-500 hover:text-rose-400 flex items-center justify-center text-sm transition-colors shrink-0">
@@ -305,7 +305,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
                         value={step.customName || ''}
                         onChange={e => updateBlock(step.id, 'customName', e.target.value)}
                         placeholder="e.g. Platform cut, Packaging…"
-                        className="flex-1 bg-slate-800 text-white rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-600"
+                        className="flex-1 bg-slate-800 text-white rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-green-500 placeholder-slate-600"
                       />
                     </div>
                   )}
@@ -345,7 +345,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
           )}
 
           <button onClick={addBlock}
-            className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-blue-600/50 transition-colors">
+            className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-green-600/50 transition-colors">
             + Add Allocation Step
           </button>
         </div>
@@ -433,7 +433,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
         </button>
         <button onClick={() => onSave({ ...product, name: name.trim(), startPrice: price, formula: blocks })}
           disabled={!canSave || saving}
-          className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold transition-colors">
+          className="flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-500 disabled:opacity-40 text-white font-bold transition-colors">
           {saving ? 'Saving…' : product.id ? 'Save Changes' : 'Create Product'}
         </button>
       </div>
@@ -498,11 +498,11 @@ function ProcessModal({ product, token, onClose }) {
 
         <div className="flex-1 overflow-y-auto px-5 py-5 space-y-3">
           {/* Input mode toggle + value */}
-          <div className="bg-blue-900/20 border border-blue-800/40 rounded-2xl p-4 space-y-3">
+          <div className="bg-green-900/20 border border-green-800/40 rounded-2xl p-4 space-y-3">
             <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
               {[['amount','$ Amount received'],['quantity','# Quantity sold']].map(([m, lbl]) => (
                 <button key={m} onClick={() => { setInputMode(m); setInputVal(''); }}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${inputMode === m ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${inputMode === m ? 'bg-green-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
                   {lbl}
                 </button>
               ))}
@@ -518,7 +518,7 @@ function ProcessModal({ product, token, onClose }) {
                 onChange={e => setInputVal(e.target.value)}
                 placeholder={inputMode === 'amount' ? '0.00' : '0'}
                 autoFocus
-                className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 font-mono tabular-nums placeholder-slate-600"
+                className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-green-500 font-mono tabular-nums placeholder-slate-600"
               />
             </div>
 
@@ -530,7 +530,7 @@ function ProcessModal({ product, token, onClose }) {
             )}
 
             <div className="flex items-center justify-between">
-              <span className="text-blue-300 font-broske text-xs uppercase tracking-wider">Formula Start</span>
+              <span className="text-green-300 font-broske text-xs uppercase tracking-wider">Formula Start</span>
               <span className="text-white font-bold text-2xl font-mono tabular-nums">${revenue.toFixed(2)}</span>
             </div>
           </div>
@@ -641,7 +641,7 @@ function CompareTable({ products }) {
               <p className="text-slate-500 text-[10px] font-mono">${p.startPrice.toFixed(2)}</p>
             </div>
             <div className="text-right">
-              <p className="text-blue-300 text-sm font-mono tabular-nums">${cogs.toFixed(2)}</p>
+              <p className="text-green-300 text-sm font-mono tabular-nums">${cogs.toFixed(2)}</p>
             </div>
             <div className="text-right">
               <p className="text-emerald-400 text-sm font-mono tabular-nums">${profit.toFixed(2)}</p>
@@ -668,7 +668,7 @@ function CompareTable({ products }) {
               <p className="text-slate-400 text-xs font-broske uppercase tracking-wider">Average</p>
             </div>
             <div className="text-right">
-              <p className="text-blue-300 text-xs font-mono tabular-nums">${(rows.reduce((s, r) => s + r.cogs, 0) / rows.length).toFixed(2)}</p>
+              <p className="text-green-300 text-xs font-mono tabular-nums">${(rows.reduce((s, r) => s + r.cogs, 0) / rows.length).toFixed(2)}</p>
             </div>
             <div className="text-right">
               <p className="text-emerald-400 text-xs font-mono tabular-nums">${(rows.reduce((s, r) => s + r.profit, 0) / rows.length).toFixed(2)}</p>
@@ -784,7 +784,7 @@ export default function BusinessExpenses({ token }) {
         </div>
         <button
           onClick={() => setEditing({ name: '', startPrice: 0, formula: [] })}
-          className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+          className="bg-green-600 hover:bg-green-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
         >
           + Add
         </button>
@@ -795,7 +795,7 @@ export default function BusinessExpenses({ token }) {
           <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm space-y-2">
             <p className="font-medium">Could not load Business Products sheet</p>
             <p className="text-xs text-red-500">{error}</p>
-            <button onClick={load} className="text-blue-400 underline text-xs">Retry</button>
+            <button onClick={load} className="text-green-400 underline text-xs">Retry</button>
           </div>
         )}
 
@@ -844,7 +844,7 @@ export default function BusinessExpenses({ token }) {
             <p className="text-slate-500 text-sm leading-relaxed">Add a product and define how its revenue is allocated across COGS, profit, fees, and more.</p>
             <button
               onClick={() => setEditing({ name: '', startPrice: 0, formula: [] })}
-              className="mt-1 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-colors"
+              className="mt-1 bg-green-600 hover:bg-green-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-colors"
             >
               + Add First Product
             </button>
@@ -902,7 +902,7 @@ export default function BusinessExpenses({ token }) {
 
                     <div className="flex flex-wrap gap-2">
                       {cogsAmt > 0 && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 font-mono tabular-nums">COGS ${cogsAmt.toFixed(2)}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-900/40 text-green-300 font-mono tabular-nums">COGS ${cogsAmt.toFixed(2)}</span>
                       )}
                       {profitAmt > 0 && (
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-300 font-mono tabular-nums">Profit ${profitAmt.toFixed(2)}</span>
@@ -917,7 +917,7 @@ export default function BusinessExpenses({ token }) {
 
                   <div className="flex border-t border-slate-700/80">
                     <button onClick={() => setProcessing(product)}
-                      className="flex-1 py-2.5 text-xs font-semibold text-blue-400 hover:bg-slate-700 transition-colors">
+                      className="flex-1 py-2.5 text-xs font-semibold text-green-400 hover:bg-slate-700 transition-colors">
                       Process
                     </button>
                     <div className="w-px bg-slate-700" />

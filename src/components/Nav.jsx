@@ -7,6 +7,7 @@ const tabs = [
   { to: '/transactions', label: 'Log',     icon: '⇅'  },
   { to: '/commissions',  label: 'Art',     icon: '✦'  },
   { to: '/business',     label: 'Biz',     icon: '💼' },
+  { to: '/actions',     label: 'History', icon: '↺'  },
 ];
 
 export default function Nav() {
