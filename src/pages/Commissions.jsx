@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { readRange, appendRow } from '../lib/sheets';
 import { SHEETS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
+import CommissionPrices from './CommissionPrices';
 
 const STATUS_COLORS = {
   'Completed': 'bg-emerald-900/50 text-emerald-300',
@@ -87,6 +88,7 @@ function Field({ label, value, onChange, required, type = 'text', step, multilin
 }
 
 export default function Commissions({ token }) {
+  const [tab, setTab] = useState('inquiries'); // 'inquiries' | 'pricing'
   const [inquiries, setInquiries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -128,6 +130,25 @@ export default function Commissions({ token }) {
     }
   }
 
+  // Pricing tab renders immediately without waiting for inquiries
+  if (tab === 'pricing') {
+    return (
+      <div className="pb-24">
+        <div className="px-4 pt-4 pb-0">
+          <div className="flex bg-slate-800 rounded-xl p-1 gap-1 mb-4">
+            <button onClick={() => setTab('inquiries')} className="flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors text-slate-400 hover:text-slate-300">
+              Inquiries
+            </button>
+            <button className="flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors bg-slate-600 text-white">
+              Pricing
+            </button>
+          </div>
+        </div>
+        <CommissionPrices token={token} />
+      </div>
+    );
+  }
+
   if (loading) return <LoadingSpinner />;
   if (error) return <div className="p-4 text-red-400">Error: {error}</div>;
 
@@ -141,9 +162,15 @@ export default function Commissions({ token }) {
           <h1 className="text-2xl font-bold text-white">Commissions</h1>
           <p className="text-slate-400 text-sm">Client inquiries</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl px-4 py-2 text-sm font-medium">
-          + Add
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
+            <button className="py-1.5 px-3 rounded-lg text-xs font-medium bg-slate-600 text-white">Inquiries</button>
+            <button onClick={() => setTab('pricing')} className="py-1.5 px-3 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-300">Pricing</button>
+          </div>
+          <button onClick={() => setShowModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl px-4 py-2 text-sm font-medium">
+            + Add
+          </button>
+        </div>
       </div>
 
       {/* Summary */}
