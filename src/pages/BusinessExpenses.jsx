@@ -728,13 +728,17 @@ function SalesView({ token, products }) {
   const [transactions,   setTransactions]   = useState([]);
   const [loading,        setLoading]        = useState(true);
   const [error,          setError]          = useState(null);
-  const [period,         setPeriod]         = useState('month');
+  // Default to 'all' so freshly-recorded transactions always show up on first
+  // load, even if there's any date-conversion oddity that excludes them from a
+  // narrower window.
+  const [period,         setPeriod]         = useState('all');
   const [showProcess,    setShowProcess]    = useState(false);
   const [budgetExpenses, setBudgetExpenses] = useState([]);
   const [expLoading,     setExpLoading]     = useState(false);
   const [expandedTx,     setExpandedTx]     = useState(null);
   const [reportCopied,   setReportCopied]   = useState(false);
   const [refreshCount,   setRefreshCount]   = useState(0);
+  const [rawRowCount,    setRawRowCount]    = useState(0);
 
   useEffect(() => {
     if (!token) return;
@@ -742,6 +746,7 @@ function SalesView({ token, products }) {
     setError(null);
     readRange(token, `${TRANS_SHEET}!A:G`, 'UNFORMATTED_VALUE')
       .then(rows => {
+        setRawRowCount(rows.length);
         if (!rows.length) { setTransactions([]); return; }
         // Skip header row if present (first cell is the text 'Date')
         const data = String(rows[0]?.[0] || '').toLowerCase() === 'date' ? rows.slice(1) : rows;
@@ -879,11 +884,44 @@ function SalesView({ token, products }) {
         </button>
       </div>
 
+      {/* Diagnostic status line — always visible so user can see what loaded */}
+      <p className="text-slate-600 text-[10px] px-1">
+        Loaded {rawRowCount} row{rawRowCount !== 1 ? 's' : ''} from sheet ·{' '}
+        {transactions.length} transaction{transactions.length !== 1 ? 's' : ''} parsed ·{' '}
+        {filtered.length} match{filtered.length === 1 ? 'es' : ''} current filter
+      </p>
+
       {filtered.length === 0 ? (
-        <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-2">
+        <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-3">
           <p className="text-4xl">📊</p>
-          <p className="text-white font-semibold font-broske">No transactions yet</p>
-          <p className="text-slate-500 text-sm">Process a product sale to see the revenue flow here.</p>
+          {transactions.length === 0 ? (
+            <>
+              <p className="text-white font-semibold font-broske">No transactions yet</p>
+              <p className="text-slate-500 text-sm">
+                Process a product sale to see the revenue flow here.
+                {rawRowCount > 0 && ` (Sheet has ${rawRowCount} row${rawRowCount !== 1 ? 's' : ''} but none parsed as valid transactions.)`}
+              </p>
+              <button
+                onClick={() => setRefreshCount(c => c + 1)}
+                className="mt-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium px-4 py-2 rounded-xl transition-colors"
+              >
+                ↻ Reload from sheet
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-white font-semibold font-broske">No transactions in this period</p>
+              <p className="text-slate-500 text-sm">
+                {transactions.length} transaction{transactions.length !== 1 ? 's' : ''} exist{transactions.length === 1 ? 's' : ''} in your sheet but none match the current filter.
+              </p>
+              <button
+                onClick={() => setPeriod('all')}
+                className="mt-2 bg-green-600 hover:bg-green-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+              >
+                Show All Time
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <>
