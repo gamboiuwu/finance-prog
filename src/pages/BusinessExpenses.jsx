@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { readRange, appendRow, batchUpdateCells, ensureSheetTab, clearRow } from '../lib/sheets';
 import { SHEETS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
+import ProcessIncome from '../components/ProcessIncome';
 
 const SHEET = SHEETS.BUSINESS_PRODUCTS;
 const HEADERS = ['ID', 'Name', 'StartPrice', 'Formula'];
@@ -685,6 +686,256 @@ function CompareTable({ products }) {
   );
 }
 
+// ── Sales / Transactions view ─────────────────────────────────────────────────
+
+const PERIOD_OPTIONS = [
+  { key: 'month', label: 'This Month' },
+  { key: 'year',  label: 'This Year'  },
+  { key: 'all',   label: 'All Time'   },
+];
+
+function serialToISO(val) {
+  if (!val) return '';
+  const n = Number(val);
+  if (!isNaN(n) && n > 1000 && !String(val).includes('-')) {
+    return new Date(Math.round((n - 25569) * 86400000)).toISOString().slice(0, 10);
+  }
+  return String(val).slice(0, 10);
+}
+
+function SalesView({ token, products }) {
+  const [transactions,   setTransactions]   = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [error,          setError]          = useState(null);
+  const [period,         setPeriod]         = useState('month');
+  const [showProcess,    setShowProcess]    = useState(false);
+  const [budgetExpenses, setBudgetExpenses] = useState([]);
+  const [expLoading,     setExpLoading]     = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    setLoading(true);
+    readRange(token, `${TRANS_SHEET}!A:G`, 'UNFORMATTED_VALUE')
+      .then(rows => {
+        if (rows.length < 2) { setTransactions([]); return; }
+        const [, ...data] = rows;
+        const parsed = data
+          .filter(r => r[0] || r[1])
+          .map((r, idx) => {
+            let allocs = {};
+            try { allocs = JSON.parse(r[6] || '{}'); } catch { allocs = {}; }
+            return {
+              id:        idx,
+              date:      serialToISO(r[0]),
+              product:   r[1] || '',
+              qty:       r[2] || '',
+              unitPrice: parseFloat(r[3]) || 0,
+              revenue:   parseFloat(r[4]) || 0,
+              margin:    r[5] || '',
+              allocs,
+            };
+          });
+        setTransactions(parsed);
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  const now = new Date();
+  const filtered = useMemo(() => {
+    if (period === 'all') return transactions;
+    const prefix = period === 'month'
+      ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+      : `${now.getFullYear()}`;
+    return transactions.filter(t => t.date.startsWith(prefix));
+  }, [transactions, period]);
+
+  const { totalRevenue, categories, totalProfit } = useMemo(() => {
+    const totalRevenue = filtered.reduce((s, t) => s + t.revenue, 0);
+    const catMap = {};
+    filtered.forEach(t => {
+      Object.entries(t.allocs).forEach(([name, amtStr]) => {
+        const amt = parseFloat(amtStr) || 0;
+        catMap[name] = (catMap[name] || 0) + amt;
+      });
+    });
+    const categories = Object.entries(catMap)
+      .map(([name, total]) => ({ name, total, color: CAT_COLORS[name] || CAT_COLORS.Other }))
+      .sort((a, b) => b.total - a.total);
+    const totalProfit = catMap['Profit'] || 0;
+    return { totalRevenue, categories, totalProfit };
+  }, [filtered]);
+
+  function handleProcessAsIncome() {
+    if (budgetExpenses.length > 0) { setShowProcess(true); return; }
+    setExpLoading(true);
+    readRange(token, 'Monthly Expenses!A1:T40')
+      .then(rows => {
+        if (rows.length) {
+          const [headers, ...data] = rows;
+          setBudgetExpenses(data.filter(r => r[0]).map(r =>
+            headers.reduce((o, h, i) => { o[h] = r[i] ?? null; return o; }, {})
+          ));
+        }
+        setShowProcess(true);
+      })
+      .catch(() => setShowProcess(true))
+      .finally(() => setExpLoading(false));
+  }
+
+  if (loading) return <div className="flex justify-center py-12"><LoadingSpinner /></div>;
+  if (error)   return <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm">{error}</div>;
+
+  return (
+    <div className="space-y-3">
+      {/* Period filter */}
+      <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
+        {PERIOD_OPTIONS.map(opt => (
+          <button key={opt.key} onClick={() => setPeriod(opt.key)}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${period === opt.key ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-2">
+          <p className="text-4xl">📊</p>
+          <p className="text-white font-semibold font-broske">No transactions yet</p>
+          <p className="text-slate-500 text-sm">Process a product sale to see the revenue flow here.</p>
+        </div>
+      ) : (
+        <>
+          {/* ── FLOW DIAGRAM ── */}
+
+          {/* 1. Revenue source box */}
+          <div className="bg-green-900/20 border border-green-700/40 rounded-2xl p-5">
+            <p className="text-green-300 text-[10px] uppercase tracking-wider font-broske mb-1">Total Business Revenue</p>
+            <p className="text-white text-3xl font-bold font-mono tabular-nums">${totalRevenue.toFixed(2)}</p>
+            <p className="text-slate-500 text-xs mt-1.5">
+              {filtered.length} transaction{filtered.length !== 1 ? 's' : ''} · {new Set(filtered.map(t => t.product)).size} product{new Set(filtered.map(t => t.product)).size !== 1 ? 's' : ''}
+            </p>
+          </div>
+
+          {/* Connector */}
+          <div className="flex flex-col items-center">
+            <div className="w-px h-5 bg-slate-600" />
+            <span className="text-slate-500 text-base leading-none">▼</span>
+          </div>
+
+          {/* 2. Revenue allocation flow */}
+          <div className="bg-slate-800 rounded-2xl p-4 space-y-4">
+            <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske">Revenue Allocation Flow</p>
+
+            {/* Stacked bar */}
+            {totalRevenue > 0 && (
+              <div className="flex h-5 rounded-xl overflow-hidden">
+                {categories.map(cat => (
+                  <div key={cat.name}
+                    style={{ width: `${(cat.total / totalRevenue) * 100}%`, background: cat.color }}
+                    title={`${cat.name}: $${cat.total.toFixed(2)}`}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Category rows with arrows */}
+            <div className="space-y-2.5">
+              {categories.map(cat => (
+                <div key={cat.name} className="flex items-center gap-3">
+                  <span className="text-slate-500 text-sm shrink-0 font-mono">→</span>
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ background: cat.color }} />
+                  <span className={`text-sm flex-1 ${cat.name === 'Profit' ? 'text-emerald-300 font-semibold' : 'text-slate-200'}`}>{cat.name}</span>
+                  <span className={`font-mono text-sm tabular-nums ${cat.name === 'Profit' ? 'text-emerald-400 font-bold' : 'text-white'}`}>${cat.total.toFixed(2)}</span>
+                  <span className="text-slate-500 font-mono text-xs w-10 text-right tabular-nums">
+                    {totalRevenue > 0 ? ((cat.total / totalRevenue) * 100).toFixed(1) : '0.0'}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Connector to profit */}
+          <div className="flex flex-col items-center">
+            <div className="w-px h-5 bg-emerald-700/50" />
+            <span className="text-emerald-600 text-base leading-none">▼</span>
+          </div>
+
+          {/* 3. Profit pool */}
+          <div className="bg-emerald-900/20 border border-emerald-700/40 rounded-2xl p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">💰</span>
+              <div>
+                <p className="text-emerald-300 text-[10px] uppercase tracking-wider font-broske">Available Profit</p>
+                <p className="text-white text-2xl font-bold font-mono tabular-nums mt-0.5">${totalProfit.toFixed(2)}</p>
+                {totalRevenue > 0 && (
+                  <p className="text-emerald-600 text-xs">{((totalProfit / totalRevenue) * 100).toFixed(1)}% profit margin</p>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={handleProcessAsIncome}
+              disabled={expLoading || totalProfit <= 0}
+              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm transition-colors"
+            >
+              {expLoading ? 'Loading budget…' : totalProfit <= 0 ? 'No profit to process' : `Process $${totalProfit.toFixed(2)} as Income →`}
+            </button>
+          </div>
+
+          {/* ── Transaction list ── */}
+          <div className="space-y-2 pt-2">
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider px-1">Transaction History</p>
+            {filtered
+              .slice()
+              .sort((a, b) => (b.date > a.date ? 1 : -1))
+              .map((t, i) => {
+                const dateStr = t.date
+                  ? new Date(t.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                  : '—';
+                return (
+                  <div key={i} className="bg-slate-800 rounded-xl px-4 py-3 space-y-2">
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="min-w-0">
+                        <p className="text-white text-sm font-medium truncate">{t.product}</p>
+                        <p className="text-slate-500 text-xs mt-0.5">
+                          {dateStr}
+                          {t.qty ? ` · ×${t.qty}` : ''}
+                          {t.margin ? ` · ${t.margin} margin` : ''}
+                        </p>
+                      </div>
+                      <span className="text-green-400 font-bold font-mono tabular-nums text-sm shrink-0">+${t.revenue.toFixed(2)}</span>
+                    </div>
+                    {/* Mini allocation bar */}
+                    {Object.keys(t.allocs).length > 0 && (
+                      <div className="flex h-1.5 rounded-full overflow-hidden">
+                        {Object.entries(t.allocs).map(([name, amt]) => {
+                          const color = CAT_COLORS[name] || CAT_COLORS.Other;
+                          const pct = t.revenue > 0 ? (parseFloat(amt) / t.revenue) * 100 : 0;
+                          return <div key={name} style={{ width: `${pct}%`, background: color }} title={`${name}: $${parseFloat(amt).toFixed(2)}`} />;
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            }
+          </div>
+        </>
+      )}
+
+      {/* ProcessIncome modal triggered from profit pool */}
+      {showProcess && budgetExpenses.length > 0 && (
+        <ProcessIncome
+          expenses={budgetExpenses}
+          token={token}
+          onClose={() => setShowProcess(false)}
+          defaultIncome={totalProfit}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function BusinessExpenses({ token }) {
@@ -825,19 +1076,20 @@ export default function BusinessExpenses({ token }) {
         )}
 
         {/* View toggle */}
-        {products.length > 0 && (
-          <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
-            {[['cards','Cards'],['compare','Compare']].map(([v, lbl]) => (
-              <button key={v} onClick={() => setViewMode(v)}
-                className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
-                {lbl}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
+          {[
+            ...(products.length > 0 ? [['cards','Cards'],['compare','Compare']] : []),
+            ['sales','Sales 📊'],
+          ].map(([v, lbl]) => (
+            <button key={v} onClick={() => setViewMode(v)}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
 
         {/* Empty state */}
-        {!error && products.length === 0 && (
+        {!error && products.length === 0 && viewMode !== 'sales' && (
           <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-3">
             <p className="text-4xl">💼</p>
             <p className="text-white font-semibold font-broske">No products yet</p>
@@ -937,6 +1189,8 @@ export default function BusinessExpenses({ token }) {
           </div>
         )}
       </div>
+
+      {viewMode === 'sales' && <SalesView token={token} products={products} />}
 
       {editing    && <FormulaEditor product={editing}    onSave={handleSave} onClose={() => setEditing(null)}    saving={saving} />}
       {processing && <ProcessModal  product={processing} token={token}        onClose={() => setProcessing(null)} />}

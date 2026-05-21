@@ -11,6 +11,7 @@ export const SHEETS = {
   ALLOCATION_SUMMARY: 'Allocation Summary',
   INQUIRIES: 'Inquiries',
   BUSINESS_PRODUCTS: 'Business Products',
+  COMMISSION_PRICES: 'Commission Prices',
 };
 
 export const MONTHS = [
