@@ -43,6 +43,24 @@ function computeFormula(startPrice, blocks) {
   return { steps, remaining };
 }
 
+// Like computeFormula but scales all fixed amounts by actualRevenue/basePrice
+// so a $0.28 COGS on a $10 unit becomes $0.56 when processing a $20 order.
+// Percent steps are unchanged — they already scale with remaining.
+function computeFormulaProportional(actualRevenue, basePrice, blocks) {
+  if (basePrice <= 0) return computeFormula(actualRevenue, blocks);
+  const ratio = actualRevenue / basePrice;
+  let remaining = actualRevenue;
+  const steps = blocks.map(block => {
+    const val = parseFloat(block.value) || 0;
+    const allocated = block.type === 'fixed'
+      ? Math.min(val * ratio, remaining)
+      : (remaining * val / 100);
+    remaining = Math.max(0, remaining - allocated);
+    return { ...block, allocated, remainingAfter: remaining };
+  });
+  return { steps, remaining };
+}
+
 function profitMarginPct(steps, startPrice) {
   const profitStep = steps.find(st => st.category === 'Profit');
   if (!profitStep || startPrice <= 0) return null;
@@ -436,7 +454,7 @@ function ProcessModal({ product, token, onClose }) {
   const qty     = parseFloat(inputVal) || 0;
   const revenue = inputMode === 'quantity' ? qty * product.startPrice : qty;
 
-  const { steps, remaining } = computeFormula(revenue, product.formula);
+  const { steps, remaining } = computeFormulaProportional(revenue, product.startPrice, product.formula);
   const balanced = Math.abs(remaining) < 0.001;
   const margin   = profitMarginPct(steps, revenue);
 
@@ -531,7 +549,7 @@ function ProcessModal({ product, token, onClose }) {
                       <span className="text-sm font-medium" style={{ color }}>{label}</span>
                       <span className="text-slate-600 text-xs">
                         {step.type === 'fixed'
-                          ? `$${parseFloat(step.value || 0).toFixed(2)} fixed`
+                          ? `$${(parseFloat(step.value || 0) * (product.startPrice > 0 ? revenue / product.startPrice : 1)).toFixed(2)} scaled`
                           : `${step.value}% of remaining`}
                       </span>
                     </div>
