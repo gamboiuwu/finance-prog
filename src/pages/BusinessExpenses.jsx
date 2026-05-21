@@ -59,6 +59,15 @@ function computeFormulaProportional(actualRevenue, basePrice, blocks) {
     remaining = Math.max(0, remaining - allocated);
     return { ...block, allocated, remainingAfter: remaining };
   });
+  // Absorb floating-point dust (<$0.01) into the last step so the formula always balances.
+  // Without this, 0.28 × 1.5 = 0.42000000000000004, and after several steps remaining ≈ 0.00099,
+  // which passes Math.abs(remaining) < 0.001 = FALSE and disables the Process button permanently.
+  if (steps.length > 0 && remaining > 0 && remaining < 0.01) {
+    const last = steps[steps.length - 1];
+    last.allocated += remaining;
+    last.remainingAfter = 0;
+    remaining = 0;
+  }
   return { steps, remaining };
 }
 
@@ -449,8 +458,9 @@ const TRANS_SHEET = 'Business Transactions';
 function ProcessModal({ product, token, onClose }) {
   const [inputMode, setInputMode] = useState('amount'); // 'amount' | 'quantity'
   const [inputVal,  setInputVal]  = useState(String(product.startPrice));
-  const [submitting, setSubmitting] = useState(false);
-  const [done,       setDone]       = useState(false);
+  const [submitting,    setSubmitting]    = useState(false);
+  const [done,          setDone]          = useState(false);
+  const [processError,  setProcessError]  = useState(null);
 
   const qty     = parseFloat(inputVal) || 0;
   const revenue = inputMode === 'quantity' ? qty * product.startPrice : qty;
@@ -480,7 +490,7 @@ function ProcessModal({ product, token, onClose }) {
       setDone(true);
       setTimeout(onClose, 1400);
     } catch (e) {
-      alert(`Error processing: ${e.message}`);
+      setProcessError(e.message);
       setSubmitting(false);
     }
   }
@@ -583,7 +593,12 @@ function ProcessModal({ product, token, onClose }) {
         </div>
 
         {/* Process button */}
-        <div className="shrink-0 px-5 py-4 border-t border-slate-800 bg-slate-900">
+        <div className="shrink-0 px-5 py-4 border-t border-slate-800 bg-slate-900 space-y-2">
+          {processError && (
+            <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-xs">
+              {processError}
+            </div>
+          )}
           {done ? (
             <div className="w-full py-3.5 rounded-2xl bg-emerald-700/30 border border-emerald-700/50 text-emerald-300 font-bold text-center text-sm">
               ✓ Recorded to Business Transactions
@@ -711,6 +726,8 @@ function SalesView({ token, products }) {
   const [showProcess,    setShowProcess]    = useState(false);
   const [budgetExpenses, setBudgetExpenses] = useState([]);
   const [expLoading,     setExpLoading]     = useState(false);
+  const [expandedTx,     setExpandedTx]     = useState(null);
+  const [reportCopied,   setReportCopied]   = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -783,19 +800,66 @@ function SalesView({ token, products }) {
       .finally(() => setExpLoading(false));
   }
 
+  function copyReport() {
+    const periodLabel = PERIOD_OPTIONS.find(o => o.key === period)?.label || period;
+    const lines = [
+      `Business Sales Report — ${periodLabel}`,
+      `Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
+      `${filtered.length} transaction${filtered.length !== 1 ? 's' : ''} · Total Revenue: $${totalRevenue.toFixed(2)}`,
+      '',
+    ];
+    filtered
+      .slice()
+      .sort((a, b) => (b.date > a.date ? 1 : -1))
+      .forEach(t => {
+        const dateStr = t.date
+          ? new Date(t.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : '—';
+        let header = `[${dateStr}] ${t.product}`;
+        if (t.qty) header += ` ×${t.qty} @ $${t.unitPrice.toFixed(2)}`;
+        header += ` = $${t.revenue.toFixed(2)}`;
+        if (t.margin) header += ` (${t.margin} margin)`;
+        lines.push(header);
+        Object.entries(t.allocs).forEach(([name, amt]) => {
+          const pct = t.revenue > 0 ? ((parseFloat(amt) / t.revenue) * 100).toFixed(1) : '0.0';
+          lines.push(`  → ${name}: $${parseFloat(amt).toFixed(2)} (${pct}%)`);
+        });
+        lines.push('');
+      });
+    lines.push('─'.repeat(40));
+    lines.push(`TOTAL REVENUE:  $${totalRevenue.toFixed(2)}`);
+    categories.forEach(cat => {
+      const pct = totalRevenue > 0 ? ((cat.total / totalRevenue) * 100).toFixed(1) : '0.0';
+      lines.push(`  ${cat.name.padEnd(16)} $${cat.total.toFixed(2).padStart(8)}  (${pct}%)`);
+    });
+    navigator.clipboard.writeText(lines.join('\n'));
+    setReportCopied(true);
+    setTimeout(() => setReportCopied(false), 2000);
+  }
+
   if (loading) return <div className="flex justify-center py-12"><LoadingSpinner /></div>;
   if (error)   return <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm">{error}</div>;
 
   return (
     <div className="space-y-3">
-      {/* Period filter */}
-      <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
-        {PERIOD_OPTIONS.map(opt => (
-          <button key={opt.key} onClick={() => setPeriod(opt.key)}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${period === opt.key ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
-            {opt.label}
-          </button>
-        ))}
+      {/* Period filter + Copy Report */}
+      <div className="flex gap-2">
+        <div className="flex flex-1 bg-slate-800 rounded-xl p-1 gap-1">
+          {PERIOD_OPTIONS.map(opt => (
+            <button key={opt.key} onClick={() => setPeriod(opt.key)}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${period === opt.key ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={copyReport}
+          disabled={filtered.length === 0}
+          title="Copy a formatted sales report to clipboard"
+          className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors shrink-0"
+        >
+          {reportCopied ? '✓ Copied' : '📋 Report'}
+        </button>
       </div>
 
       {filtered.length === 0 ? (
@@ -884,35 +948,73 @@ function SalesView({ token, products }) {
 
           {/* ── Transaction list ── */}
           <div className="space-y-2 pt-2">
-            <p className="text-slate-500 text-[10px] uppercase tracking-wider px-1">Transaction History</p>
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider px-1">Transaction History — tap to expand receipt</p>
             {filtered
               .slice()
               .sort((a, b) => (b.date > a.date ? 1 : -1))
               .map((t, i) => {
+                const isOpen = expandedTx === i;
                 const dateStr = t.date
                   ? new Date(t.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                   : '—';
                 return (
-                  <div key={i} className="bg-slate-800 rounded-xl px-4 py-3 space-y-2">
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="min-w-0">
-                        <p className="text-white text-sm font-medium truncate">{t.product}</p>
-                        <p className="text-slate-500 text-xs mt-0.5">
-                          {dateStr}
-                          {t.qty ? ` · ×${t.qty}` : ''}
-                          {t.margin ? ` · ${t.margin} margin` : ''}
-                        </p>
+                  <div key={i} className="bg-slate-800 rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => setExpandedTx(isOpen ? null : i)}
+                      className="w-full px-4 py-3 text-left space-y-2"
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0">
+                          <p className="text-white text-sm font-medium truncate">{t.product}</p>
+                          <p className="text-slate-500 text-xs mt-0.5">
+                            {dateStr}
+                            {t.qty ? ` · ×${t.qty} @ $${t.unitPrice.toFixed(2)}` : ''}
+                            {t.margin ? ` · ${t.margin} margin` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-green-400 font-bold font-mono tabular-nums text-sm">+${t.revenue.toFixed(2)}</span>
+                          <span className="text-slate-600 text-[10px]">{isOpen ? '▲' : '▼'}</span>
+                        </div>
                       </div>
-                      <span className="text-green-400 font-bold font-mono tabular-nums text-sm shrink-0">+${t.revenue.toFixed(2)}</span>
-                    </div>
-                    {/* Mini allocation bar */}
-                    {Object.keys(t.allocs).length > 0 && (
-                      <div className="flex h-1.5 rounded-full overflow-hidden">
-                        {Object.entries(t.allocs).map(([name, amt]) => {
-                          const color = CAT_COLORS[name] || CAT_COLORS.Other;
-                          const pct = t.revenue > 0 ? (parseFloat(amt) / t.revenue) * 100 : 0;
-                          return <div key={name} style={{ width: `${pct}%`, background: color }} title={`${name}: $${parseFloat(amt).toFixed(2)}`} />;
-                        })}
+                      {/* Mini allocation bar */}
+                      {Object.keys(t.allocs).length > 0 && (
+                        <div className="flex h-1.5 rounded-full overflow-hidden">
+                          {Object.entries(t.allocs).map(([name, amt]) => {
+                            const color = CAT_COLORS[name] || CAT_COLORS.Other;
+                            const pct = t.revenue > 0 ? (parseFloat(amt) / t.revenue) * 100 : 0;
+                            return <div key={name} style={{ width: `${pct}%`, background: color }} title={`${name}: $${parseFloat(amt).toFixed(2)}`} />;
+                          })}
+                        </div>
+                      )}
+                    </button>
+
+                    {/* Expanded receipt detail */}
+                    {isOpen && (
+                      <div className="border-t border-slate-700 px-4 pb-4 pt-3 space-y-2">
+                        <p className="text-slate-400 text-[10px] uppercase tracking-wider font-bold mb-2">Receipt Breakdown</p>
+                        <div className="space-y-1.5">
+                          {Object.entries(t.allocs).map(([name, amt]) => {
+                            const color = CAT_COLORS[name] || CAT_COLORS.Other;
+                            const amtNum = parseFloat(amt) || 0;
+                            const pct = t.revenue > 0 ? (amtNum / t.revenue) * 100 : 0;
+                            return (
+                              <div key={name} className="flex items-center gap-3">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                                <span className="text-slate-300 text-xs flex-1">{name}</span>
+                                <div className="w-20 bg-slate-700 rounded-full h-1 overflow-hidden">
+                                  <div className="h-1 rounded-full" style={{ width: `${pct}%`, background: color }} />
+                                </div>
+                                <span className="text-slate-400 text-[10px] font-mono w-8 text-right tabular-nums">{pct.toFixed(1)}%</span>
+                                <span className="text-white text-xs font-mono font-bold tabular-nums w-16 text-right">${amtNum.toFixed(2)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="border-t border-slate-700 pt-2 flex justify-between items-center">
+                          <span className="text-slate-500 text-xs">Total Revenue</span>
+                          <span className="text-green-400 font-bold font-mono tabular-nums text-sm">${t.revenue.toFixed(2)}</span>
+                        </div>
                       </div>
                     )}
                   </div>

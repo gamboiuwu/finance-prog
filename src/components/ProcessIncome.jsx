@@ -96,6 +96,15 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   const [copied,        setCopied]       = useState(false);
   const [alreadyByType, setAlreadyByType] = useState({});
   const [histLoading,   setHistLoading]  = useState(true);
+  const [surplusItems,  setSurplusItems]  = useState(() => {
+    try { return JSON.parse(localStorage.getItem('processIncome_surplusItems') || '[]'); }
+    catch { return []; }
+  });
+
+  // Persist surplus contribution config
+  useEffect(() => {
+    localStorage.setItem('processIncome_surplusItems', JSON.stringify(surplusItems));
+  }, [surplusItems]);
 
   // Load this month's already-deposited amounts per category
   useEffect(() => {
@@ -155,6 +164,31 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     return map;
   }, [deposits]);
 
+  // Surplus: income remaining after all budget goals are fully funded
+  const totalDeposited = deposits.reduce((s, d) => s + d.deposit, 0);
+  const surplus = Math.max(0, amount - totalDeposited);
+  const surplusTotalWeight = surplusItems.reduce((s, it) => s + (parseFloat(it.weight) || 0), 0);
+  const surplusDeposits = surplusItems.map(it => {
+    const weight = parseFloat(it.weight) || 0;
+    const deposit = surplusTotalWeight > 0 && surplus > 0 ? (weight / surplusTotalWeight) * surplus : 0;
+    return { ...it, deposit };
+  });
+
+  function addSurplusItem() {
+    setSurplusItems(prev => [...prev, {
+      id: Math.random().toString(36).slice(2),
+      name: '',
+      account: 'Savings',
+      weight: '1',
+    }]);
+  }
+  function updateSurplusItem(id, key, val) {
+    setSurplusItems(prev => prev.map(it => it.id === id ? { ...it, [key]: val } : it));
+  }
+  function removeSurplusItem(id) {
+    setSurplusItems(prev => prev.filter(it => it.id !== id));
+  }
+
   async function handleProcess() {
     if (!amount || !token) return;
     setLogging(true);
@@ -168,6 +202,12 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         if (d.deposit <= 0) continue;
         await appendRow(token, 'Allocation Transactions!A:F', [
           date, d.type, parseFloat(d.deposit.toFixed(2)), desc, d.account, true,
+        ]);
+      }
+      for (const it of surplusDeposits) {
+        if (it.deposit <= 0 || !it.name?.trim()) continue;
+        await appendRow(token, 'Allocation Transactions!A:F', [
+          date, it.name.trim(), parseFloat(it.deposit.toFixed(2)), desc + ' [surplus]', it.account, true,
         ]);
       }
       setDone(true);
@@ -187,6 +227,15 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
       g.items.forEach(d => lines.push(`  • ${d.type}: ${fmt(d.deposit)} (${(d.coverage * 100).toFixed(0)}% funded, ${fmt(d.already)} prior)`));
       lines.push('');
     });
+    if (surplus > 0.01 && surplusDeposits.some(it => it.deposit > 0 && it.name?.trim())) {
+      lines.push(`💰 Surplus: ${fmt(surplus)}`);
+      surplusDeposits.forEach(it => {
+        if (!it.name?.trim()) return;
+        const wt = parseFloat(it.weight) || 0;
+        const share = surplusTotalWeight > 0 ? ((wt / surplusTotalWeight) * 100).toFixed(0) : 0;
+        lines.push(`  • ${it.name} (${it.account}): ${fmt(it.deposit)} — weight ${wt} = ${share}% of surplus`);
+      });
+    }
     navigator.clipboard.writeText(lines.join('\n'));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -200,9 +249,12 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           <div className="text-5xl">✅</div>
           <h2 className="text-white text-xl font-bold">Income Processed!</h2>
           <p className="text-slate-400 text-sm">
-            {deposits.filter(d => d.deposit > 0).length} deposits totalling{' '}
+            {deposits.filter(d => d.deposit > 0).length + surplusDeposits.filter(it => it.deposit > 0 && it.name?.trim()).length} deposits totalling{' '}
             <span className="text-emerald-400 font-semibold">{fmt(amount)}</span> logged using{' '}
-            <span className="text-blue-400">{mode === 'priority' ? 'priority-first' : 'proportional'}</span> allocation.
+            <span className="text-blue-400">{mode === 'priority' ? 'priority-first' : 'proportional'}</span> allocation
+            {surplus > 0.01 && surplusDeposits.some(it => it.deposit > 0) && (
+              <>, with <span className="text-emerald-400">{fmt(surplus)}</span> surplus distributed by weight</>
+            )}.
           </p>
           <button onClick={onClose} className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors">
             Done
@@ -233,6 +285,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
             <button
               onClick={() => setMode('priority')}
+              title="Priority First: Fills P1 (Essential) categories completely before moving to P2, then P3. Ensures rent and critical expenses are always covered first. Any income left after all goals are met becomes surplus and can be distributed by weight (see Surplus Distribution below)."
               className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
                 mode === 'priority' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
               }`}
@@ -241,6 +294,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             </button>
             <button
               onClick={() => setMode('proportional')}
+              title="Proportional: Splits income across all categories at once, proportional to their share of total remaining need. E.g. if Rent needs $800 and Food needs $200 (total $1000 needed) and you have $500, Rent gets $400 and Food gets $100. Fair distribution, but may leave essential bills partially unfunded if income is low."
               className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
                 mode === 'proportional' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
               }`}
@@ -248,8 +302,14 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
               ⚖️ Proportional
             </button>
           </div>
-          <p className="text-slate-600 text-[10px] mt-1.5">
-            {mode === 'priority' ? 'P1 gaps filled first, then P2, then P3' : 'Each category gets its proportional share of remaining gap'}
+          <p className="text-slate-500 text-[10px] mt-1.5 cursor-help"
+            title={mode === 'priority'
+              ? 'Income fills P1 categories first (e.g. rent, utilities), then P2 (stability), then P3 (optional). Any remaining income after all goals are fully funded goes to Surplus Distribution (if configured below).'
+              : 'Income is proportionally split based on each category\'s share of total remaining need. If one category needs $800 and another needs $200, the first gets 80% and the second gets 20% of whatever you deposit.'}
+          >
+            {mode === 'priority'
+              ? 'P1 gaps filled first → P2 → P3 → surplus by weight'
+              : 'Each category gets its proportional share of remaining need'}
           </p>
         </div>
 
@@ -408,6 +468,125 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
               </div>
             );
           })}
+
+          {/* Surplus Distribution */}
+          {amount > 0 && (
+            <div className="space-y-3">
+              <div
+                className="flex items-center justify-between"
+                title="Surplus is income that remains after every budget category's monthly goal is fully funded. Configure weighted buckets here to decide where that extra money goes — e.g. savings, investments, fun money."
+              >
+                <div>
+                  <p className={`text-xs font-bold uppercase tracking-wider ${surplus > 0.01 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                    💰 Surplus Distribution
+                  </p>
+                  <p className="text-slate-500 text-[10px] mt-0.5">
+                    {surplus > 0.01
+                      ? `${fmt(surplus)} left after all goals are funded`
+                      : 'No surplus yet — income covers goals only'}
+                  </p>
+                </div>
+                <button
+                  onClick={addSurplusItem}
+                  className="text-emerald-400 hover:text-emerald-300 text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-900/30 border border-emerald-800/40 transition-colors"
+                >
+                  + Add
+                </button>
+              </div>
+
+              {surplusItems.length > 0 && (
+                <div className="bg-slate-800/40 rounded-xl p-3 text-xs text-slate-400 leading-relaxed"
+                  title="How weights work: Each bucket's share = its weight ÷ sum of all weights. Weight 2 out of a total of 5 = 2/5 = 40% of the surplus. Higher weight = bigger slice. The weights don't have to add up to any specific number — only the ratios matter."
+                >
+                  <span className="text-white font-semibold">How weights work: </span>
+                  Each bucket's share = <span className="text-emerald-400 font-mono">its weight ÷ total weight</span>.{' '}
+                  {surplusItems.length >= 2 && surplusTotalWeight > 0 && (() => {
+                    const example = surplusItems.slice(0, 2);
+                    const w0 = parseFloat(example[0]?.weight) || 0;
+                    const w1 = parseFloat(example[1]?.weight) || 0;
+                    const n0 = example[0]?.name?.trim() || 'First';
+                    const n1 = example[1]?.name?.trim() || 'Second';
+                    return (
+                      <span>
+                        E.g. {n0} (weight {w0}) + {n1} (weight {w1}) = {surplusTotalWeight} total →{' '}
+                        {n0} gets {surplusTotalWeight > 0 ? ((w0 / surplusTotalWeight) * 100).toFixed(0) : 0}%,{' '}
+                        {n1} gets {surplusTotalWeight > 0 ? ((w1 / surplusTotalWeight) * 100).toFixed(0) : 0}%.
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {surplusItems.map(it => {
+                const weight = parseFloat(it.weight) || 0;
+                const share  = surplusTotalWeight > 0 ? weight / surplusTotalWeight : 0;
+                const deposit = share * surplus;
+                return (
+                  <div key={it.id} className={`rounded-xl p-3 space-y-2 border ${surplus > 0.01 ? 'bg-slate-800 border-emerald-800/30' : 'bg-slate-800/60 border-slate-700/50'}`}>
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={it.name}
+                        onChange={e => updateSurplusItem(it.id, 'name', e.target.value)}
+                        placeholder="Category name (e.g. Savings, Fun Money)"
+                        className="flex-1 bg-slate-700 text-white rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-emerald-500 placeholder-slate-600"
+                      />
+                      <button
+                        onClick={() => removeSurplusItem(it.id)}
+                        className="w-7 h-7 rounded-lg bg-slate-700 text-slate-500 hover:text-rose-400 flex items-center justify-center text-sm transition-colors shrink-0"
+                      >✕</button>
+                    </div>
+                    <div className="flex gap-2">
+                      <select
+                        value={it.account}
+                        onChange={e => updateSurplusItem(it.id, 'account', e.target.value)}
+                        className="flex-1 bg-slate-700 text-white rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-emerald-500"
+                      >
+                        {ACCOUNT_ORDER.map(a => <option key={a}>{a}</option>)}
+                      </select>
+                      <div
+                        className="relative"
+                        title={`Weight ${weight} out of total ${surplusTotalWeight} = ${surplusTotalWeight > 0 ? ((weight / surplusTotalWeight) * 100).toFixed(0) : 0}% of surplus. Higher weight = larger share. The numbers don't have to add up to anything specific — only the ratios matter.`}
+                      >
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold">×</span>
+                        <input
+                          type="number" min="0" step="0.5"
+                          value={it.weight}
+                          onChange={e => updateSurplusItem(it.id, 'weight', e.target.value)}
+                          placeholder="1"
+                          className="w-20 bg-slate-700 text-white rounded-lg pl-7 pr-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-emerald-500 font-mono tabular-nums"
+                        />
+                      </div>
+                    </div>
+                    {surplusTotalWeight > 0 && surplus > 0 && (
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                          <div className="h-1.5 rounded-full bg-emerald-500 transition-all" style={{ width: `${share * 100}%` }} />
+                        </div>
+                        <span className="text-slate-500 font-mono text-[10px] w-8 text-right tabular-nums">{(share * 100).toFixed(0)}%</span>
+                        <span className="text-emerald-400 font-bold font-mono text-sm tabular-nums w-16 text-right">{fmt(deposit)}</span>
+                      </div>
+                    )}
+                    {surplus <= 0.01 && (
+                      <p className="text-slate-600 text-[10px]">Will activate when income exceeds all budget goals</p>
+                    )}
+                  </div>
+                );
+              })}
+
+              {surplusItems.length === 0 && (
+                <div className="text-center py-3 text-slate-600 text-xs border border-dashed border-slate-700/60 rounded-xl cursor-pointer hover:border-slate-600 transition-colors" onClick={addSurplusItem}>
+                  Tap "+ Add" to configure where surplus income goes
+                </div>
+              )}
+
+              {surplusItems.length > 0 && surplus > 0.01 && (
+                <div className="flex justify-between items-center px-1 text-xs">
+                  <span className="text-slate-500">Total surplus distributed</span>
+                  <span className="text-emerald-400 font-bold font-mono tabular-nums">{fmt(surplus)}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Summary totals */}
           {amount > 0 && (
