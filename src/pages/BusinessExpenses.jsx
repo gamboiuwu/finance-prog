@@ -458,6 +458,7 @@ const TRANS_SHEET = 'Business Transactions';
 function ProcessModal({ product, token, onClose, onSuccess }) {
   const [inputMode, setInputMode] = useState('amount'); // 'amount' | 'quantity'
   const [inputVal,  setInputVal]  = useState(String(product.startPrice));
+  const [clientName,    setClientName]    = useState('');
   const [submitting,    setSubmitting]    = useState(false);
   const [done,          setDone]          = useState(false);
   const [processError,  setProcessError]  = useState(null);
@@ -475,16 +476,17 @@ function ProcessModal({ product, token, onClose, onSuccess }) {
     try {
       await ensureSheetTab(token, TRANS_SHEET);
       // Write header row if sheet is empty so SalesView can detect it
-      const existing = await readRange(token, `${TRANS_SHEET}!A1:G1`);
+      const existing = await readRange(token, `${TRANS_SHEET}!A1:H1`);
       if (!existing.length || !existing[0]?.length) {
-        await appendRow(token, `${TRANS_SHEET}!A:G`, ['Date', 'Product', 'Quantity', 'Unit Price', 'Revenue', 'Margin %', 'Allocation']);
+        await appendRow(token, `${TRANS_SHEET}!A:H`, ['Date', 'Client', 'Product', 'Quantity', 'Unit Price', 'Revenue', 'Margin %', 'Allocation']);
       }
       const today = new Date().toISOString().slice(0, 10);
       const allocJSON = JSON.stringify(
         steps.reduce((obj, st) => { obj[blockLabel(st)] = st.allocated.toFixed(4); return obj; }, {})
       );
-      await appendRow(token, `${TRANS_SHEET}!A:G`, [
+      await appendRow(token, `${TRANS_SHEET}!A:H`, [
         today,
+        clientName.trim(),
         product.name,
         inputMode === 'quantity' ? qty : '',
         product.startPrice.toFixed(2),
@@ -514,6 +516,17 @@ function ProcessModal({ product, token, onClose, onSuccess }) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-5 space-y-3">
+          {/* Client name */}
+          <div>
+            <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5 font-broske">Client Name <span className="text-slate-600 normal-case tracking-normal">(optional)</span></label>
+            <input
+              value={clientName}
+              onChange={e => setClientName(e.target.value)}
+              placeholder="e.g. Jane Doe, @username, Etsy order #1234"
+              className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500 placeholder-slate-600"
+            />
+          </div>
+
           {/* Input mode toggle + value */}
           <div className="bg-green-900/20 border border-green-800/40 rounded-2xl p-4 space-y-3">
             <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
@@ -707,6 +720,184 @@ function CompareTable({ products }) {
   );
 }
 
+// ── Edit Transaction Modal ────────────────────────────────────────────────────
+
+function EditTransactionModal({ tx, products, token, onSave, onDelete, onClose }) {
+  const [date,      setDate]      = useState(tx.date || '');
+  const [client,    setClient]    = useState(tx.client || '');
+  const [qty,       setQty]       = useState(String(tx.qty || ''));
+  const [unitPrice, setUnitPrice] = useState(String(tx.unitPrice || ''));
+  const [revenue,   setRevenue]   = useState(String(tx.revenue || ''));
+  const [saving,    setSaving]    = useState(false);
+  const [error,     setError]     = useState(null);
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  const product = products.find(p => p.name === tx.product);
+  const revNum  = parseFloat(revenue) || 0;
+
+  // Recompute allocations live from product formula when revenue changes
+  let newAllocs = tx.allocs;
+  let newMargin = tx.margin;
+  if (product && revNum > 0) {
+    const { steps } = computeFormulaProportional(revNum, product.startPrice, product.formula);
+    newAllocs = steps.reduce((o, st) => { o[blockLabel(st)] = st.allocated.toFixed(4); return o; }, {});
+    const m = profitMarginPct(steps, revNum);
+    newMargin = m !== null ? m.toFixed(2) + '%' : '';
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave({
+        ...tx,
+        date,
+        client,
+        qty: qty || '',
+        unitPrice: parseFloat(unitPrice) || tx.unitPrice,
+        revenue: revNum,
+        allocs: newAllocs,
+        margin: newMargin,
+      });
+      onClose();
+    } catch (e) {
+      setError(e.message);
+      setSaving(false);
+    }
+  }
+
+  async function del() {
+    setSaving(true);
+    try {
+      await onDelete(tx);
+      onClose();
+    } catch (e) {
+      setError(e.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end z-50">
+      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+
+        <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h3 className="text-white font-bold font-broske">Edit Transaction</h3>
+            <p className="text-slate-400 text-xs mt-0.5">{tx.product}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center">✕</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+
+          {/* Date + Client side by side */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5">Date</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500"/>
+            </div>
+            <div>
+              <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5">Client</label>
+              <input value={client} onChange={e => setClient(e.target.value)} placeholder="(optional)"
+                className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500 placeholder-slate-600"/>
+            </div>
+          </div>
+
+          {/* Qty + Unit Price */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5">Quantity</label>
+              <input type="number" min="0" step="1" value={qty} onChange={e => setQty(e.target.value)}
+                placeholder="—"
+                className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500 font-mono tabular-nums placeholder-slate-600"/>
+            </div>
+            <div>
+              <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5">Unit Price</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                <input type="number" min="0" step="0.01" value={unitPrice} onChange={e => setUnitPrice(e.target.value)}
+                  className="w-full bg-slate-800 text-white rounded-xl pl-7 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-green-500 font-mono tabular-nums"/>
+              </div>
+            </div>
+          </div>
+
+          {/* Revenue */}
+          <div>
+            <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5">Revenue (total received)</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-xl font-bold">$</span>
+              <input type="number" min="0" step="0.01" value={revenue} onChange={e => setRevenue(e.target.value)}
+                className="w-full bg-slate-800 text-white text-xl font-bold rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-green-500 font-mono tabular-nums"/>
+            </div>
+          </div>
+
+          {/* Recomputed allocation preview */}
+          {revNum > 0 && (
+            <div className="bg-slate-800 rounded-xl p-3 space-y-1.5">
+              <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske">
+                {product ? 'Recomputed Allocations' : 'Stored Allocations'}
+                {!product && <span className="text-amber-400 ml-2 normal-case tracking-normal">(product not found — unchanged)</span>}
+              </p>
+              {Object.entries(newAllocs).map(([name, amt]) => {
+                const color = CAT_COLORS[name] || CAT_COLORS.Other;
+                const amtNum = parseFloat(amt) || 0;
+                const pct = revNum > 0 ? (amtNum / revNum) * 100 : 0;
+                return (
+                  <div key={name} className="flex items-center gap-2 text-xs">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }}/>
+                    <span className="text-slate-300 flex-1">{name}</span>
+                    <span className="text-slate-500 font-mono tabular-nums">{pct.toFixed(1)}%</span>
+                    <span className="text-white font-mono font-bold tabular-nums w-16 text-right">${amtNum.toFixed(2)}</span>
+                  </div>
+                );
+              })}
+              {newMargin && (
+                <p className="text-emerald-400 text-[10px] pt-1 border-t border-slate-700">{newMargin} profit margin</p>
+              )}
+            </div>
+          )}
+
+          {error && (
+            <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-xs">{error}</div>
+          )}
+        </div>
+
+        <div className="shrink-0 px-5 py-4 border-t border-slate-800 space-y-2">
+          {confirmDel ? (
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDel(false)} disabled={saving}
+                className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-medium text-sm transition-colors">
+                Keep it
+              </button>
+              <button onClick={del} disabled={saving}
+                className="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm transition-colors disabled:opacity-50">
+                {saving ? 'Deleting…' : 'Yes, Delete'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDel(true)} disabled={saving}
+                className="px-4 py-3 rounded-xl bg-rose-900/40 hover:bg-rose-900/60 text-rose-400 text-sm font-bold transition-colors disabled:opacity-50">
+                Delete
+              </button>
+              <button onClick={onClose} disabled={saving}
+                className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-medium text-sm hover:bg-slate-700 transition-colors disabled:opacity-50">
+                Cancel
+              </button>
+              <button onClick={save} disabled={saving || !revNum}
+                className="flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-500 disabled:opacity-40 text-white font-bold text-sm transition-colors">
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Sales / Transactions view ─────────────────────────────────────────────────
 
 const PERIOD_OPTIONS = [
@@ -736,41 +927,80 @@ function SalesView({ token, products }) {
   const [budgetExpenses, setBudgetExpenses] = useState([]);
   const [expLoading,     setExpLoading]     = useState(false);
   const [expandedTx,     setExpandedTx]     = useState(null);
+  const [editingTx,      setEditingTx]      = useState(null);
   const [reportCopied,   setReportCopied]   = useState(false);
   const [refreshCount,   setRefreshCount]   = useState(0);
   const [rawRowCount,    setRawRowCount]    = useState(0);
 
   useEffect(() => {
     if (!token) return;
-    setLoading(true);
-    setError(null);
-    readRange(token, `${TRANS_SHEET}!A:G`, 'UNFORMATTED_VALUE')
-      .then(rows => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        let rows = await readRange(token, `${TRANS_SHEET}!A:H`, 'UNFORMATTED_VALUE');
+        if (cancelled) return;
+
+        // One-time migration from v1 (no Client col) → v2 (with Client col B).
+        const hasHeader = String(rows[0]?.[0] || '').toLowerCase() === 'date';
+        const isV1 = hasHeader && String(rows[0]?.[1] || '').toLowerCase() === 'product';
+        if (isV1) {
+          const updates = [];
+          rows.forEach((row, i) => {
+            const sheetRow = i + 1;
+            if (i === 0) {
+              ['Date','Client','Product','Quantity','Unit Price','Revenue','Margin %','Allocation']
+                .forEach((val, j) => updates.push({
+                  range: `${TRANS_SHEET}!${String.fromCharCode(65 + j)}${sheetRow}`, value: val,
+                }));
+            } else {
+              // Shift B..G → C..H, insert empty Client in B.
+              updates.push({ range: `${TRANS_SHEET}!B${sheetRow}`, value: '' });
+              for (let j = 1; j <= 6; j++) {
+                const val = row[j] != null ? row[j] : '';
+                updates.push({ range: `${TRANS_SHEET}!${String.fromCharCode(66 + j)}${sheetRow}`, value: val });
+              }
+            }
+          });
+          if (updates.length) await batchUpdateCells(token, updates);
+          rows = await readRange(token, `${TRANS_SHEET}!A:H`, 'UNFORMATTED_VALUE');
+          if (cancelled) return;
+        }
+
         setRawRowCount(rows.length);
         if (!rows.length) { setTransactions([]); return; }
-        // Skip header row if present (first cell is the text 'Date')
-        const data = String(rows[0]?.[0] || '').toLowerCase() === 'date' ? rows.slice(1) : rows;
-        if (!data.length) { setTransactions([]); return; }
+        const headerNow = String(rows[0]?.[0] || '').toLowerCase() === 'date';
+        const data = headerNow ? rows.slice(1) : rows;
+        const headerOffset = headerNow ? 2 : 1;
         const parsed = data
-          .filter(r => r[0] || r[1])
           .map((r, idx) => {
+            const hasAny = r.some(c => c !== '' && c !== null && c !== undefined);
+            if (!hasAny) return null;
             let allocs = {};
-            try { allocs = JSON.parse(r[6] || '{}'); } catch { allocs = {}; }
+            try { allocs = JSON.parse(r[7] || '{}'); } catch { allocs = {}; }
             return {
               id:        idx,
+              rowNum:    idx + headerOffset,
               date:      serialToISO(r[0]),
-              product:   r[1] || '',
-              qty:       r[2] || '',
-              unitPrice: parseFloat(r[3]) || 0,
-              revenue:   parseFloat(r[4]) || 0,
-              margin:    r[5] || '',
+              client:    r[1] || '',
+              product:   r[2] || '',
+              qty:       r[3] || '',
+              unitPrice: parseFloat(r[4]) || 0,
+              revenue:   parseFloat(r[5]) || 0,
+              margin:    r[6] || '',
               allocs,
             };
-          });
+          })
+          .filter(Boolean);
         setTransactions(parsed);
-      })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [token, refreshCount]);
 
   const now = new Date();
@@ -813,6 +1043,27 @@ function SalesView({ token, products }) {
       })
       .catch(() => setShowProcess(true))
       .finally(() => setExpLoading(false));
+  }
+
+  async function handleEditSave(updated) {
+    const rn = updated.rowNum;
+    const allocJSON = JSON.stringify(updated.allocs);
+    await batchUpdateCells(token, [
+      { range: `${TRANS_SHEET}!A${rn}`, value: updated.date },
+      { range: `${TRANS_SHEET}!B${rn}`, value: updated.client },
+      { range: `${TRANS_SHEET}!C${rn}`, value: updated.product },
+      { range: `${TRANS_SHEET}!D${rn}`, value: updated.qty },
+      { range: `${TRANS_SHEET}!E${rn}`, value: updated.unitPrice },
+      { range: `${TRANS_SHEET}!F${rn}`, value: updated.revenue },
+      { range: `${TRANS_SHEET}!G${rn}`, value: updated.margin },
+      { range: `${TRANS_SHEET}!H${rn}`, value: allocJSON },
+    ]);
+    setRefreshCount(c => c + 1);
+  }
+
+  async function handleDeleteTx(tx) {
+    await clearRow(token, `${TRANS_SHEET}!A${tx.rowNum}:H${tx.rowNum}`);
+    setRefreshCount(c => c + 1);
   }
 
   function copyReport() {
@@ -925,30 +1176,32 @@ function SalesView({ token, products }) {
         </div>
       ) : (
         <>
-          {/* ── FLOW DIAGRAM ── */}
+          {/* ── Compact summary grid ── */}
+          <div className="grid grid-cols-2 gap-2">
+            {/* Revenue tile */}
+            <div className="bg-green-900/20 border border-green-700/40 rounded-2xl p-3">
+              <p className="text-green-300 text-[10px] uppercase tracking-wider font-broske mb-1">Revenue</p>
+              <p className="text-white text-2xl font-bold font-mono tabular-nums">${totalRevenue.toFixed(2)}</p>
+              <p className="text-slate-500 text-[10px] mt-1">
+                {filtered.length} sale{filtered.length !== 1 ? 's' : ''} · {new Set(filtered.map(t => t.product)).size} product{new Set(filtered.map(t => t.product)).size !== 1 ? 's' : ''}
+              </p>
+            </div>
 
-          {/* 1. Revenue source box */}
-          <div className="bg-green-900/20 border border-green-700/40 rounded-2xl p-5">
-            <p className="text-green-300 text-[10px] uppercase tracking-wider font-broske mb-1">Total Business Revenue</p>
-            <p className="text-white text-3xl font-bold font-mono tabular-nums">${totalRevenue.toFixed(2)}</p>
-            <p className="text-slate-500 text-xs mt-1.5">
-              {filtered.length} transaction{filtered.length !== 1 ? 's' : ''} · {new Set(filtered.map(t => t.product)).size} product{new Set(filtered.map(t => t.product)).size !== 1 ? 's' : ''}
-            </p>
+            {/* Profit tile */}
+            <div className="bg-emerald-900/20 border border-emerald-700/40 rounded-2xl p-3">
+              <p className="text-emerald-300 text-[10px] uppercase tracking-wider font-broske mb-1">Profit</p>
+              <p className="text-white text-2xl font-bold font-mono tabular-nums">${totalProfit.toFixed(2)}</p>
+              {totalRevenue > 0 && (
+                <p className="text-emerald-600 text-[10px] mt-1">{((totalProfit / totalRevenue) * 100).toFixed(1)}% margin</p>
+              )}
+            </div>
           </div>
 
-          {/* Connector */}
-          <div className="flex flex-col items-center">
-            <div className="w-px h-5 bg-slate-600" />
-            <span className="text-slate-500 text-base leading-none">▼</span>
-          </div>
-
-          {/* 2. Revenue allocation flow */}
-          <div className="bg-slate-800 rounded-2xl p-4 space-y-4">
-            <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske">Revenue Allocation Flow</p>
-
-            {/* Stacked bar */}
+          {/* Allocation bar + breakdown */}
+          <div className="bg-slate-800 rounded-2xl p-3 space-y-2">
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider font-broske">Allocation</p>
             {totalRevenue > 0 && (
-              <div className="flex h-5 rounded-xl overflow-hidden">
+              <div className="flex h-3 rounded-full overflow-hidden">
                 {categories.map(cat => (
                   <div key={cat.name}
                     style={{ width: `${(cat.total / totalRevenue) * 100}%`, background: cat.color }}
@@ -957,53 +1210,29 @@ function SalesView({ token, products }) {
                 ))}
               </div>
             )}
-
-            {/* Category rows with arrows */}
-            <div className="space-y-2.5">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
               {categories.map(cat => (
-                <div key={cat.name} className="flex items-center gap-3">
-                  <span className="text-slate-500 text-sm shrink-0 font-mono">→</span>
-                  <div className="w-2 h-2 rounded-full shrink-0" style={{ background: cat.color }} />
-                  <span className={`text-sm flex-1 ${cat.name === 'Profit' ? 'text-emerald-300 font-semibold' : 'text-slate-200'}`}>{cat.name}</span>
-                  <span className={`font-mono text-sm tabular-nums ${cat.name === 'Profit' ? 'text-emerald-400 font-bold' : 'text-white'}`}>${cat.total.toFixed(2)}</span>
-                  <span className="text-slate-500 font-mono text-xs w-10 text-right tabular-nums">
-                    {totalRevenue > 0 ? ((cat.total / totalRevenue) * 100).toFixed(1) : '0.0'}%
-                  </span>
+                <div key={cat.name} className="flex items-center gap-1.5 min-w-0">
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: cat.color }} />
+                  <span className={`text-[11px] truncate flex-1 ${cat.name === 'Profit' ? 'text-emerald-300 font-semibold' : 'text-slate-300'}`}>{cat.name}</span>
+                  <span className={`text-[11px] font-mono tabular-nums shrink-0 ${cat.name === 'Profit' ? 'text-emerald-400 font-bold' : 'text-white'}`}>${cat.total.toFixed(2)}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Connector to profit */}
-          <div className="flex flex-col items-center">
-            <div className="w-px h-5 bg-emerald-700/50" />
-            <span className="text-emerald-600 text-base leading-none">▼</span>
-          </div>
-
-          {/* 3. Profit pool */}
-          <div className="bg-emerald-900/20 border border-emerald-700/40 rounded-2xl p-5 space-y-4">
-            <div className="flex items-center gap-3">
-              <span className="text-3xl">💰</span>
-              <div>
-                <p className="text-emerald-300 text-[10px] uppercase tracking-wider font-broske">Available Profit</p>
-                <p className="text-white text-2xl font-bold font-mono tabular-nums mt-0.5">${totalProfit.toFixed(2)}</p>
-                {totalRevenue > 0 && (
-                  <p className="text-emerald-600 text-xs">{((totalProfit / totalRevenue) * 100).toFixed(1)}% profit margin</p>
-                )}
-              </div>
-            </div>
-            <button
-              onClick={handleProcessAsIncome}
-              disabled={expLoading || totalProfit <= 0}
-              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm transition-colors"
-            >
-              {expLoading ? 'Loading budget…' : totalProfit <= 0 ? 'No profit to process' : `Process $${totalProfit.toFixed(2)} as Income →`}
-            </button>
-          </div>
+          {/* Process profit button */}
+          <button
+            onClick={handleProcessAsIncome}
+            disabled={expLoading || totalProfit <= 0}
+            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm transition-colors"
+          >
+            {expLoading ? 'Loading budget…' : totalProfit <= 0 ? 'No profit to process' : `Process $${totalProfit.toFixed(2)} as Income →`}
+          </button>
 
           {/* ── Transaction list ── */}
-          <div className="space-y-2 pt-2">
-            <p className="text-slate-500 text-[10px] uppercase tracking-wider px-1">Transaction History — tap to expand receipt</p>
+          <div className="space-y-2">
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider px-1">Transaction History — tap to expand</p>
             {filtered
               .slice()
               .sort((a, b) => (b.date > a.date ? 1 : -1))
@@ -1016,15 +1245,16 @@ function SalesView({ token, products }) {
                   <div key={i} className="bg-slate-800 rounded-xl overflow-hidden">
                     <button
                       onClick={() => setExpandedTx(isOpen ? null : i)}
-                      className="w-full px-4 py-3 text-left space-y-2"
+                      className="w-full px-4 py-3 text-left space-y-1.5"
                     >
                       <div className="flex justify-between items-start gap-2">
                         <div className="min-w-0">
                           <p className="text-white text-sm font-medium truncate">{t.product}</p>
                           <p className="text-slate-500 text-xs mt-0.5">
+                            {t.client ? <span className="text-slate-400">{t.client} · </span> : null}
                             {dateStr}
-                            {t.qty ? ` · ×${t.qty} @ $${t.unitPrice.toFixed(2)}` : ''}
-                            {t.margin ? ` · ${t.margin} margin` : ''}
+                            {t.qty ? ` · ×${t.qty}` : ''}
+                            {t.margin ? ` · ${t.margin}` : ''}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -1032,7 +1262,6 @@ function SalesView({ token, products }) {
                           <span className="text-slate-600 text-[10px]">{isOpen ? '▲' : '▼'}</span>
                         </div>
                       </div>
-                      {/* Mini allocation bar */}
                       {Object.keys(t.allocs).length > 0 && (
                         <div className="flex h-1.5 rounded-full overflow-hidden">
                           {Object.entries(t.allocs).map(([name, amt]) => {
@@ -1044,10 +1273,12 @@ function SalesView({ token, products }) {
                       )}
                     </button>
 
-                    {/* Expanded receipt detail */}
                     {isOpen && (
-                      <div className="border-t border-slate-700 px-4 pb-4 pt-3 space-y-2">
-                        <p className="text-slate-400 text-[10px] uppercase tracking-wider font-bold mb-2">Receipt Breakdown</p>
+                      <div className="border-t border-slate-700 px-4 pb-3 pt-3 space-y-2">
+                        {/* Client if present */}
+                        {t.client && (
+                          <p className="text-slate-400 text-xs">Client: <span className="text-white font-medium">{t.client}</span></p>
+                        )}
                         <div className="space-y-1.5">
                           {Object.entries(t.allocs).map(([name, amt]) => {
                             const color = CAT_COLORS[name] || CAT_COLORS.Other;
@@ -1057,18 +1288,23 @@ function SalesView({ token, products }) {
                               <div key={name} className="flex items-center gap-3">
                                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
                                 <span className="text-slate-300 text-xs flex-1">{name}</span>
-                                <div className="w-20 bg-slate-700 rounded-full h-1 overflow-hidden">
+                                <div className="w-16 bg-slate-700 rounded-full h-1 overflow-hidden">
                                   <div className="h-1 rounded-full" style={{ width: `${pct}%`, background: color }} />
                                 </div>
-                                <span className="text-slate-400 text-[10px] font-mono w-8 text-right tabular-nums">{pct.toFixed(1)}%</span>
-                                <span className="text-white text-xs font-mono font-bold tabular-nums w-16 text-right">${amtNum.toFixed(2)}</span>
+                                <span className="text-slate-500 text-[10px] font-mono w-8 text-right tabular-nums">{pct.toFixed(1)}%</span>
+                                <span className="text-white text-xs font-mono font-bold tabular-nums w-14 text-right">${amtNum.toFixed(2)}</span>
                               </div>
                             );
                           })}
                         </div>
-                        <div className="border-t border-slate-700 pt-2 flex justify-between items-center">
-                          <span className="text-slate-500 text-xs">Total Revenue</span>
-                          <span className="text-green-400 font-bold font-mono tabular-nums text-sm">${t.revenue.toFixed(2)}</span>
+                        <div className="border-t border-slate-700 pt-2 flex items-center justify-between gap-2">
+                          <span className="text-slate-500 text-xs">Total: <span className="text-green-400 font-bold font-mono">${t.revenue.toFixed(2)}</span></span>
+                          <button
+                            onClick={e => { e.stopPropagation(); setEditingTx(t); setExpandedTx(null); }}
+                            className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-medium transition-colors"
+                          >
+                            Edit / Revise
+                          </button>
                         </div>
                       </div>
                     )}
@@ -1080,13 +1316,23 @@ function SalesView({ token, products }) {
         </>
       )}
 
-      {/* ProcessIncome modal triggered from profit pool */}
       {showProcess && budgetExpenses.length > 0 && (
         <ProcessIncome
           expenses={budgetExpenses}
           token={token}
           onClose={() => setShowProcess(false)}
           defaultIncome={totalProfit}
+        />
+      )}
+
+      {editingTx && (
+        <EditTransactionModal
+          tx={editingTx}
+          products={products}
+          token={token}
+          onSave={handleEditSave}
+          onDelete={handleDeleteTx}
+          onClose={() => setEditingTx(null)}
         />
       )}
     </div>
