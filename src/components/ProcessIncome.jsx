@@ -21,6 +21,23 @@ function todayStr() {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 
+// Google Sheets returns date cells as serial numbers with UNFORMATTED_VALUE
+// (days since 1899-12-30). Also handles M/D/YYYY and YYYY-MM-DD strings.
+function parseSheetDate(val) {
+  if (val == null || val === '') return null;
+  const n = Number(val);
+  if (!isNaN(n) && n > 1000 && !String(val).includes('/')) {
+    // Serial → JS Date (UTC epoch offset from Sheets epoch 1899-12-30)
+    return new Date(Math.round((n - 25569) * 86400000));
+  }
+  const s = String(val);
+  if (s.includes('-')) return new Date(s + 'T12:00:00');
+  const parts = s.split('/');
+  if (parts.length === 3)
+    return new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+  return null;
+}
+
 // Deposits fill each category's *remaining gap* (goal minus already contributed).
 // Priority mode: fill P1 gaps before P2, then P3.
 // Proportional mode: distribute proportionally across remaining gaps.
@@ -92,12 +109,12 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         data
           .filter(r => r[0])
           .filter(r => {
-            const parts = String(r[0]).split('/');
-            return parseInt(parts[0]) === mo && parseInt(parts[2]) === yr;
+            const d = parseSheetDate(r[0]);
+            return d !== null && d.getMonth() + 1 === mo && d.getFullYear() === yr;
           })
           .forEach(r => {
             const type = r[1] || '';
-            const amt  = parseFloat(r[2]) || 0;
+            const amt  = pm(r[2]);
             if (amt > 0) map[type] = (map[type] || 0) + amt;
           });
         setAlreadyByType(map);

@@ -17,8 +17,14 @@ function parseAmt(v) {
 
 function parseDate(s) {
   if (!s) return new Date(0);
-  if (String(s).includes('-')) return new Date(s);
+  const n = Number(s);
+  // Google Sheets date serial (UNFORMATTED_VALUE returns numbers for date cells)
+  if (!isNaN(n) && n > 1000 && !String(s).includes('/')) {
+    return new Date(Math.round((n - 25569) * 86400000));
+  }
+  if (String(s).includes('-')) return new Date(s + 'T12:00:00');
   const [m, d, y] = String(s).split('/');
+  if (!y) return new Date(0);
   return new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
 }
 
