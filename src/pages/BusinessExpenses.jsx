@@ -455,7 +455,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
 
 const TRANS_SHEET = 'Business Transactions';
 
-function ProcessModal({ product, token, onClose }) {
+function ProcessModal({ product, token, onClose, onSuccess }) {
   const [inputMode, setInputMode] = useState('amount'); // 'amount' | 'quantity'
   const [inputVal,  setInputVal]  = useState(String(product.startPrice));
   const [submitting,    setSubmitting]    = useState(false);
@@ -493,6 +493,7 @@ function ProcessModal({ product, token, onClose }) {
         allocJSON,
       ]);
       setDone(true);
+      onSuccess?.();           // notify parent so SalesView refreshes
       setTimeout(onClose, 1400);
     } catch (e) {
       setProcessError(e.message);
@@ -733,10 +734,12 @@ function SalesView({ token, products }) {
   const [expLoading,     setExpLoading]     = useState(false);
   const [expandedTx,     setExpandedTx]     = useState(null);
   const [reportCopied,   setReportCopied]   = useState(false);
+  const [refreshCount,   setRefreshCount]   = useState(0);
 
   useEffect(() => {
     if (!token) return;
     setLoading(true);
+    setError(null);
     readRange(token, `${TRANS_SHEET}!A:G`, 'UNFORMATTED_VALUE')
       .then(rows => {
         if (!rows.length) { setTransactions([]); return; }
@@ -763,7 +766,7 @@ function SalesView({ token, products }) {
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, refreshCount]);
 
   const now = new Date();
   const filtered = useMemo(() => {
@@ -860,12 +863,19 @@ function SalesView({ token, products }) {
           ))}
         </div>
         <button
+          onClick={() => setRefreshCount(c => c + 1)}
+          title="Reload transactions from sheet"
+          className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white text-xs font-medium transition-colors shrink-0"
+        >
+          ↻
+        </button>
+        <button
           onClick={copyReport}
           disabled={filtered.length === 0}
           title="Copy a formatted sales report to clipboard"
           className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors shrink-0"
         >
-          {reportCopied ? '✓ Copied' : '📋 Report'}
+          {reportCopied ? '✓' : '📋'}
         </button>
       </div>
 
@@ -1052,9 +1062,10 @@ export default function BusinessExpenses({ token }) {
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
   const [saving,     setSaving]     = useState(false);
-  const [editing,    setEditing]    = useState(null);
-  const [processing, setProcessing] = useState(null);
-  const [viewMode,   setViewMode]   = useState('cards'); // 'cards' | 'compare'
+  const [editing,          setEditing]          = useState(null);
+  const [processing,       setProcessing]       = useState(null);
+  const [viewMode,         setViewMode]         = useState('cards'); // 'cards' | 'compare'
+  const [salesRefreshKey,  setSalesRefreshKey]  = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1299,10 +1310,19 @@ export default function BusinessExpenses({ token }) {
         )}
       </div>
 
-      {viewMode === 'sales' && <SalesView token={token} products={products} />}
+      {viewMode === 'sales' && (
+        <SalesView key={salesRefreshKey} token={token} products={products} />
+      )}
 
       {editing    && <FormulaEditor product={editing}    onSave={handleSave} onClose={() => setEditing(null)}    saving={saving} />}
-      {processing && <ProcessModal  product={processing} token={token}        onClose={() => setProcessing(null)} />}
+      {processing && (
+        <ProcessModal
+          product={processing}
+          token={token}
+          onClose={() => setProcessing(null)}
+          onSuccess={() => setSalesRefreshKey(k => k + 1)}
+        />
+      )}
       {saving && !editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 pointer-events-none">
           <LoadingSpinner />
