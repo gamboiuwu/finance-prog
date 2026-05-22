@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { appendRow, readRange } from '../lib/sheets';
 
 const ACCOUNT_ICONS = {
@@ -96,6 +96,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   const [copied,        setCopied]       = useState(false);
   const [alreadyByType, setAlreadyByType] = useState({});
   const [histLoading,   setHistLoading]  = useState(true);
+  const [lastRefresh,   setLastRefresh]  = useState(null);
+  const intervalRef = useRef(null);
   const [surplusItems,  setSurplusItems]  = useState(() => {
     try { return JSON.parse(localStorage.getItem('processIncome_surplusItems') || '[]'); }
     catch { return []; }
@@ -106,9 +108,10 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     localStorage.setItem('processIncome_surplusItems', JSON.stringify(surplusItems));
   }, [surplusItems]);
 
-  // Load this month's already-deposited amounts per category
-  useEffect(() => {
+  // Fetch this month's already-deposited amounts — callable manually and on interval
+  const fetchHistory = useCallback((silent = false) => {
     if (!token) { setHistLoading(false); return; }
+    if (!silent) setHistLoading(true);
     const mo = new Date().getMonth() + 1;
     const yr = new Date().getFullYear();
     readRange(token, 'Allocation Transactions!A:F', 'UNFORMATTED_VALUE')
@@ -127,10 +130,18 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             if (amt > 0) map[type] = (map[type] || 0) + amt;
           });
         setAlreadyByType(map);
+        setLastRefresh(new Date());
       })
       .catch(() => {})
       .finally(() => setHistLoading(false));
   }, [token]);
+
+  // Fetch on mount and every 30 seconds while modal is open
+  useEffect(() => {
+    fetchHistory();
+    intervalRef.current = setInterval(() => fetchHistory(true), 30000);
+    return () => clearInterval(intervalRef.current);
+  }, [fetchHistory]);
 
   const amount         = parseFloat(income) || 0;
   const deposits       = useMemo(
@@ -211,6 +222,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         ]);
       }
       setDone(true);
+      fetchHistory(true); // refresh totals silently so re-open shows current data
     } catch (e) {
       setLogError(e.message);
     } finally {
@@ -272,9 +284,24 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         <div className="flex items-center justify-between p-5 border-b border-slate-700 shrink-0">
           <div>
             <h2 className="text-white font-bold text-lg">Process Income</h2>
-            <p className="text-slate-400 text-xs mt-0.5">
-              {histLoading ? 'Loading month history…' : `${fmt(totalAlready)} already deposited this month`}
-            </p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-slate-400 text-xs">
+                {histLoading
+                  ? 'Refreshing…'
+                  : `${fmt(totalAlready)} deposited this month`}
+              </p>
+              {!histLoading && lastRefresh && (
+                <span className="text-slate-600 text-[10px]">
+                  · {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+              <button
+                onClick={() => fetchHistory()}
+                disabled={histLoading}
+                title="Refresh deposit history"
+                className="text-slate-500 hover:text-slate-300 text-xs disabled:opacity-40 transition-colors ml-0.5"
+              >↻</button>
+            </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:bg-slate-600 flex items-center justify-center">✕</button>
         </div>
@@ -378,10 +405,11 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           )}
 
           <div className="flex justify-between items-center text-xs">
-            <span className="text-slate-500">Monthly goal: <span className="text-slate-300">{fmt(totalAllowance)}</span></span>
-            <span className={`font-semibold ${coveragePct >= 100 ? 'text-emerald-400' : 'text-amber-400'}`}>
-              {coveragePct.toFixed(0)}% covered
-            </span>
+            <span className="text-slate-500">Budget goal: <span className="text-slate-300">{fmt(totalAllowance)}</span></span>
+            {coveragePct >= 100
+              ? <span className="text-emerald-400 font-semibold">✓ Goals funded — surplus below</span>
+              : <span className="text-amber-400 font-semibold">{coveragePct.toFixed(0)}% covered</span>
+            }
           </div>
         </div>
 
