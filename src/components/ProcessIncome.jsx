@@ -149,7 +149,12 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     [expenses, amount, mode, alreadyByType]
   );
   const totalAllowance = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
-  const totalAlready   = Object.values(alreadyByType).reduce((s, v) => s + v, 0);
+  // Only count deposits for categories that have a budget entry — this matches
+  // what calcDeposits and the per-category breakdown use, so the header and
+  // breakdown always show consistent numbers.
+  const totalAlready = expenses
+    .filter(e => pm(e['Monthly Allowance ($)']) > 0)
+    .reduce((s, e) => s + (alreadyByType[e['Type'] || ''] || 0), 0);
   const totalCovered   = totalAlready + amount;
   const stillNeeded    = Math.max(0, totalAllowance - totalCovered);
   const coveragePct    = totalAllowance > 0 ? (totalCovered / totalAllowance) * 100 : 0;
@@ -286,10 +291,17 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             <h2 className="text-white font-bold text-lg">Process Income</h2>
             <div className="flex items-center gap-2 mt-0.5">
               <p className="text-slate-400 text-xs">
-                {histLoading
-                  ? 'Refreshing…'
-                  : `${fmt(totalAlready)} deposited this month`}
+                {histLoading ? 'Refreshing…' : `${fmt(totalAlready)} deposited this month`}
               </p>
+              {!histLoading && (() => {
+                const allTotal = Object.values(alreadyByType).reduce((s, v) => s + v, 0);
+                const untracked = allTotal - totalAlready;
+                return untracked > 0.01 ? (
+                  <span className="text-slate-600 text-[10px]" title="Allocations logged this month that don't match any budget category (e.g. business income processed to non-budget types)">
+                    +{fmt(untracked)} other
+                  </span>
+                ) : null;
+              })()}
               {!histLoading && lastRefresh && (
                 <span className="text-slate-600 text-[10px]">
                   · {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
