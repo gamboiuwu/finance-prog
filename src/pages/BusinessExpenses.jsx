@@ -7,12 +7,14 @@ import ProcessIncome from '../components/ProcessIncome';
 const SHEET = SHEETS.BUSINESS_PRODUCTS;
 const HEADERS = ['ID', 'Name', 'StartPrice', 'Formula'];
 
-const BUILT_IN_CATS = ['COGS', 'Merchandise', 'Profit', 'Materials', 'Labor', 'Overhead', 'Shipping', 'Platform Fees', 'Taxes', 'Other'];
+const BUILT_IN_CATS = ['COGS', 'Merchandise', 'Profit', 'Revenue', 'Materials', 'Labor', 'Overhead', 'Shipping', 'Platform Fees', 'Taxes', 'Other'];
 
+// Revenue is treated as profit — same color, counts toward the Profit tile and Process button
 const CAT_COLORS = {
   COGS:           '#3b82f6',
   Merchandise:    '#a855f7',
   Profit:         '#10b981',
+  Revenue:        '#10b981',
   Materials:      '#f59e0b',
   Labor:          '#f43f5e',
   Overhead:       '#64748b',
@@ -72,9 +74,10 @@ function computeFormulaProportional(actualRevenue, basePrice, blocks) {
 }
 
 function profitMarginPct(steps, startPrice) {
-  const profitStep = steps.find(st => st.category === 'Profit');
-  if (!profitStep || startPrice <= 0) return null;
-  return (profitStep.allocated / startPrice) * 100;
+  const profitAmt = (steps.find(st => st.category === 'Profit')?.allocated || 0)
+                  + (steps.find(st => st.category === 'Revenue')?.allocated || 0);
+  if (profitAmt === 0 || startPrice <= 0) return null;
+  return (profitAmt / startPrice) * 100;
 }
 
 // ── Redistribute Remainder panel ───────────────────────────────────────────────
@@ -649,7 +652,8 @@ function CompareTable({ products }) {
   const rows = products.map(p => {
     const { steps } = computeFormula(p.startPrice, p.formula);
     const cogs    = steps.find(st => st.category === 'COGS')?.allocated    || 0;
-    const profit  = steps.find(st => st.category === 'Profit')?.allocated  || 0;
+    const profit  = (steps.find(st => st.category === 'Profit')?.allocated  || 0)
+                  + (steps.find(st => st.category === 'Revenue')?.allocated || 0);
     const margin  = p.startPrice > 0 ? (profit / p.startPrice) * 100 : 0;
     const balanced = Math.abs(computeFormula(p.startPrice, p.formula).remaining) < 0.001;
     return { p, steps, cogs, profit, margin, balanced };
@@ -1073,7 +1077,7 @@ function SalesView({ token, products }) {
     const categories = Object.entries(catMap)
       .map(([name, total]) => ({ name, total, color: CAT_COLORS[name] || CAT_COLORS.Other }))
       .sort((a, b) => b.total - a.total);
-    const totalProfit = catMap['Profit'] || 0;
+    const totalProfit = (catMap['Profit'] || 0) + (catMap['Revenue'] || 0);
     return { totalRevenue, categories, totalProfit };
   }, [filtered]);
 
@@ -1235,13 +1239,19 @@ function SalesView({ token, products }) {
               </p>
             </div>
 
-            {/* Profit tile */}
+            {/* Profit tile — includes Revenue allocations */}
             <div className="bg-emerald-900/20 border border-emerald-700/40 rounded-2xl p-3">
               <p className="text-emerald-300 text-[10px] uppercase tracking-wider font-broske mb-1">Profit</p>
               <p className="text-white text-2xl font-bold font-mono tabular-nums">${totalProfit.toFixed(2)}</p>
               {totalRevenue > 0 && (
                 <p className="text-emerald-600 text-[10px] mt-1">{((totalProfit / totalRevenue) * 100).toFixed(1)}% margin</p>
               )}
+              {(() => {
+                const revAlloc = filtered.reduce((s, t) => s + (parseFloat(t.allocs?.['Revenue']) || 0), 0);
+                return revAlloc > 0 ? (
+                  <p className="text-emerald-700 text-[10px] mt-0.5">incl. ${revAlloc.toFixed(2)} Revenue</p>
+                ) : null;
+              })()}
             </div>
           </div>
 
@@ -1262,8 +1272,8 @@ function SalesView({ token, products }) {
               {categories.map(cat => (
                 <div key={cat.name} className="flex items-center gap-1.5 min-w-0">
                   <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: cat.color }} />
-                  <span className={`text-[11px] truncate flex-1 ${cat.name === 'Profit' ? 'text-emerald-300 font-semibold' : 'text-slate-300'}`}>{cat.name}</span>
-                  <span className={`text-[11px] font-mono tabular-nums shrink-0 ${cat.name === 'Profit' ? 'text-emerald-400 font-bold' : 'text-white'}`}>${cat.total.toFixed(2)}</span>
+                  <span className={`text-[11px] truncate flex-1 ${(cat.name === 'Profit' || cat.name === 'Revenue') ? 'text-emerald-300 font-semibold' : 'text-slate-300'}`}>{cat.name}</span>
+                  <span className={`text-[11px] font-mono tabular-nums shrink-0 ${(cat.name === 'Profit' || cat.name === 'Revenue') ? 'text-emerald-400 font-bold' : 'text-white'}`}>${cat.total.toFixed(2)}</span>
                 </div>
               ))}
             </div>
@@ -1511,7 +1521,8 @@ export default function BusinessExpenses({ token }) {
               <p className="text-emerald-400 font-bold text-xl mt-0.5 font-mono tabular-nums">
                 ${(products.reduce((s, p) => {
                   const { steps } = computeFormula(p.startPrice, p.formula);
-                  return s + (steps.find(st => st.category === 'Profit')?.allocated || 0);
+                  return s + (steps.find(st => st.category === 'Profit')?.allocated || 0)
+                           + (steps.find(st => st.category === 'Revenue')?.allocated || 0);
                 }, 0) / products.length).toFixed(2)}
               </p>
             </div>
@@ -1561,7 +1572,8 @@ export default function BusinessExpenses({ token }) {
             {products.map(product => {
               const { steps, remaining } = computeFormula(product.startPrice, product.formula);
               const balanced  = Math.abs(remaining) < 0.001;
-              const profitAmt = steps.find(st => st.category === 'Profit')?.allocated || 0;
+              const profitAmt = (steps.find(st => st.category === 'Profit')?.allocated || 0)
+                              + (steps.find(st => st.category === 'Revenue')?.allocated || 0);
               const cogsAmt   = steps.find(st => st.category === 'COGS')?.allocated   || 0;
               const margin    = profitMarginPct(steps, product.startPrice);
 
