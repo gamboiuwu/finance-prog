@@ -9,6 +9,7 @@ import Commissions from './pages/Commissions';
 import MonthlyDetail from './pages/MonthlyDetail';
 import Summary from './pages/Summary';
 import GasPrices from './pages/GasPrices';
+import Business from './pages/Business';
 import Nav from './components/Nav';
 
 export default function App() {
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="/transactions"          element={<Transactions  token={token} />} />
             <Route path="/commissions"           element={<Commissions   token={token} />} />
             <Route path="/gas"                   element={<GasPrices />} />
+            <Route path="/business"              element={<Business      token={token} />} />
             <Route path="/month/:sheetId/:month" element={<MonthlyDetail token={token} />} />
           </Routes>
         </main>

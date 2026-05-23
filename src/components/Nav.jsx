@@ -6,6 +6,7 @@ const tabs = [
   { to: '/summary',      label: 'Summary', icon: '📈' },
   { to: '/transactions', label: 'Log',     icon: '⇅'  },
   { to: '/commissions',  label: 'Art',     icon: '✦'  },
+  { to: '/business',     label: 'Business',icon: '💼' },
 ];
 
 export default function Nav() {

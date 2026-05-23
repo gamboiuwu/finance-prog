@@ -44,9 +44,9 @@ function calcDeposits(expenses, income) {
     .sort((a, b) => a.priority - b.priority || b.deposit - a.deposit);
 }
 
-export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose }) {
-  const [income, setIncome]     = useState('');
-  const [source, setSource]     = useState('');
+export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose, initialIncome = '', initialSource = '' }) {
+  const [income, setIncome]     = useState(initialIncome ? String(initialIncome) : '');
+  const [source, setSource]     = useState(initialSource || '');
   const [logging, setLogging]   = useState(false);
   const [done, setDone]         = useState(false);
   const [logError, setLogError] = useState(null);
