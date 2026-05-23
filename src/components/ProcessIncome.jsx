@@ -95,7 +95,9 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   const [logError,      setLogError]     = useState(null);
   const [copied,        setCopied]       = useState(false);
   const [alreadyByType, setAlreadyByType] = useState({});
+  const [alreadyRows,   setAlreadyRows]  = useState([]);   // raw rows for diagnostic
   const [histLoading,   setHistLoading]  = useState(true);
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const [surplusItems,  setSurplusItems]  = useState(() => {
     try { return JSON.parse(localStorage.getItem('processIncome_surplusItems') || '[]'); }
     catch { return []; }
@@ -115,18 +117,19 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
       .then(rows => {
         const [, ...data] = rows;
         const map = {};
-        data
+        const thisMonth = data
           .filter(r => r[0])
           .filter(r => {
             const d = parseSheetDate(r[0]);
             return d !== null && d.getMonth() + 1 === mo && d.getFullYear() === yr;
-          })
-          .forEach(r => {
+          });
+        thisMonth.forEach(r => {
             const type = r[1] || '';
             const amt  = pm(r[2]);
             if (amt > 0) map[type] = (map[type] || 0) + amt;
           });
         setAlreadyByType(map);
+        setAlreadyRows(thisMonth);
       })
       .catch(() => {})
       .finally(() => setHistLoading(false));
@@ -314,9 +317,35 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         <div className="flex items-center justify-between p-5 border-b border-slate-700 shrink-0">
           <div>
             <h2 className="text-white font-bold text-lg">Process Income</h2>
-            <p className="text-slate-400 text-xs mt-0.5">
-              {histLoading ? 'Loading month history…' : `${fmt(totalAlready)} already deposited this month`}
-            </p>
+            {histLoading ? (
+              <p className="text-slate-400 text-xs mt-0.5">Loading month history…</p>
+            ) : (
+              <button
+                onClick={() => setShowBreakdown(v => !v)}
+                className="text-left mt-0.5"
+              >
+                <p className="text-slate-400 text-xs underline decoration-dotted underline-offset-2">
+                  {fmt(totalAlready)} already deposited this month
+                  <span className="text-slate-600 ml-1">({alreadyRows.length} rows) {showBreakdown ? '▲' : '▼'}</span>
+                </p>
+              </button>
+            )}
+            {showBreakdown && (
+              <div className="mt-2 bg-slate-800 rounded-xl p-3 space-y-1 text-xs max-h-48 overflow-y-auto">
+                {alreadyRows.length === 0 ? (
+                  <p className="text-slate-500">No rows found for this month.</p>
+                ) : (
+                  alreadyRows.map((r, i) => (
+                    <div key={i} className="flex justify-between items-center gap-2 text-[11px]">
+                      <span className="text-slate-500 shrink-0 font-mono">{String(r[0]).slice(0,10)}</span>
+                      <span className="text-slate-300 truncate flex-1">{r[1] || '—'}</span>
+                      <span className="text-white font-mono tabular-nums shrink-0">{fmt(pm(r[2]))}</span>
+                      {r[4] && <span className="text-slate-600 shrink-0 text-[10px] truncate max-w-[80px]">{r[4]}</span>}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:bg-slate-600 flex items-center justify-center">✕</button>
         </div>
