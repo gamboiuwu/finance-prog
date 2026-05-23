@@ -122,12 +122,13 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           .filter(r => {
             const d = parseSheetDate(r[0]);
             return d !== null && d.getMonth() + 1 === mo && d.getFullYear() === yr;
-          });
+          })
+          .filter(r => pm(r[2]) > 0);   // deposits only — skip spending/negative rows
         thisMonth.forEach(r => {
-            const type = r[1] || '';
-            const amt  = pm(r[2]);
-            if (amt > 0) map[type] = (map[type] || 0) + amt;
-          });
+          const type = r[1] || '';
+          const amt  = pm(r[2]);
+          map[type] = (map[type] || 0) + amt;
+        });
         setAlreadyByType(map);
         setAlreadyRows(thisMonth);
       })
