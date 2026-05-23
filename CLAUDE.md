@@ -77,17 +77,28 @@ src/
 - Month Close: stores `closed_{month}_{year}` in localStorage (soft close only)
 - Statement: `printStatement()` generates a printable HTML page via `window.open()`
 
+## Budget.jsx — Key Concepts (updated 2026-05-23)
+- 3 tabs: **Budget Plan** (priority-grouped edit view) | **By Category** | **All Entries**
+- **By Category** reads `Allocation Transactions!A:F` (UNFORMATTED_VALUE) for current month → sums by `Type` (col B) → maps against `Monthly Expenses` allowances → groups by `Expense` category (Essentials/Stability/Discretionary/Subscription). Savings items shown separately/collapsible.
+- **All Entries** = flat sorted list of raw allocation rows for current month
+- `parseSheetDate(val)` is duplicated here and in ProcessIncome.jsx — consider extracting to `src/lib/dateUtils.js`
+- Allocation Transactions column B ("Type") matches Monthly Expenses column "Type" (the item name like "Rent", not the expense category)
+
 ## Task Tracking
 Maintained in Google Drive doc "Finance Tracker – Updates & Task Plans" (auto-updated by Claude).
 Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTzptqo`
+**Current task doc ID**: `1g2BhUcUhrvTZsWq_TUqt_7s8ghfh2U_0Gd4hitFawxE` (updated 2026-05-23)
 
 ### Task Status
 | # | Task | Status |
 |---|---|---|
 | 1 | Subscriptions — add/edit/delete | ✅ COMPLETED + VERIFIED |
-| 2 | Category view shows all allocated amounts | ⏳ Plan written, awaiting Execute Y/N |
+| 2 | Category view shows all allocated amounts | ✅ COMPLETED + VERIFIED (2026-05-23) |
 | 3 | Revenue counts as Profit in Sales card | ✅ COMPLETED + VERIFIED (2026-05-22) |
-| 4 | Business Expenses full accounting page | ⏳ Plan written, awaiting Execute Y/N |
+| 4 | Business Expenses full accounting page | ✅ APPROVED (Y) — awaiting implementation |
+| 5 | Month-over-Month Spending Trends | ⏳ Plan written, awaiting Execute Y/N |
+| 6 | Budget Over-Budget Alerts & Nav Badge | ⏳ Plan written, awaiting Execute Y/N |
+| 7 | Transaction Log: Search, Filter & Running Balance | ⏳ Plan written, awaiting Execute Y/N |
 
 ## Git Workflow
 1. Source changes → feature branch (e.g. `claude/zealous-euler-p8sWK`) based on `main`
