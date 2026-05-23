@@ -1066,7 +1066,7 @@ function SalesView({ token, products }) {
     return transactions.filter(t => (t.date || '').startsWith(prefix));
   }, [transactions, period]);
 
-  const { totalRevenue, categories, totalProfit } = useMemo(() => {
+  const { totalRevenue, categories, totalProfit, profitByCategory } = useMemo(() => {
     const totalRevenue = filtered.reduce((s, t) => s + t.revenue, 0);
     const catMap = {};
     filtered.forEach(t => {
@@ -1079,8 +1079,32 @@ function SalesView({ token, products }) {
       .map(([name, total]) => ({ name, total, color: CAT_COLORS[name] || CAT_COLORS.Other }))
       .sort((a, b) => b.total - a.total);
     const totalProfit = (catMap['Profit'] || 0) + (catMap['Revenue'] || 0);
-    return { totalRevenue, categories, totalProfit };
+    return { totalRevenue, categories, totalProfit, profitByCategory: { Profit: catMap['Profit'] || 0, Revenue: catMap['Revenue'] || 0 } };
   }, [filtered]);
+
+  async function handleProfitProcessed(amountProcessed) {
+    if (amountProcessed <= 0) return;
+    const date = new Date();
+    const pad  = n => String(n).padStart(2, '0');
+    const dateStr = `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+    const desc = `Processed as personal income`;
+    try {
+      await ensureSheetTab(token, SPEND_SHEET);
+      const existing = await readRange(token, `${SPEND_SHEET}!A1:E1`);
+      if (!existing.length || !existing[0]?.length) {
+        await appendRow(token, `${SPEND_SHEET}!A:E`, ['Date', 'Account', 'Amount', 'Vendor', 'Description']);
+      }
+      // Split the processed amount across Profit and Revenue proportionally
+      const profitAmt  = profitByCategory.Profit;
+      const revenueAmt = profitByCategory.Revenue;
+      const total      = profitAmt + revenueAmt;
+      if (total <= 0) return;
+      const profitShare  = total > 0 ? (profitAmt  / total) * amountProcessed : 0;
+      const revenueShare = total > 0 ? (revenueAmt / total) * amountProcessed : 0;
+      if (profitShare  > 0.001) await appendRow(token, `${SPEND_SHEET}!A:E`, [dateStr, 'Profit',  parseFloat(profitShare.toFixed(2)),  '', desc]);
+      if (revenueShare > 0.001) await appendRow(token, `${SPEND_SHEET}!A:E`, [dateStr, 'Revenue', parseFloat(revenueShare.toFixed(2)), '', desc]);
+    } catch { /* non-critical — income was already logged */ }
+  }
 
   function handleProcessAsIncome() {
     if (budgetExpenses.length > 0) { setShowProcess(true); return; }
@@ -1378,6 +1402,7 @@ function SalesView({ token, products }) {
           token={token}
           onClose={() => setShowProcess(false)}
           defaultIncome={totalProfit}
+          onProcessed={handleProfitProcessed}
         />
       )}
 
