@@ -977,6 +977,7 @@ function SalesView({ token, products }) {
   const [reportCopied,   setReportCopied]   = useState(false);
   const [refreshCount,   setRefreshCount]   = useState(0);
   const [rawRowCount,    setRawRowCount]    = useState(0);
+  const [profitSpent,    setProfitSpent]    = useState(0); // total already withdrawn from Profit+Revenue
 
   useEffect(() => {
     if (!token) return;
@@ -1042,6 +1043,17 @@ function SalesView({ token, products }) {
           })
           .filter(Boolean);
         setTransactions(parsed);
+
+        // Read spend records to know how much profit has already been withdrawn
+        const spendRows = await readRange(token, `${SPEND_SHEET}!A:E`, 'UNFORMATTED_VALUE').catch(() => []);
+        if (!cancelled) {
+          const spent = (spendRows || [])
+            .slice(String(spendRows?.[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
+            .filter(r => r[1] === 'Profit' || r[1] === 'Revenue')
+            .filter(r => String(r[4] || '').toLowerCase() === 'processed as personal income')
+            .reduce((s, r) => s + (parseFloat(r[2]) || 0), 0);
+          setProfitSpent(spent);
+        }
       } catch (e) {
         if (!cancelled) setError(e.message);
       } finally {
@@ -1081,6 +1093,8 @@ function SalesView({ token, products }) {
     const totalProfit = (catMap['Profit'] || 0) + (catMap['Revenue'] || 0);
     return { totalRevenue, categories, totalProfit, profitByCategory: { Profit: catMap['Profit'] || 0, Revenue: catMap['Revenue'] || 0 } };
   }, [filtered]);
+
+  const netProfit = Math.max(0, totalProfit - profitSpent);
 
   async function handleProfitProcessed(amountProcessed) {
     if (amountProcessed <= 0) return;
@@ -1267,16 +1281,13 @@ function SalesView({ token, products }) {
             {/* Profit tile — includes Revenue allocations */}
             <div className="bg-emerald-900/20 border border-emerald-700/40 rounded-2xl p-3">
               <p className="text-emerald-300 text-[10px] uppercase tracking-wider font-broske mb-1">Profit</p>
-              <p className="text-white text-2xl font-bold font-mono tabular-nums">${totalProfit.toFixed(2)}</p>
+              <p className="text-white text-2xl font-bold font-mono tabular-nums">${netProfit.toFixed(2)}</p>
               {totalRevenue > 0 && (
                 <p className="text-emerald-600 text-[10px] mt-1">{((totalProfit / totalRevenue) * 100).toFixed(1)}% margin</p>
               )}
-              {(() => {
-                const revAlloc = filtered.reduce((s, t) => s + (parseFloat(t.allocs?.['Revenue']) || 0), 0);
-                return revAlloc > 0 ? (
-                  <p className="text-emerald-700 text-[10px] mt-0.5">incl. ${revAlloc.toFixed(2)} Revenue</p>
-                ) : null;
-              })()}
+              {profitSpent > 0 && (
+                <p className="text-amber-500 text-[10px] mt-0.5">${profitSpent.toFixed(2)} already processed</p>
+              )}
             </div>
           </div>
 
@@ -1307,10 +1318,10 @@ function SalesView({ token, products }) {
           {/* Process profit button */}
           <button
             onClick={handleProcessAsIncome}
-            disabled={expLoading || totalProfit <= 0}
+            disabled={expLoading || netProfit <= 0}
             className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm transition-colors"
           >
-            {expLoading ? 'Loading budget…' : totalProfit <= 0 ? 'No profit to process' : `Process $${totalProfit.toFixed(2)} as Income →`}
+            {expLoading ? 'Loading budget…' : netProfit <= 0 ? (totalProfit > 0 ? 'Already processed' : 'No profit to process') : `Process $${netProfit.toFixed(2)} as Income →`}
           </button>
 
           {/* ── Transaction list ── */}
@@ -1401,7 +1412,7 @@ function SalesView({ token, products }) {
           expenses={budgetExpenses}
           token={token}
           onClose={() => setShowProcess(false)}
-          defaultIncome={totalProfit}
+          defaultIncome={netProfit}
           onProcessed={handleProfitProcessed}
         />
       )}
