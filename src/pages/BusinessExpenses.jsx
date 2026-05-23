@@ -457,6 +457,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
 // ── Process modal ──────────────────────────────────────────────────────────────
 
 const TRANS_SHEET = 'Business Transactions';
+const SPEND_SHEET = SHEETS.BUSINESS_ACCOUNT_SPENDING;
 
 function ProcessModal({ product, token, onClose, onSuccess }) {
   const [inputMode, setInputMode] = useState('amount'); // 'amount' | 'quantity'
@@ -1394,6 +1395,281 @@ function SalesView({ token, products }) {
   );
 }
 
+// ── Accounts view (per-allocation-category balance + drawdown) ──────────────
+
+function AccountsView({ token, products, refreshKey }) {
+  const [txns,     setTxns]     = useState([]);
+  const [spending, setSpending] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [err,      setErr]      = useState(null);
+  const [openAcct, setOpenAcct] = useState(null);
+  const [internal, setInternal] = useState(0); // bump after spend → reload
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true); setErr(null);
+      try {
+        const [salesRows, spendRows] = await Promise.all([
+          readRange(token, `${TRANS_SHEET}!A:H`, 'UNFORMATTED_VALUE'),
+          ensureSheetTab(token, SPEND_SHEET)
+            .then(() => readRange(token, `${SPEND_SHEET}!A:E`, 'UNFORMATTED_VALUE'))
+            .catch(() => []),
+        ]);
+        if (cancelled) return;
+
+        // Parse business transactions → list of {date, product, client, allocs}
+        const parsedSales = salesRows
+          .slice(String(salesRows[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
+          .map(r => {
+            if (!r || r.every(c => c === '' || c == null)) return null;
+            let allocs = {};
+            try { allocs = JSON.parse(r[7] || '{}'); } catch {}
+            return {
+              date: r[0], client: r[1] || '', product: r[2] || '',
+              revenue: parseFloat(r[5]) || 0, allocs,
+            };
+          })
+          .filter(Boolean);
+        setTxns(parsedSales);
+
+        // Parse spending (drawdowns)
+        const parsedSpend = (spendRows || [])
+          .slice(String(spendRows?.[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
+          .map((r, idx) => ({
+            rowNum: idx + 2, date: r[0],
+            account: r[1] || '', amount: parseFloat(r[2]) || 0,
+            vendor: r[3] || '', description: r[4] || '',
+          }))
+          .filter(r => r.account);
+        setSpending(parsedSpend);
+      } catch (e) {
+        if (!cancelled) setErr(e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token, refreshKey, internal]);
+
+  // Discover accounts: union of allocation category names across products + any
+  // category that has historical sales/spending. Use blockLabel so custom
+  // "Other" names show up too.
+  const accountNames = useMemo(() => {
+    const set = new Set();
+    products.forEach(p => (p.formula || []).forEach(b => set.add(blockLabel(b))));
+    txns.forEach(t => Object.keys(t.allocs || {}).forEach(k => set.add(k)));
+    spending.forEach(s => set.add(s.account));
+    return Array.from(set);
+  }, [products, txns, spending]);
+
+  const accounts = useMemo(() => accountNames.map(name => {
+    const contributed = txns.reduce((s, t) => s + (parseFloat(t.allocs?.[name]) || 0), 0);
+    const spent       = spending.filter(s => s.account === name).reduce((s, r) => s + r.amount, 0);
+    const balance     = contributed - spent;
+    // Pull a representative color from any product block whose label matches
+    const block = products.flatMap(p => p.formula || []).find(b => blockLabel(b) === name);
+    const color = block ? blockColor(block) : (CAT_COLORS[name] || CAT_COLORS.Other);
+    return { name, contributed, spent, balance, color };
+  }).sort((a, b) => b.balance - a.balance), [accountNames, txns, spending, products]);
+
+  if (loading) return <div className="px-4 py-10"><LoadingSpinner /></div>;
+
+  return (
+    <div className="px-4 space-y-4">
+      {err && (
+        <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm">{err}</div>
+      )}
+      <p className="text-slate-500 text-xs">
+        Each formula category is a "bucket" — tap one to spend out of it (writes a row to the
+        <span className="text-slate-300"> Business Account Spending</span> sheet).
+      </p>
+
+      {accounts.length === 0 && (
+        <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-2 text-slate-500 text-sm">
+          No accounts yet. Add allocation categories (COGS, Overhead, …) to a product to create them.
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        {accounts.map(a => (
+          <button
+            key={a.name}
+            onClick={() => setOpenAcct(a)}
+            className="text-left rounded-2xl bg-slate-800 hover:bg-slate-700/80 p-4 transition-colors border-t-4"
+            style={{ borderTopColor: a.color }}
+          >
+            <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske">{a.name}</p>
+            <p className={`mt-2 text-xl font-bold font-mono tabular-nums ${a.balance < 0 ? 'text-rose-400' : 'text-white'}`}>
+              ${a.balance.toFixed(2)}
+            </p>
+            <div className="mt-2 flex flex-col gap-0.5 text-[10px] text-slate-500 font-mono tabular-nums">
+              <span>+ ${a.contributed.toFixed(2)} earned</span>
+              <span>− ${a.spent.toFixed(2)} spent</span>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {openAcct && (
+        <AccountSpendModal
+          token={token}
+          account={openAcct}
+          history={spending.filter(s => s.account === openAcct.name)}
+          contributions={txns
+            .filter(t => parseFloat(t.allocs?.[openAcct.name]) > 0)
+            .map(t => ({ date: t.date, label: `${t.product}${t.client ? ' — ' + t.client : ''}`, amount: parseFloat(t.allocs[openAcct.name]) }))}
+          onClose={() => setOpenAcct(null)}
+          onChange={() => { setInternal(i => i + 1); setOpenAcct(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AccountSpendModal({ token, account, history, contributions, onClose, onChange }) {
+  const [amount, setAmount] = useState('');
+  const [vendor, setVendor] = useState('');
+  const [desc,   setDesc]   = useState('');
+  const [busy,   setBusy]   = useState(false);
+  const [err,    setErr]    = useState(null);
+  const [tab,    setTab]    = useState('spend'); // 'spend' | 'history'
+
+  const amt = parseFloat(amount) || 0;
+  const wouldOverdraw = amt > account.balance;
+
+  async function handleSpend() {
+    if (!amt) return;
+    setBusy(true); setErr(null);
+    try {
+      await ensureSheetTab(token, SPEND_SHEET);
+      const existing = await readRange(token, `${SPEND_SHEET}!A1:E1`);
+      if (!existing.length || !existing[0]?.length) {
+        await appendRow(token, `${SPEND_SHEET}!A:E`, ['Date', 'Account', 'Amount', 'Vendor', 'Description']);
+      }
+      await appendRow(token, `${SPEND_SHEET}!A:E`, [
+        new Date().toISOString().slice(0, 10),
+        account.name,
+        amt.toFixed(2),
+        vendor.trim(),
+        desc.trim(),
+      ]);
+      onChange();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center z-50">
+      <div className="bg-slate-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl max-h-[92vh] flex flex-col">
+        <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske">Account</p>
+            <h3 className="text-white font-bold font-broske text-lg" style={{ color: account.color }}>{account.name}</h3>
+            <p className={`mt-1 font-mono font-bold text-2xl tabular-nums ${account.balance < 0 ? 'text-rose-400' : 'text-white'}`}>
+              ${account.balance.toFixed(2)}
+            </p>
+            <p className="text-[11px] text-slate-500 font-mono tabular-nums">+${account.contributed.toFixed(2)} earned · −${account.spent.toFixed(2)} spent</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 grid place-items-center">✕</button>
+        </div>
+
+        <div className="shrink-0 flex bg-slate-800 mx-5 mt-4 rounded-xl p-1 gap-1">
+          {[['spend', 'Spend'], ['history', `History (${history.length + contributions.length})`]].map(([t, lbl]) => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === t ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {tab === 'spend' && (
+            <>
+              <div>
+                <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5 font-broske">Amount</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg font-bold">$</span>
+                  <input
+                    type="number" step="0.01" min="0" autoFocus
+                    value={amount}
+                    onChange={e => setAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-emerald-500 font-mono tabular-nums placeholder-slate-600"
+                  />
+                </div>
+                {wouldOverdraw && amt > 0 && (
+                  <p className="text-amber-400 text-xs mt-1.5">Over balance by ${(amt - account.balance).toFixed(2)}. Recording anyway will let the balance go negative.</p>
+                )}
+              </div>
+              <div>
+                <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5 font-broske">Payee / Vendor</label>
+                <input value={vendor} onChange={e => setVendor(e.target.value)} placeholder="e.g. Sticker Mule" className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500 placeholder-slate-600" />
+              </div>
+              <div>
+                <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5 font-broske">Description</label>
+                <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="e.g. Inventory restock — sticker paper" className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500 placeholder-slate-600" />
+              </div>
+              {err && <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-xs">{err}</div>}
+            </>
+          )}
+
+          {tab === 'history' && (
+            <div className="space-y-3">
+              {contributions.length === 0 && history.length === 0 && (
+                <p className="text-slate-500 text-sm text-center py-6">No activity yet.</p>
+              )}
+              {contributions.length > 0 && (
+                <div>
+                  <p className="text-emerald-400 text-[10px] uppercase tracking-wider font-broske mb-1.5">Earned ({contributions.length})</p>
+                  <ul className="divide-y divide-slate-800 rounded-xl bg-slate-800/40 overflow-hidden">
+                    {contributions.slice().reverse().slice(0, 30).map((c, i) => (
+                      <li key={i} className="flex justify-between px-3 py-2 text-sm">
+                        <span className="text-slate-300 truncate pr-2">{c.label}</span>
+                        <span className="text-emerald-400 font-mono tabular-nums shrink-0">+${c.amount.toFixed(2)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {history.length > 0 && (
+                <div>
+                  <p className="text-rose-400 text-[10px] uppercase tracking-wider font-broske mb-1.5">Spent ({history.length})</p>
+                  <ul className="divide-y divide-slate-800 rounded-xl bg-slate-800/40 overflow-hidden">
+                    {history.slice().reverse().slice(0, 30).map((h, i) => (
+                      <li key={i} className="flex justify-between px-3 py-2 text-sm">
+                        <span className="text-slate-300 truncate pr-2">{[h.vendor, h.description].filter(Boolean).join(' — ') || '—'}</span>
+                        <span className="text-rose-400 font-mono tabular-nums shrink-0">−${h.amount.toFixed(2)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {tab === 'spend' && (
+          <div className="shrink-0 px-5 py-4 border-t border-slate-800 flex gap-3">
+            <button onClick={onClose} className="px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium">Cancel</button>
+            <button
+              onClick={handleSpend}
+              disabled={!amt || busy}
+              className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-sm transition-colors"
+            >
+              {busy ? 'Recording…' : `Spend $${amt.toFixed(2)} from ${account.name}`}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function BusinessExpenses({ token }) {
@@ -1540,6 +1816,7 @@ export default function BusinessExpenses({ token }) {
           {[
             ...(products.length > 0 ? [['cards','Cards'],['compare','Compare']] : []),
             ['sales','Sales 📊'],
+            ['accounts','Accounts 🏦'],
           ].map(([v, lbl]) => (
             <button key={v} onClick={() => setViewMode(v)}
               className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
@@ -1653,6 +1930,10 @@ export default function BusinessExpenses({ token }) {
 
       {viewMode === 'sales' && (
         <SalesView key={salesRefreshKey} token={token} products={products} />
+      )}
+
+      {viewMode === 'accounts' && (
+        <AccountsView token={token} products={products} refreshKey={salesRefreshKey} />
       )}
 
       {editing    && <FormulaEditor product={editing}    onSave={handleSave} onClose={() => setEditing(null)}    saving={saving} />}
