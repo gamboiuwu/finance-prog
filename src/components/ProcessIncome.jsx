@@ -264,8 +264,49 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     );
   }
 
+  // Per-account totals: already this month + being added now
+  const accountTiles = useMemo(() => {
+    const map = {};
+    deposits.forEach(d => {
+      if (!map[d.account]) map[d.account] = { adding: 0, already: 0 };
+      map[d.account].adding  += d.deposit;
+      map[d.account].already += d.already;
+    });
+    surplusDeposits.forEach(it => {
+      if (!it.name?.trim() || it.deposit <= 0) return;
+      const acct = it.account || 'Savings';
+      if (!map[acct]) map[acct] = { adding: 0, already: 0 };
+      map[acct].adding += it.deposit;
+    });
+    return ACCOUNT_ORDER
+      .filter(a => map[a])
+      .map(a => ({ name: a, ...map[a], style: ACCOUNT_ICONS[a] || { icon: '💰', color: 'text-slate-300', bg: 'bg-slate-800 border-slate-700' } }));
+  }, [deposits, surplusDeposits]);
+
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="flex w-full sm:max-w-4xl sm:gap-5 items-end sm:items-start justify-center">
+
+      {/* ── Right panel: account tiles (desktop only) ── */}
+      {amount > 0 && accountTiles.length > 0 && (
+        <div className="hidden sm:flex flex-col justify-center gap-3 w-56 shrink-0 self-center">
+          <p className="text-slate-500 text-[10px] uppercase tracking-wider text-center">By Account</p>
+          <div className="grid grid-cols-2 gap-3">
+            {accountTiles.map(a => (
+              <div key={a.name} className={`rounded-2xl p-3 border ${a.style.bg} flex flex-col items-center text-center gap-1`}>
+                <span className="text-2xl">{a.style.icon}</span>
+                <p className={`text-[11px] font-bold ${a.style.color} leading-tight`}>{a.name}</p>
+                <p className="text-white font-bold font-mono tabular-nums text-sm">+{fmt(a.adding)}</p>
+                {a.already > 0 && (
+                  <p className="text-slate-500 font-mono text-[10px] tabular-nums">{fmt(a.already)} prior</p>
+                )}
+                <p className={`font-mono text-[11px] font-semibold tabular-nums ${a.style.color}`}>{fmt(a.adding + a.already)} total</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bg-slate-900 w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[94vh]">
 
         {/* Header */}
@@ -646,6 +687,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             </button>
           </div>
         )}
+      </div>
+
       </div>
     </div>
   );
