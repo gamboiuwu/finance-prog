@@ -20,6 +20,26 @@ function fmt(val) {
 
 const SUB_CYCLES = ['monthly', 'annual', 'weekly', 'biweekly'];
 
+// Convert a subscription's raw billing amount to its monthly equivalent
+function toMonthly(amount, cycle) {
+  const amt = parseFloat(amount) || 0;
+  switch ((cycle || 'monthly').toLowerCase()) {
+    case 'annual':   return amt / 12;
+    case 'weekly':   return (amt * 52) / 12;
+    case 'biweekly': return (amt * 26) / 12;
+    default:         return amt;
+  }
+}
+// Label for how the raw amount is billed (used beside the input)
+function cycleAmountLabel(cycle) {
+  switch ((cycle || 'monthly').toLowerCase()) {
+    case 'annual':   return '/yr';
+    case 'weekly':   return '/wk';
+    case 'biweekly': return '/2wk';
+    default:         return '/mo';
+  }
+}
+
 function nextRenewal(startDateStr, cycle) {
   if (!startDateStr) return null;
   const start = new Date(startDateStr + 'T12:00:00');
@@ -713,7 +733,11 @@ ${stmtTxns.length ? `
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0" />
                       <span className="text-slate-200 truncate">{s['Name']}</span>
-                      {s['Amount'] && <span className="text-slate-500 font-mono shrink-0">${parseFloat(s['Amount'] || 0).toFixed(2)}</span>}
+                      {s['Amount'] && (
+                        <span className="text-slate-500 font-mono shrink-0">
+                          ${parseFloat(s['Amount'] || 0).toFixed(2)}{cycleAmountLabel(s['Cycle'])}
+                        </span>
+                      )}
                     </div>
                     <span className={`shrink-0 font-medium ${s.days === 0 ? 'text-rose-400' : s.days <= 3 ? 'text-amber-400' : 'text-teal-400'}`}>
                       {s.days === 0 ? 'Today' : s.days === 1 ? 'Tomorrow' : `in ${s.days}d`}
@@ -1228,11 +1252,24 @@ ${stmtTxns.length ? `
                       </div>
                     )}
 
+                    {/* Total monthly cost across all subs */}
+                    {subs.length > 0 && (() => {
+                      const totalMo = subs.reduce((s, sub) => s + toMonthly(sub['Amount'], sub['Cycle']), 0);
+                      return (
+                        <div className="flex justify-between items-center px-1 text-xs">
+                          <span className="text-slate-500">Total / month</span>
+                          <span className="text-teal-300 font-bold font-mono tabular-nums">${totalMo.toFixed(2)}</span>
+                        </div>
+                      );
+                    })()}
+
                     {subs.map((s, i) => {
                       const cycle    = (s['Cycle'] || 'monthly').toLowerCase();
                       const next     = nextRenewal(s['Start Date'], cycle);
                       const days     = daysUntil(next);
                       const amt      = parseFloat(s['Amount'] || 0);
+                      const moAmt    = toMonthly(amt, cycle);
+                      const isNonMo  = cycle !== 'monthly';
                       const startFmt = s['Start Date']
                         ? new Date(s['Start Date'] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                         : '—';
@@ -1247,7 +1284,12 @@ ${stmtTxns.length ? `
                               <p className="text-white font-semibold truncate">{s['Name']}</p>
                               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                 <span className="text-xs px-2 py-0.5 rounded-full bg-teal-900/50 text-teal-300 capitalize">{cycle}</span>
-                                {amt > 0 && <span className="text-white font-mono text-xs tabular-nums">${amt.toFixed(2)}/mo</span>}
+                                {amt > 0 && (
+                                  <>
+                                    <span className="text-white font-mono text-xs tabular-nums">${moAmt.toFixed(2)}/mo</span>
+                                    {isNonMo && <span className="text-slate-500 font-mono text-[10px] tabular-nums">(${amt.toFixed(2)}{cycleAmountLabel(cycle)})</span>}
+                                  </>
+                                )}
                               </div>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
@@ -1334,10 +1376,19 @@ ${stmtTxns.length ? `
                 {/* ── EDIT VIEW ── */}
                 {view === 'edit' && editingSub && (
                   <div className="space-y-3">
-                    {[['Name','text','Name'],['Start Date','date',''],['Amount','number','0.00'],['Notes','text','Notes (optional)']].map(([field, type, ph]) => (
+                    {/* Monthly preview */}
+                    {parseFloat(editForm.Amount) > 0 && editForm.Cycle !== 'monthly' && (
+                      <div className="bg-teal-900/20 border border-teal-800/40 rounded-xl px-3 py-2 text-xs flex justify-between">
+                        <span className="text-teal-400">Monthly equivalent</span>
+                        <span className="text-white font-mono font-bold tabular-nums">
+                          ${toMonthly(editForm.Amount, editForm.Cycle).toFixed(2)}/mo
+                        </span>
+                      </div>
+                    )}
+                    {[['Name','text','Name'],['Start Date','date',''],['Notes','text','Notes (optional)']].map(([field, type, ph]) => (
                       <div key={field}>
                         <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1">{field}</label>
-                        <input type={type} placeholder={ph} step={type === 'number' ? '0.01' : undefined}
+                        <input type={type} placeholder={ph}
                           value={editForm[field]} onChange={e => setEditForm(f => ({ ...f, [field]: e.target.value }))}
                           className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 placeholder-slate-600"/>
                       </div>
@@ -1364,10 +1415,10 @@ ${stmtTxns.length ? `
                 {/* ── ADD VIEW ── */}
                 {view === 'add' && (
                   <div className="space-y-3">
-                    {[['Name','text','Name (e.g. Netflix)'],['Start Date','date',''],['Amount','number','0.00'],['Notes','text','Notes (optional)']].map(([field, type, ph]) => (
+                    {[['Name','text','Name (e.g. Netflix)'],['Start Date','date',''],['Notes','text','Notes (optional)']].map(([field, type, ph]) => (
                       <div key={field}>
                         <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1">{field}</label>
-                        <input type={type} placeholder={ph} step={type === 'number' ? '0.01' : undefined}
+                        <input type={type} placeholder={ph}
                           value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
                           className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 placeholder-slate-600"/>
                       </div>
@@ -1382,6 +1433,20 @@ ${stmtTxns.length ? `
                           </button>
                         ))}
                       </div>
+                    </div>
+                    <div>
+                      <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1">
+                        Amount <span className="text-slate-600 normal-case tracking-normal">({cycleAmountLabel(form.Cycle)} — enter actual billing amount)</span>
+                      </label>
+                      {parseFloat(form.Amount) > 0 && form.Cycle !== 'monthly' && (
+                        <div className="mb-1.5 flex justify-between text-xs text-teal-400">
+                          <span>Monthly equivalent</span>
+                          <span className="font-mono font-bold">${toMonthly(form.Amount, form.Cycle).toFixed(2)}/mo</span>
+                        </div>
+                      )}
+                      <input type="number" placeholder="0.00" step="0.01" min="0"
+                        value={form.Amount} onChange={e => setForm(f => ({ ...f, Amount: e.target.value }))}
+                        className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 placeholder-slate-600"/>
                     </div>
                     {err && <p className="text-red-400 text-xs">{err}</p>}
                   </div>
