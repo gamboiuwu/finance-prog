@@ -1486,6 +1486,43 @@ function AccountsView({ token, products, refreshKey }) {
         <span className="text-slate-300"> Business Account Spending</span> sheet).
       </p>
 
+      {/* Diagnostics: shows what AccountsView actually read from the sheet */}
+      <details className="bg-slate-900 border border-slate-800 rounded-xl text-xs">
+        <summary className="px-3 py-2 text-slate-400 cursor-pointer select-none">
+          🔍 Diagnostics — {txns.length} sale row{txns.length === 1 ? '' : 's'}, {spending.length} spending row{spending.length === 1 ? '' : 's'}
+        </summary>
+        <div className="px-3 pb-3 space-y-2 font-mono text-[11px] text-slate-400">
+          <div>
+            <div className="text-slate-500 uppercase tracking-wider text-[10px] mb-1">Account names detected</div>
+            <div className="text-slate-300 break-all">{accountNames.length ? accountNames.join(' · ') : '(none)'}</div>
+          </div>
+          <div>
+            <div className="text-slate-500 uppercase tracking-wider text-[10px] mb-1">Last 3 sales — allocs JSON</div>
+            {txns.length === 0 ? (
+              <div className="text-rose-400">No rows in Business Transactions sheet (col H allocs).</div>
+            ) : (
+              <ul className="space-y-1">
+                {txns.slice(-3).map((t, i) => {
+                  const allocKeys = Object.keys(t.allocs || {});
+                  const allocSum = allocKeys.reduce((s, k) => s + (parseFloat(t.allocs[k]) || 0), 0);
+                  return (
+                    <li key={i} className="border border-slate-800 rounded p-2">
+                      <div className="text-slate-300">{t.product || '(no product)'} · rev ${t.revenue.toFixed(2)}</div>
+                      <div className={allocKeys.length === 0 ? 'text-rose-400' : 'text-emerald-400'}>
+                        {allocKeys.length === 0
+                          ? '⚠ allocs empty — row was written with no formula data'
+                          : `${allocKeys.length} keys, total $${allocSum.toFixed(2)}`}
+                      </div>
+                      <div className="text-slate-500 break-all">{JSON.stringify(t.allocs)}</div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      </details>
+
       {accounts.length === 0 && (
         <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-2 text-slate-500 text-sm">
           No accounts yet. Add allocation categories (COGS, Overhead, …) to a product to create them.
