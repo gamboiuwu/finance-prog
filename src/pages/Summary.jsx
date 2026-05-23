@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { readRange } from '../lib/sheets';
+import { fetchGasPrices } from '../lib/gasPrice';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -53,7 +54,7 @@ function extractSV(rows) {
 
 // ─── Computation ─────────────────────────────────────────────────────────────
 
-function computeAll(expenses, sv, allocRows) {
+function computeAll(expenses, sv, allocRows, livePrice = null, livePeriod = '') {
   const now = new Date();
   const today = now.getDate();
   const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -88,7 +89,11 @@ function computeAll(expenses, sv, allocRows) {
   const checkingDeposit = totalAllowance > 0 ? (checkingAllowance / totalAllowance) * ci : 0;
   const spendingDaily = ciDays > 0 ? checkingDeposit / ciDays : 0;
 
-  const gasPerGal = pm(sv['Current Average $/gal']) || 4.09;
+  // Source priority: live EIA NYC price → sheet override → fallback
+  const gasPerGal = (livePrice && livePrice > 0)
+    ? livePrice
+    : (pm(sv['Current Average $/gal']) || 4.09);
+  const gasPriceSource = (livePrice && livePrice > 0) ? 'live' : (pm(sv['Current Average $/gal']) ? 'sheet' : 'fallback');
   const mpg = pm(sv['Average mpg']) || 23.5;
   const claimableGas = (() => {
     const gasRow = allocRows.find(r => r[0] === 'Gas');
@@ -127,7 +132,7 @@ function computeAll(expenses, sv, allocRows) {
     ciPlusPi, ar, weeklyReq, goalToCycle, avgPctDay, projectedEnd,
     spendingDaily, reqDay30, reqDayLeft,
     hoursLeft, hrsPerWeek, shiftsNeeded, shiftsForGoal, moneyPerShift,
-    gasPerGal, mpg, claimableGas, gallonsLeft, estMiles,
+    gasPerGal, gasPriceSource, gasPricePeriod: livePeriod, mpg, claimableGas, gallonsLeft, estMiles,
     milesPerDay, qcPerDay, totalQC, budgetFor2QC,
     deposits, priorities, cats,
   };
@@ -325,7 +330,14 @@ function renderTile(id, c, sv, ov, onEdit) {
       return <MetricTile label="Spending / Day (Checking)" value={fmt(c.spendingDaily)} detail="Checking deposit ÷ CI Days" sub={`over ${c.ciDays} CI days`} onEdit={e('Spending/Day')} overrideVal={o} />;
 
     case 'gasPrice':
-      return <MetricTile label="Price / Gallon" value={fmt(c.gasPerGal, 3)} sub="Current average" onEdit={e('Gas Price')} overrideVal={o} />;
+      return <MetricTile
+        label="Price / Gallon"
+        value={fmt(c.gasPerGal, 3)}
+        sub={c.gasPriceSource === 'live' ? `NYC live · ${c.gasPricePeriod || 'EIA'}` : c.gasPriceSource === 'sheet' ? 'From sheet' : 'Default'}
+        detail="Live weekly EIA price for NYC region — feeds gallons remaining, miles, and monthly reserve estimates."
+        onEdit={e('Gas Price')}
+        overrideVal={o}
+      />;
     case 'mpg':
       return <MetricTile label="Average MPG" value={`${c.mpg} mpg`} onEdit={e('Avg MPG')} overrideVal={o} />;
     case 'claimableGas':
@@ -383,6 +395,8 @@ export default function Summary({ token }) {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [tab, setTab]             = useState('overview');
+  const [livePrice, setLivePrice]   = useState(null);
+  const [livePeriod, setLivePeriod] = useState('');
 
   // Tile order per tab (from localStorage)
   const [tileOrder, setTileOrder] = useState(() => {
@@ -423,13 +437,34 @@ export default function Summary({ token }) {
       .finally(() => setLoading(false));
   }, [token]);
 
+  // Live NYC/Long Island gas price — refresh hourly (EIA publishes weekly,
+  // fetchGasPrices caches for 1 hour so the polling is essentially free).
+  useEffect(() => {
+    let cancelled = false;
+    function load() {
+      fetchGasPrices()
+        .then(data => {
+          if (cancelled) return;
+          const nyc = data?.byRegion?.['Y35NY']?.products?.['EPMR'];
+          if (nyc?.value) {
+            setLivePrice(nyc.value);
+            setLivePeriod(nyc.period || data?.period || '');
+          }
+        })
+        .catch(() => {});
+    }
+    load();
+    const id = setInterval(load, 60 * 60 * 1000); // hourly
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
   const sv = useMemo(() => extractSV(svRows), [svRows]);
   const expenses = useMemo(() => {
     if (!expRows.length) return [];
     const [headers, ...data] = expRows;
     return data.filter(r => r[0]).map(row => headers.reduce((obj, h, i) => { obj[h] = row[i] ?? null; return obj; }, {}));
   }, [expRows]);
-  const c = useMemo(() => computeAll(expenses, sv, allocRows), [expenses, sv, allocRows]);
+  const c = useMemo(() => computeAll(expenses, sv, allocRows, livePrice, livePeriod), [expenses, sv, allocRows, livePrice, livePeriod]);
   const insights = useMemo(() => buildInsights(c), [c]);
 
   if (loading) return <LoadingSpinner />;

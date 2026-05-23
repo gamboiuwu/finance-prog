@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { readRange, readReportLinks, appendRow, ensureSheetTab } from '../lib/sheets';
+import { readRange, readReportLinks, appendRow, ensureSheetTab, batchUpdateCells, clearRow } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
 import { SHEETS, MONTHS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -140,9 +140,15 @@ export default function Dashboard({ token }) {
 
         if (subRows.length > 1) {
           const [hdr, ...data] = subRows;
-          setSubscriptions(data.filter(r => r[0]).map(r =>
-            hdr.reduce((o, h, i) => { o[h] = r[i] ?? ''; return o; }, {})
-          ));
+          setSubscriptions(
+            data
+              .map((r, idx) => ({ row: r, rowNum: idx + 2 }))
+              .filter(({ row }) => row[0])
+              .map(({ row, rowNum }) => ({
+                ...hdr.reduce((o, h, i) => { o[h] = row[i] ?? ''; return o; }, {}),
+                _rowNum: rowNum,
+              }))
+          );
         }
       })
       .catch(e => setError(e.message))
@@ -1042,10 +1048,78 @@ ${stmtTxns.length ? `
       {showSubs && (() => {
         function SubsModal() {
           const [subs, setSubs]       = useState(subscriptions);
-          const [view, setView]       = useState('list');   // 'list' | 'import' | 'add'
+          const [view, setView]       = useState('list');   // 'list' | 'import' | 'add' | 'edit'
           const [saving, setSaving]   = useState(false);
           const [err, setErr]         = useState(null);
           const [form, setForm]       = useState({ Name: '', 'Start Date': '', Cycle: 'monthly', Amount: '', Notes: '' });
+          const [editingSub, setEditingSub] = useState(null);   // the sub being edited (with _rowNum)
+          const [editForm, setEditForm]     = useState({ Name: '', 'Start Date': '', Cycle: 'monthly', Amount: '', Notes: '' });
+
+          async function reloadSubs() {
+            const subRows = await readRange(token, 'Subscriptions!A:E').catch(() => []);
+            if (subRows.length > 1) {
+              const [hdr, ...data] = subRows;
+              const updated = data
+                .map((r, idx) => ({ row: r, rowNum: idx + 2 }))
+                .filter(({ row }) => row[0])
+                .map(({ row, rowNum }) => ({
+                  ...hdr.reduce((o, h, i) => { o[h] = row[i] ?? ''; return o; }, {}),
+                  _rowNum: rowNum,
+                }));
+              setSubs(updated);
+              setSubscriptions(updated);
+            } else {
+              setSubs([]);
+              setSubscriptions([]);
+            }
+          }
+
+          function openEdit(sub) {
+            setEditingSub(sub);
+            setEditForm({
+              Name: sub.Name || '',
+              'Start Date': sub['Start Date'] || '',
+              Cycle: (sub.Cycle || 'monthly').toLowerCase(),
+              Amount: String(sub.Amount || ''),
+              Notes: sub.Notes || '',
+            });
+            setErr(null);
+            setView('edit');
+          }
+
+          async function saveEdit() {
+            if (!editingSub || !editForm.Name.trim()) return;
+            setSaving(true); setErr(null);
+            try {
+              const rn = editingSub._rowNum;
+              await batchUpdateCells(token, [
+                { range: `Subscriptions!A${rn}`, value: editForm.Name.trim() },
+                { range: `Subscriptions!B${rn}`, value: editForm['Start Date'] },
+                { range: `Subscriptions!C${rn}`, value: editForm.Cycle },
+                { range: `Subscriptions!D${rn}`, value: editForm.Amount },
+                { range: `Subscriptions!E${rn}`, value: editForm.Notes },
+              ]);
+              await reloadSubs();
+              setEditingSub(null);
+              setView('list');
+            } catch (e) { setErr(e.message); }
+            finally { setSaving(false); }
+          }
+
+          async function deleteSub(sub) {
+            if (!sub?._rowNum) return;
+            if (!window.confirm(`Delete subscription "${sub.Name}"?`)) return;
+            setSaving(true); setErr(null);
+            try {
+              await clearRow(token, `Subscriptions!A${sub._rowNum}:E${sub._rowNum}`);
+              await reloadSubs();
+              if (editingSub?._rowNum === sub._rowNum) {
+                setEditingSub(null);
+                setView('list');
+              }
+            } catch (e) { setErr(e.message); }
+            finally { setSaving(false); }
+          }
 
           // Candidates from Monthly Expenses tagged as Subscription, not yet imported
           const existingNames = new Set(subs.map(s => (s['Name'] || '').toLowerCase()));
@@ -1166,7 +1240,8 @@ ${stmtTxns.length ? `
                         ? next.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                         : '—';
                       return (
-                        <div key={i} className="bg-slate-800 rounded-2xl p-4 space-y-2">
+                        <button key={i} onClick={() => openEdit(s)}
+                          className="w-full text-left bg-slate-800 hover:bg-slate-700/80 rounded-2xl p-4 space-y-2 transition-colors">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="text-white font-semibold truncate">{s['Name']}</p>
@@ -1175,11 +1250,14 @@ ${stmtTxns.length ? `
                                 {amt > 0 && <span className="text-white font-mono text-xs tabular-nums">${amt.toFixed(2)}/mo</span>}
                               </div>
                             </div>
-                            {days !== null && (
-                              <span className={`text-xs font-bold px-2 py-1 rounded-xl shrink-0 ${days === 0 ? 'bg-rose-900/60 text-rose-300' : days <= 3 ? 'bg-amber-900/60 text-amber-300' : 'bg-teal-900/40 text-teal-300'}`}>
-                                {days === 0 ? 'Due today' : days === 1 ? 'Tomorrow' : `${days}d left`}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2 shrink-0">
+                              {days !== null && (
+                                <span className={`text-xs font-bold px-2 py-1 rounded-xl ${days === 0 ? 'bg-rose-900/60 text-rose-300' : days <= 3 ? 'bg-amber-900/60 text-amber-300' : 'bg-teal-900/40 text-teal-300'}`}>
+                                  {days === 0 ? 'Due today' : days === 1 ? 'Tomorrow' : `${days}d left`}
+                                </span>
+                              )}
+                              <span className="text-slate-500 text-sm">›</span>
+                            </div>
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <div>
@@ -1192,7 +1270,7 @@ ${stmtTxns.length ? `
                             </div>
                           </div>
                           {s['Notes'] && <p className="text-slate-500 text-xs">{s['Notes']}</p>}
-                        </div>
+                        </button>
                       );
                     })}
                   </>
@@ -1253,6 +1331,36 @@ ${stmtTxns.length ? `
                   </>
                 )}
 
+                {/* ── EDIT VIEW ── */}
+                {view === 'edit' && editingSub && (
+                  <div className="space-y-3">
+                    {[['Name','text','Name'],['Start Date','date',''],['Amount','number','0.00'],['Notes','text','Notes (optional)']].map(([field, type, ph]) => (
+                      <div key={field}>
+                        <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1">{field}</label>
+                        <input type={type} placeholder={ph} step={type === 'number' ? '0.01' : undefined}
+                          value={editForm[field]} onChange={e => setEditForm(f => ({ ...f, [field]: e.target.value }))}
+                          className="w-full bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 placeholder-slate-600"/>
+                      </div>
+                    ))}
+                    <div>
+                      <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1">Cycle</label>
+                      <div className="grid grid-cols-4 gap-1 bg-slate-800 rounded-xl p-1">
+                        {SUB_CYCLES.map(c => (
+                          <button key={c} onClick={() => setEditForm(f => ({ ...f, Cycle: c }))}
+                            className={`py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${editForm.Cycle === c ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {err && <p className="text-red-400 text-xs">{err}</p>}
+                    <button onClick={() => deleteSub(editingSub)} disabled={saving}
+                      className="w-full py-2.5 rounded-xl bg-rose-900/40 hover:bg-rose-900/60 border border-rose-800/50 text-rose-300 text-sm font-medium transition-colors disabled:opacity-40">
+                      🗑 Delete subscription
+                    </button>
+                  </div>
+                )}
+
                 {/* ── ADD VIEW ── */}
                 {view === 'add' && (
                   <div className="space-y-3">
@@ -1298,6 +1406,12 @@ ${stmtTxns.length ? `
                   <button onClick={saveNew} disabled={!form.Name.trim() || saving}
                     className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-bold text-sm transition-colors">
                     {saving ? 'Saving…' : 'Add Subscription'}
+                  </button>
+                )}
+                {view === 'edit' && (
+                  <button onClick={saveEdit} disabled={!editForm.Name.trim() || saving}
+                    className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-bold text-sm transition-colors">
+                    {saving ? 'Saving…' : 'Save Changes'}
                   </button>
                 )}
               </div>
