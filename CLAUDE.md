@@ -21,6 +21,7 @@
 | Allocation Transactions | Every deposit: Date, Type, Amount, Desc, Account, Done (bool) |
 | Business Products | Product cards: ID, Name, StartPrice, Formula (JSON blocks) |
 | Business Transactions | Sales log: Date, Client, Product, Qty, Unit Price, Revenue, Margin%, Allocs(JSON) |
+| Business Expenses | Business spending log: Date, Vendor, Amount, Category, Product, Payment, Notes |
 | Subscriptions | Subscription items: Name, Cost, Cycle, Start Date, Account |
 
 **Spreadsheet ID**: `1RNhMNI3nM3dZisuP8vo2w6FYnx33Lvnvpe_UnHdGz4o`  
@@ -63,12 +64,23 @@ src/
 - `profitMarginPct(steps, startPrice)` — returns combined (Profit+Revenue)/startPrice %
 - `BUILT_IN_CATS` — dropdown options for formula blocks (Revenue now included)
 - Sales tab reads `Business Transactions!A:H`; col H is `allocs` JSON `{category: amount}`
+- **Expenses 📒 tab** — `ExpensesTab` component; reads/writes `Business Expenses!A:G`
+  - Reorder thresholds stored in `localStorage` as `biz_reorder_thresholds` (JSON keyed by product ID)
+  - `ThresholdModal` — set COGS threshold per product
+  - `ReorderQAModal` — guided Q&A + copy-to-clipboard purchase summary
 
 ## ProcessIncome.jsx — Key Concepts
 - Reads `Allocation Transactions!A:F` to find already-deposited amounts this month
 - `calcDeposits(expenses, income, mode, alreadyByType)` — returns per-category deposit amounts
 - Two modes: `priority` (fill P1 → P2 → P3) and `proportional` (split by share of remaining need)
 - Surplus: income beyond all goals distributed by user-configured weight buckets
+
+## Budget.jsx — Key Concepts
+- 3-tab system: `budgetTab` state ('plan' | 'byCategory' | 'allEntries')
+- **Budget Plan** — original priority-grouped view with donut + bar charts
+- **By Category** ��� `ByCategoryTab`: reads Allocation Transactions, sums by Type for current month, groups by Expense category (Essentials/Stability/Discretionary/Subscription), Savings collapsible
+- **All Entries** — `AllEntriesTab`: flat chronological list of allocation transactions for current month
+- `parseSheetDate(raw)` — converts Sheets serial number or M/D/YYYY string to Date object
 
 ## Dashboard.jsx — Key Concepts
 - Loads on mount: Monthly Summary, Monthly Expenses, Report Links, Gas Price, Subscriptions
@@ -87,18 +99,21 @@ src/
 ## Task Tracking
 Maintained in Google Drive doc "Finance Tracker – Updates & Task Plans" (auto-updated by Claude).
 Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTzptqo`
-**Current task doc ID**: `1g2BhUcUhrvTZsWq_TUqt_7s8ghfh2U_0Gd4hitFawxE` (updated 2026-05-23)
+**Current task doc ID**: `1g2BhUcUhrvTZsWq_TUqt_7s8ghfh2U_0Gd4hitFawxE` (updated 2026-05-24)
 
 ### Task Status
 | # | Task | Status |
 |---|---|---|
 | 1 | Subscriptions — add/edit/delete | ✅ COMPLETED + VERIFIED |
-| 2 | Category view shows all allocated amounts | ✅ COMPLETED + VERIFIED (2026-05-23) |
-| 3 | Revenue counts as Profit in Sales card | ✅ COMPLETED + VERIFIED (2026-05-22) |
-| 4 | Business Expenses full accounting page | ✅ APPROVED (Y) — awaiting implementation |
-| 5 | Month-over-Month Spending Trends | ⏳ Plan written, awaiting Execute Y/N |
+| 2 | Category view shows all allocated amounts (3-tab Budget) | ✅ COMPLETED + VERIFIED (2026-05-24) |
+| 3 | Revenue counts as Profit in Sales card | ✅ COMPLETED + VERIFIED (2026-05-22, code-confirmed 2026-05-24) |
+| 4 | Business Expenses full accounting page (Expenses 📒 tab) | ✅ COMPLETED + VERIFIED (2026-05-24) |
+| 5 | Month-over-Month Spending Trends (4th Budget tab) | ⏳ Plan written, awaiting Execute Y/N |
 | 6 | Budget Over-Budget Alerts & Nav Badge | ⏳ Plan written, awaiting Execute Y/N |
 | 7 | Transaction Log: Search, Filter & Running Balance | ⏳ Plan written, awaiting Execute Y/N |
+| 8 | Quick Income Templates (saved amounts) | ⏳ Plan written, awaiting Execute Y/N |
+| 9 | Savings Goals with Milestone Tracking | ⏳ Plan written, awaiting Execute Y/N |
+| 10 | Dashboard Financial Health Score | ⏳ Plan written, awaiting Execute Y/N |
 
 ## Git Workflow
 1. Source changes → feature branch (e.g. `claude/zealous-euler-p8sWK`) based on `main`

@@ -3,6 +3,10 @@ import { readRange, appendRow, batchUpdateCells, ensureSheetTab, clearRow } from
 import { SHEETS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ProcessIncome from '../components/ProcessIncome';
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis,
+} from 'recharts';
 
 const SHEET = SHEETS.BUSINESS_PRODUCTS;
 const HEADERS = ['ID', 'Name', 'StartPrice', 'Formula'];
@@ -458,6 +462,21 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
 
 const TRANS_SHEET = 'Business Transactions';
 const SPEND_SHEET = SHEETS.BUSINESS_ACCOUNT_SPENDING;
+const BIZ_EXP_SHEET = SHEETS.BUSINESS_EXPENSES;
+const BIZ_EXP_HEADERS = ['Date', 'Vendor', 'Amount', 'Category', 'Product', 'Payment', 'Notes'];
+const EXP_CATEGORIES = ['COGS', 'Merchandise', 'Materials', 'Labor', 'Overhead', 'Shipping', 'Platform Fees', 'Taxes', 'Other'];
+const EXP_PAYMENT_SOURCES = ['Checking', 'Cash', 'Business Card', 'PayPal', 'Other'];
+const EXP_CAT_COLORS = {
+  COGS:           '#3b82f6',
+  Merchandise:    '#a855f7',
+  Materials:      '#f59e0b',
+  Labor:          '#f43f5e',
+  Overhead:       '#64748b',
+  Shipping:       '#06b6d4',
+  'Platform Fees':'#ec4899',
+  Taxes:          '#dc2626',
+  Other:          '#94a3b8',
+};
 
 function ProcessModal({ product, token, onClose, onSuccess }) {
   const [inputMode, setInputMode] = useState('amount'); // 'amount' | 'quantity'
@@ -1743,6 +1762,517 @@ function AccountSpendModal({ token, account, history, contributions, onClose, on
   );
 }
 
+// ── Business Expenses Tracker ─────────────────────────────────────────────────
+
+function ThresholdModal({ product, current, onSave, onClose }) {
+  const [val, setVal] = useState(String(current || ''));
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-end">
+      <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h3 className="text-white font-bold">Reorder Threshold — {product.name}</h3>
+          <button onClick={onClose} className="w-8 h-8 bg-slate-700 rounded-full text-slate-300 flex items-center justify-center">✕</button>
+        </div>
+        <p className="text-slate-400 text-sm">When monthly COGS for this product reaches this amount you'll see a reorder reminder.</p>
+        <div>
+          <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Threshold Amount ($)</label>
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg font-bold">$</span>
+            <input
+              type="number" step="0.01" min="0" value={val}
+              onChange={e => setVal(e.target.value)}
+              className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-amber-500 font-mono tabular-nums"
+              placeholder="0.00" autoFocus
+            />
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-slate-700 text-white font-medium text-sm">Cancel</button>
+          <button
+            onClick={() => onSave(parseFloat(val) || 0)}
+            className="flex-1 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm transition-colors"
+          >
+            Save Threshold
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReorderQAModal({ product, cogsAmt, onClose }) {
+  const [units,    setUnits]    = useState('');
+  const [cost,     setCost]     = useState('');
+  const [supplier, setSupplier] = useState('');
+  const [copied,   setCopied]   = useState(false);
+  const total = (parseFloat(units) || 0) * (parseFloat(cost) || 0);
+
+  function copyOrder() {
+    const text = [
+      `Reorder: ${product.name}`,
+      `Units needed: ${units}`,
+      `Cost per unit: $${parseFloat(cost || 0).toFixed(3)}`,
+      `Total: $${total.toFixed(2)}`,
+      supplier ? `Supplier: ${supplier}` : null,
+      `Date: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
+    ].filter(Boolean).join('\n');
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-end">
+      <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4 max-h-[88vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-white font-bold">Plan Reorder — {product.name}</h3>
+            <p className="text-amber-400 text-xs">COGS this month: ${cogsAmt.toFixed(2)}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 bg-slate-700 rounded-full text-slate-300 flex items-center justify-center">✕</button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">How many units do you need?</label>
+            <input type="number" min="1" value={units} onChange={e => setUnits(e.target.value)}
+              className="w-full bg-slate-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+              placeholder="e.g. 500" autoFocus />
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Estimated cost per unit ($)</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+              <input type="number" step="0.001" min="0" value={cost} onChange={e => setCost(e.target.value)}
+                className="w-full bg-slate-800 text-white rounded-xl pl-9 pr-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                placeholder="0.000" />
+            </div>
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Preferred supplier / link (optional)</label>
+            <input type="text" value={supplier} onChange={e => setSupplier(e.target.value)}
+              className="w-full bg-slate-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+              placeholder="e.g. Sticker Mule, Alibaba…" />
+          </div>
+        </div>
+        {total > 0 && (
+          <div className="bg-slate-800 rounded-2xl p-4 space-y-2">
+            <p className="text-slate-400 text-xs uppercase tracking-wider font-broske">Purchase Summary</p>
+            <p className="text-white font-bold text-lg">{product.name} · {units} units</p>
+            <p className="text-emerald-400 font-bold text-2xl font-mono">Total: ${total.toFixed(2)}</p>
+            <p className="text-slate-500 text-xs">@ ${parseFloat(cost || 0).toFixed(3)}/unit</p>
+            {supplier && <p className="text-slate-300 text-sm">Supplier: {supplier}</p>}
+            <button onClick={copyOrder}
+              className="w-full mt-1 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium transition-colors">
+              {copied ? '✓ Copied!' : '📋 Copy Order Summary'}
+            </button>
+          </div>
+        )}
+        <button onClick={onClose} className="w-full py-3 rounded-xl bg-slate-700 text-white font-medium text-sm">Close</button>
+      </div>
+    </div>
+  );
+}
+
+function ExpensesTab({ token, products }) {
+  const [expenses,     setExpenses]     = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState(null);
+  const [showForm,     setShowForm]     = useState(false);
+  const [saving,       setSaving]       = useState(false);
+  const [thresholdFor, setThresholdFor] = useState(null);
+  const [reorderFor,   setReorderFor]   = useState(null);
+  const [thresholds,   setThresholds]   = useState(() => {
+    try { return JSON.parse(localStorage.getItem('biz_reorder_thresholds') || '{}'); }
+    catch { return {}; }
+  });
+  const [form, setForm] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    vendor: '', amount: '', category: 'COGS',
+    product: '', payment: 'Checking', notes: '',
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await ensureSheetTab(token, BIZ_EXP_SHEET);
+      const rows = await readRange(token, `${BIZ_EXP_SHEET}!A:G`);
+      if (!rows.length || String(rows[0]?.[0] || '').toLowerCase() !== 'date') {
+        await batchUpdateCells(token, BIZ_EXP_HEADERS.map((h, i) => ({
+          range: `${BIZ_EXP_SHEET}!${String.fromCharCode(65 + i)}1`,
+          value: h,
+        })));
+        setExpenses([]);
+        return;
+      }
+      const [, ...data] = rows;
+      setExpenses(
+        data.map((r, i) => r[0] ? {
+          _row: i + 2,
+          date:     r[0] || '',
+          vendor:   r[1] || '',
+          amount:   parseFloat(r[2]) || 0,
+          category: r[3] || '',
+          product:  r[4] || '',
+          payment:  r[5] || '',
+          notes:    r[6] || '',
+        } : null).filter(Boolean)
+      );
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => { if (token) load(); }, [token, load]);
+
+  const now          = new Date();
+  const mPfx         = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const lastDate     = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lPfx         = `${lastDate.getFullYear()}-${String(lastDate.getMonth() + 1).padStart(2, '0')}`;
+  const thisMonth    = expenses.filter(e => e.date.startsWith(mPfx));
+  const lastMonth    = expenses.filter(e => e.date.startsWith(lPfx));
+
+  const catTotals = {};
+  thisMonth.forEach(e => { if (e.category) catTotals[e.category] = (catTotals[e.category] || 0) + e.amount; });
+  const lastCatTotals = {};
+  lastMonth.forEach(e => { if (e.category) lastCatTotals[e.category] = (lastCatTotals[e.category] || 0) + e.amount; });
+  const cogsByProduct = {};
+  thisMonth.filter(e => e.category === 'COGS' && e.product).forEach(e => {
+    cogsByProduct[e.product] = (cogsByProduct[e.product] || 0) + e.amount;
+  });
+
+  const reorderAlerts = products.filter(p => {
+    const threshold = parseFloat(thresholds[p.id]) || 0;
+    return threshold > 0 && (cogsByProduct[p.name] || 0) >= threshold;
+  });
+
+  const totalThis = Object.values(catTotals).reduce((s, v) => s + v, 0);
+  const totalLast = Object.values(lastCatTotals).reduce((s, v) => s + v, 0);
+
+  const catChartData = Object.entries(catTotals)
+    .filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+    .map(([name, value]) => ({ name, value }));
+
+  const allCatNames = [...new Set([...Object.keys(catTotals), ...Object.keys(lastCatTotals)])];
+  const barData = allCatNames.map(cat => ({
+    name:     cat.length > 8 ? cat.slice(0, 7) + '…' : cat,
+    fullName: cat,
+    thisMonth: catTotals[cat] || 0,
+    lastMonth: lastCatTotals[cat] || 0,
+  }));
+
+  function saveThreshold(productId, value) {
+    const updated = { ...thresholds, [productId]: value };
+    setThresholds(updated);
+    localStorage.setItem('biz_reorder_thresholds', JSON.stringify(updated));
+  }
+
+  async function handleAddExpense() {
+    if (!form.vendor.trim() || !form.amount || parseFloat(form.amount) <= 0) return;
+    setSaving(true);
+    try {
+      await appendRow(token, `${BIZ_EXP_SHEET}!A:G`, [
+        form.date, form.vendor.trim(), parseFloat(form.amount).toFixed(2),
+        form.category, form.product, form.payment, form.notes.trim(),
+      ]);
+      setForm({ date: new Date().toISOString().slice(0, 10), vendor: '', amount: '', category: 'COGS', product: '', payment: 'Checking', notes: '' });
+      setShowForm(false);
+      await load();
+    } catch (e) {
+      alert('Error saving expense: ' + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <div className="flex justify-center py-12"><LoadingSpinner /></div>;
+
+  return (
+    <div className="space-y-4">
+      {error && <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm">{error}</div>}
+
+      {/* Reorder alerts */}
+      {reorderAlerts.length > 0 && reorderAlerts.map(p => (
+        <div key={p.id} className="bg-amber-900/30 border border-amber-600/50 rounded-xl p-3 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-amber-300 text-sm font-semibold">🔔 Reorder: {p.name}</p>
+            <p className="text-amber-600 text-xs">COGS ${(cogsByProduct[p.name] || 0).toFixed(2)} reached ${(parseFloat(thresholds[p.id]) || 0).toFixed(2)} threshold</p>
+          </div>
+          <button onClick={() => setReorderFor(p)}
+            className="shrink-0 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">
+            Plan →
+          </button>
+        </div>
+      ))}
+
+      {/* Summary strip */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-slate-900 rounded-xl p-3 border border-slate-800">
+          <p className="text-slate-500 text-[10px] uppercase tracking-wider">This Month</p>
+          <p className="text-rose-400 font-bold text-xl font-mono tabular-nums mt-0.5">-${totalThis.toFixed(2)}</p>
+          <p className="text-slate-600 text-[10px] mt-0.5">{thisMonth.length} expense{thisMonth.length !== 1 ? 's' : ''}</p>
+        </div>
+        <div className="bg-slate-900 rounded-xl p-3 border border-slate-800">
+          <p className="text-slate-500 text-[10px] uppercase tracking-wider">Last Month</p>
+          <p className="text-slate-400 font-bold text-xl font-mono tabular-nums mt-0.5">-${totalLast.toFixed(2)}</p>
+          {totalLast > 0 && (() => {
+            const delta = totalThis - totalLast;
+            return <p className={`text-[10px] font-mono mt-0.5 ${delta > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{delta > 0 ? '▲' : '▼'} ${Math.abs(delta).toFixed(2)}</p>;
+          })()}
+        </div>
+      </div>
+
+      {/* Add expense toggle */}
+      <button
+        onClick={() => setShowForm(s => !s)}
+        className={`w-full py-2.5 rounded-xl text-sm font-medium transition-colors border ${showForm ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-900 border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-slate-500'}`}
+      >
+        {showForm ? '✕ Cancel' : '+ Add Expense'}
+      </button>
+
+      {/* Add expense form */}
+      {showForm && (
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-3">
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Date</label>
+            <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+              className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Vendor / Description</label>
+            <input type="text" value={form.vendor} onChange={e => setForm(f => ({ ...f, vendor: e.target.value }))}
+              placeholder="e.g. Sticker Mule, Amazon…"
+              className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600" />
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Amount</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-lg">$</span>
+              <input type="number" step="0.01" min="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+                placeholder="0.00"
+                className="w-full bg-slate-800 text-white rounded-xl pl-9 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono tabular-nums placeholder-slate-600" />
+            </div>
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Category</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {EXP_CATEGORIES.map(c => (
+                <button key={c} onClick={() => setForm(f => ({ ...f, category: c }))}
+                  className={`py-1.5 rounded-lg text-[11px] font-medium transition-colors border truncate ${form.category === c ? 'border-blue-600 text-blue-300 bg-blue-900/40' : 'border-slate-700 text-slate-400 bg-slate-800'}`}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+          {products.length > 0 && (
+            <div>
+              <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Link to Product (optional)</label>
+              <div className="flex gap-1.5 flex-wrap">
+                <button onClick={() => setForm(f => ({ ...f, product: '' }))}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${form.product === '' ? 'border-slate-500 text-white bg-slate-700' : 'border-slate-700 text-slate-500 bg-slate-800'}`}>
+                  None
+                </button>
+                {products.map(p => (
+                  <button key={p.id} onClick={() => setForm(f => ({ ...f, product: p.name }))}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${form.product === p.name ? 'border-green-600 text-green-300 bg-green-900/30' : 'border-slate-700 text-slate-400 bg-slate-800'}`}>
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Payment Source</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {EXP_PAYMENT_SOURCES.map(p => (
+                <button key={p} onClick={() => setForm(f => ({ ...f, payment: p }))}
+                  className={`py-1.5 rounded-lg text-xs font-medium transition-colors border ${form.payment === p ? 'border-blue-600 text-blue-300 bg-blue-900/40' : 'border-slate-700 text-slate-400 bg-slate-800'}`}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Notes / Receipt URL (optional)</label>
+            <input type="text" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              placeholder="Paste a receipt link or add notes…"
+              className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600" />
+          </div>
+          <button onClick={handleAddExpense}
+            disabled={saving || !form.vendor.trim() || !form.amount || parseFloat(form.amount) <= 0}
+            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-sm transition-colors">
+            {saving ? 'Saving…' : 'Add Expense'}
+          </button>
+        </div>
+      )}
+
+      {/* Category donut + breakdown */}
+      {catChartData.length > 0 && (
+        <div className="bg-slate-900 rounded-2xl p-4">
+          <p className="text-slate-400 text-xs uppercase tracking-wider mb-4 font-broske">This Month by Category</p>
+          <div className="flex items-center gap-5 max-w-xl">
+            <div className="relative shrink-0" style={{ width: 110, height: 110 }}>
+              <PieChart width={110} height={110}>
+                <Pie data={catChartData} cx={55} cy={55} innerRadius={30} outerRadius={50}
+                  dataKey="value" stroke="none" paddingAngle={2}>
+                  {catChartData.map((entry, i) => <Cell key={i} fill={EXP_CAT_COLORS[entry.name] || '#64748b'} />)}
+                </Pie>
+                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }}
+                  formatter={v => [`$${v.toFixed(2)}`]} />
+              </PieChart>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-white font-bold text-xs">-${totalThis.toFixed(0)}</span>
+              </div>
+            </div>
+            <div className="flex-1 space-y-1.5 min-w-0">
+              {catChartData.map(({ name, value }) => {
+                const last  = lastCatTotals[name] || 0;
+                const delta = value - last;
+                return (
+                  <div key={name} className="space-y-0.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: EXP_CAT_COLORS[name] || '#64748b' }} />
+                        <span className="text-slate-300 truncate">{name}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        {last > 0 && <span className={`text-[10px] ${delta > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{delta > 0 ? '▲' : '▼'}</span>}
+                        <span className="text-white font-mono tabular-nums">${value.toFixed(2)}</span>
+                      </div>
+                    </div>
+                    <div className="w-full bg-slate-800 rounded-full h-1 overflow-hidden">
+                      <div className="h-1 rounded-full transition-all"
+                        style={{ width: `${totalThis > 0 ? (value / totalThis) * 100 : 0}%`, background: EXP_CAT_COLORS[name] || '#64748b' }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* This vs Last month bar chart */}
+      {barData.length > 0 && totalLast > 0 && (
+        <div className="bg-slate-900 rounded-2xl p-4">
+          <p className="text-slate-400 text-xs uppercase tracking-wider mb-4 font-broske">This Month vs Last Month</p>
+          <ResponsiveContainer width="100%" height={120}>
+            <BarChart data={barData} barCategoryGap="30%">
+              <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={38} />
+              <Tooltip
+                contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }}
+                formatter={(v, n) => [`$${Number(v).toFixed(2)}`, n === 'thisMonth' ? 'This Month' : 'Last Month']}
+              />
+              <Bar dataKey="lastMonth" fill="#334155" radius={[3, 3, 0, 0]} name="lastMonth" />
+              <Bar dataKey="thisMonth" radius={[3, 3, 0, 0]} name="thisMonth">
+                {barData.map((entry, i) => <Cell key={i} fill={EXP_CAT_COLORS[entry.fullName] || '#64748b'} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="flex gap-4 justify-center text-[10px] text-slate-500 mt-1">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-slate-700 inline-block border border-slate-600" />Last Month</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-blue-500 inline-block" />This Month</span>
+          </div>
+        </div>
+      )}
+
+      {/* COGS by product */}
+      {Object.keys(cogsByProduct).length > 0 && (
+        <div className="bg-slate-900 rounded-2xl p-4 space-y-3">
+          <p className="text-slate-400 text-xs uppercase tracking-wider font-broske">COGS by Product — This Month</p>
+          <div className="space-y-3">
+            {Object.entries(cogsByProduct).sort((a, b) => b[1] - a[1]).map(([productName, amt]) => {
+              const product   = products.find(p => p.name === productName);
+              const threshold = product ? (parseFloat(thresholds[product.id]) || 0) : 0;
+              const pct       = threshold > 0 ? Math.min((amt / threshold) * 100, 100) : 0;
+              return (
+                <div key={productName} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-200">{productName}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-rose-400 font-mono tabular-nums">-${amt.toFixed(2)}</span>
+                      {product && (
+                        <button onClick={() => setThresholdFor(product)}
+                          className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-500 hover:text-amber-300 hover:border-amber-700 transition-colors">
+                          {threshold > 0 ? `⚡ $${threshold.toFixed(0)}` : '+ threshold'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {threshold > 0 && (
+                    <div className="space-y-0.5">
+                      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                        <div className="h-2 rounded-full transition-all"
+                          style={{ width: `${pct}%`, background: pct >= 100 ? '#f59e0b' : pct >= 75 ? '#f97316' : '#3b82f6' }} />
+                      </div>
+                      <p className="text-[10px] text-slate-600 font-mono">{pct.toFixed(0)}% of ${threshold.toFixed(2)} threshold</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {thisMonth.length === 0 && !showForm && (
+        <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-3">
+          <p className="text-4xl">📒</p>
+          <p className="text-white font-semibold font-broske">No expenses this month</p>
+          <p className="text-slate-500 text-sm">Track your business spending — COGS, platform fees, shipping, and more.</p>
+        </div>
+      )}
+
+      {/* All expenses list */}
+      {expenses.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-slate-400 text-xs uppercase tracking-wider px-1">All Expenses — Latest First</p>
+          {expenses.slice().reverse().map((e, i) => (
+            <div key={i} className="bg-slate-900 rounded-xl px-4 py-3 flex justify-between items-start gap-3 border border-slate-800/60">
+              <div className="min-w-0">
+                <p className="text-white text-sm font-medium truncate">{e.vendor}</p>
+                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                  {e.category && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                      style={{ background: `${EXP_CAT_COLORS[e.category] || '#64748b'}25`, color: EXP_CAT_COLORS[e.category] || '#94a3b8' }}>
+                      {e.category}
+                    </span>
+                  )}
+                  <span className="text-slate-600 text-[10px]">{e.date}</span>
+                  {e.product && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-900/30 text-green-500">{e.product}</span>}
+                  {e.payment && <span className="text-[10px] text-slate-600">{e.payment}</span>}
+                </div>
+                {e.notes && <p className="text-slate-600 text-xs mt-0.5 truncate">{e.notes.startsWith('http') ? <a href={e.notes} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">{e.notes}</a> : e.notes}</p>}
+              </div>
+              <span className="text-rose-400 font-bold font-mono tabular-nums text-sm shrink-0">-${e.amount.toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {thresholdFor && (
+        <ThresholdModal
+          product={thresholdFor}
+          current={thresholds[thresholdFor.id] || 0}
+          onSave={value => { saveThreshold(thresholdFor.id, value); setThresholdFor(null); }}
+          onClose={() => setThresholdFor(null)}
+        />
+      )}
+      {reorderFor && (
+        <ReorderQAModal
+          product={reorderFor}
+          cogsAmt={cogsByProduct[reorderFor.name] || 0}
+          onClose={() => setReorderFor(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function BusinessExpenses({ token }) {
@@ -1890,6 +2420,7 @@ export default function BusinessExpenses({ token }) {
             ...(products.length > 0 ? [['cards','Cards'],['compare','Compare']] : []),
             ['sales','Sales 📊'],
             ['accounts','Accounts 🏦'],
+            ['expenses','Expenses 📒'],
           ].map(([v, lbl]) => (
             <button key={v} onClick={() => setViewMode(v)}
               className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
@@ -1899,7 +2430,7 @@ export default function BusinessExpenses({ token }) {
         </div>
 
         {/* Empty state */}
-        {!error && products.length === 0 && viewMode !== 'sales' && (
+        {!error && products.length === 0 && viewMode !== 'sales' && viewMode !== 'expenses' && (
           <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-3">
             <p className="text-4xl">💼</p>
             <p className="text-white font-semibold font-broske">No products yet</p>
@@ -2007,6 +2538,12 @@ export default function BusinessExpenses({ token }) {
 
       {viewMode === 'accounts' && (
         <AccountsView token={token} products={products} refreshKey={salesRefreshKey} />
+      )}
+
+      {viewMode === 'expenses' && (
+        <div className="px-4 pb-4">
+          <ExpensesTab token={token} products={products} />
+        </div>
       )}
 
       {editing    && <FormulaEditor product={editing}    onSave={handleSave} onClose={() => setEditing(null)}    saving={saving} />}
