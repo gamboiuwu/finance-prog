@@ -18,34 +18,21 @@ const CAT_COLORS = {
   Subscription:  '#f43f5e',
 };
 
-// Full literal class strings so Tailwind JIT/v4 can scan them
 const PRI = {
   '1': {
-    label:  'Essential',
-    color:  '#f43f5e',
-    text:   'text-rose-400',
-    bg:     'bg-rose-950/50',
-    border: 'border-rose-800/50',
-    badge:  'bg-rose-900/60 text-rose-200',
-    bar:    '#f43f5e',
+    label: 'Essential', color: '#f43f5e', text: 'text-rose-400',
+    bg: 'bg-rose-950/50', border: 'border-rose-800/50',
+    badge: 'bg-rose-900/60 text-rose-200', bar: '#f43f5e',
   },
   '2': {
-    label:  'Stability',
-    color:  '#f59e0b',
-    text:   'text-amber-400',
-    bg:     'bg-amber-950/50',
-    border: 'border-amber-800/50',
-    badge:  'bg-amber-900/60 text-amber-200',
-    bar:    '#f59e0b',
+    label: 'Stability', color: '#f59e0b', text: 'text-amber-400',
+    bg: 'bg-amber-950/50', border: 'border-amber-800/50',
+    badge: 'bg-amber-900/60 text-amber-200', bar: '#f59e0b',
   },
   '3': {
-    label:  'Optional',
-    color:  '#8b5cf6',
-    text:   'text-violet-400',
-    bg:     'bg-violet-950/50',
-    border: 'border-violet-800/50',
-    badge:  'bg-violet-900/60 text-violet-200',
-    bar:    '#8b5cf6',
+    label: 'Optional', color: '#8b5cf6', text: 'text-violet-400',
+    bg: 'bg-violet-950/50', border: 'border-violet-800/50',
+    badge: 'bg-violet-900/60 text-violet-200', bar: '#8b5cf6',
   },
 };
 
@@ -55,6 +42,20 @@ function pm(val) {
   return isNaN(n) ? 0 : n;
 }
 function fmt(val) { return `$${pm(val).toFixed(2)}`; }
+
+// Parses a Sheets date cell (serial number or M/D/YYYY or YYYY-MM-DD string)
+function parseSheetDate(val) {
+  if (val == null || val === '') return null;
+  const n = Number(val);
+  if (!isNaN(n) && n > 1000 && !String(val).includes('/'))
+    return new Date(Math.round((n - 25569) * 86400000));
+  const s = String(val);
+  if (s.includes('-')) return new Date(s + 'T12:00:00');
+  const parts = s.split('/');
+  if (parts.length === 3)
+    return new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+  return null;
+}
 
 // ── Allocation donut ──────────────────────────────────────────────────────────
 
@@ -86,7 +87,7 @@ function AllocationDonut({ items, total }) {
               ))}
             </Pie>
             <Tooltip
-              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }}
+              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }}
               formatter={v => [`$${v.toFixed(2)}`]}
             />
           </PieChart>
@@ -125,10 +126,10 @@ function PriorityChart({ items }) {
       .map(p => {
         const group = items.filter(i => String(i['Priority'] ?? '3') === p);
         return {
-          name:    PRI[p]?.label || `P${p}`,
-          budget:  group.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0),
-          spent:   group.reduce((s, i) => s + pm(i['Actual Spend']), 0),
-          _color:  PRI[p]?.color || '#64748b',
+          name:   PRI[p]?.label || `P${p}`,
+          budget: group.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0),
+          spent:  group.reduce((s, i) => s + pm(i['Actual Spend']), 0),
+          _color: PRI[p]?.color || '#64748b',
         };
       })
       .filter(d => d.budget > 0)
@@ -140,20 +141,20 @@ function PriorityChart({ items }) {
     <div className="bg-slate-900 rounded-2xl p-5">
       <p className="text-slate-400 text-xs uppercase tracking-wider mb-4 font-broske">Budget vs Actual — by Priority</p>
       <div className="max-w-xl">
-      <ResponsiveContainer width="100%" height={140}>
-        <BarChart data={data} barCategoryGap="35%">
-          <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={50} />
-          <Tooltip
-            contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontFamily: "'ZTNature', system-ui, sans-serif" }}
-            formatter={v => [`$${v.toFixed(2)}`]}
-          />
-          <Bar dataKey="budget" fill="#1e293b" radius={[4, 4, 0, 0]} name="Budget" />
-          <Bar dataKey="spent" radius={[4, 4, 0, 0]} name="Spent">
-            {data.map((entry, i) => <Cell key={i} fill={entry._color} />)}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+        <ResponsiveContainer width="100%" height={140}>
+          <BarChart data={data} barCategoryGap="35%">
+            <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={50} />
+            <Tooltip
+              contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9' }}
+              formatter={v => [`$${v.toFixed(2)}`]}
+            />
+            <Bar dataKey="budget" fill="#1e293b" radius={[4, 4, 0, 0]} name="Budget" />
+            <Bar dataKey="spent" radius={[4, 4, 0, 0]} name="Spent">
+              {data.map((entry, i) => <Cell key={i} fill={entry._color} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </div>
       <div className="flex gap-4 justify-center text-xs text-slate-500 mt-1">
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-slate-800 border border-slate-700" />Budget</span>
@@ -167,10 +168,10 @@ function PriorityChart({ items }) {
 
 function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
   const [fields, setFields] = useState({
-    Type:                 item['Type']                 || '',
-    Expense:              item['Expense']              || '',
-    Account:              item['Account']              || 'Checking',
-    Priority:             String(item['Priority']      || '2'),
+    Type:                    item['Type']                    || '',
+    Expense:                 item['Expense']                 || '',
+    Account:                 item['Account']                 || 'Checking',
+    Priority:                String(item['Priority']         || '2'),
     'Monthly Allowance ($)': String(item['Monthly Allowance ($)'] || '0'),
   });
 
@@ -185,7 +186,6 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
         </div>
 
         <div className="space-y-4">
-          {/* Name */}
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Name</label>
             <input
@@ -197,7 +197,6 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
             />
           </div>
 
-          {/* Amount */}
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Monthly Amount</label>
             <div className="relative">
@@ -211,7 +210,6 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
             </div>
           </div>
 
-          {/* Priority */}
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Priority</label>
             <div className="grid grid-cols-3 gap-2">
@@ -235,7 +233,6 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
             </div>
           </div>
 
-          {/* Category */}
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Category</label>
             <div className="grid grid-cols-2 gap-2">
@@ -255,7 +252,6 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
             </div>
           </div>
 
-          {/* Account */}
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Account</label>
             <div className="grid grid-cols-2 gap-2">
@@ -361,7 +357,6 @@ function PrioritySection({ priority, items, onEdit, onAdd }) {
 
   return (
     <div className={`rounded-2xl border ${pri.border} overflow-hidden`}>
-      {/* Section header */}
       <button
         className={`w-full flex items-center justify-between px-4 py-3.5 ${pri.bg} transition-opacity active:opacity-80`}
         onClick={() => setCollapsed(c => !c)}
@@ -377,7 +372,6 @@ function PrioritySection({ priority, items, onEdit, onAdd }) {
         </div>
       </button>
 
-      {/* Progress bar */}
       {!collapsed && sectionAllowance > 0 && (
         <div className="px-4 py-2" style={{ background: 'rgba(2,6,23,0.5)' }}>
           <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -391,7 +385,6 @@ function PrioritySection({ priority, items, onEdit, onAdd }) {
         </div>
       )}
 
-      {/* Items */}
       {!collapsed && (
         <div className="p-3 space-y-2" style={{ background: 'rgba(2,6,23,0.35)' }}>
           {items.map(item => (
@@ -413,12 +406,305 @@ function PrioritySection({ priority, items, onEdit, onAdd }) {
   );
 }
 
+// ── Category tab: individual item card ────────────────────────────────────────
+
+function CategoryItemCard({ item, allocated, budgeted }) {
+  const over  = allocated > budgeted && budgeted > 0;
+  const pct   = budgeted > 0 ? Math.min((allocated / budgeted) * 100, 100) : (allocated > 0 ? 100 : 0);
+  const cat   = item['Expense'] || 'Other';
+  const color = CAT_COLORS[cat] || '#64748b';
+
+  return (
+    <div
+      className="bg-slate-900 rounded-xl p-3.5 border border-slate-800/60"
+      style={{ borderLeft: `3px solid ${over ? '#ef4444' : color}` }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-white text-sm font-medium truncate">{item['Type'] || '—'}</p>
+          {item['Account'] && (
+            <p className="text-slate-500 text-[10px] mt-0.5">{item['Account']}</p>
+          )}
+        </div>
+        <div className="text-right shrink-0">
+          <p className={`text-sm font-bold font-mono ${over ? 'text-rose-400' : 'text-white'}`}>
+            {fmt(allocated)}
+            <span className="text-slate-500 font-normal text-xs"> / {fmt(budgeted)}</span>
+          </p>
+          {over ? (
+            <p className="text-rose-400 text-[10px] font-mono mt-0.5">+{fmt(allocated - budgeted)} over!</p>
+          ) : allocated === 0 ? (
+            <p className="text-slate-600 text-[10px] mt-0.5">not started</p>
+          ) : (
+            <p className="text-slate-500 text-[10px] font-mono mt-0.5">{fmt(budgeted - allocated)} left</p>
+          )}
+        </div>
+      </div>
+      {budgeted > 0 && (
+        <div className="mt-2.5">
+          <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div className="h-1.5 rounded-full transition-all"
+              style={{ width: `${pct}%`, background: over ? '#ef4444' : color }} />
+          </div>
+          <p className="text-[10px] text-slate-600 font-mono mt-0.5">{pct.toFixed(0)}% funded</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Category tab: expense-type group ─────────────────────────────────────────
+
+function CategoryGroup({ label, items, allocByType }) {
+  const [open, setOpen] = useState(true);
+  const color  = CAT_COLORS[label] || '#64748b';
+  const totalB = items.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0);
+  const totalA = items.reduce((s, i) => s + (allocByType[i['Type'] || ''] || 0), 0);
+  const over   = totalA > totalB && totalB > 0;
+  const pct    = totalB > 0 ? Math.min((totalA / totalB) * 100, 100) : 0;
+
+  return (
+    <div className="rounded-2xl border border-slate-800/50 overflow-hidden">
+      <button
+        className="w-full flex items-center justify-between px-4 py-3 bg-slate-900/80 active:opacity-80"
+        onClick={() => setOpen(o => !o)}
+      >
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+          <span className="text-white font-semibold text-sm">{label}</span>
+          <span className="text-slate-600 text-xs">· {items.length}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {over && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium">over!</span>
+          )}
+          <span className="text-white font-mono text-sm">
+            {fmt(totalA)}<span className="text-slate-500 text-xs font-normal"> / {fmt(totalB)}</span>
+          </span>
+          <span className="text-slate-500 text-xs">{open ? '▲' : '▼'}</span>
+        </div>
+      </button>
+
+      {open && totalB > 0 && (
+        <div className="px-4 py-2 bg-slate-950/50">
+          <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div className="h-1.5 rounded-full"
+              style={{ width: `${pct}%`, background: over ? '#ef4444' : color }} />
+          </div>
+          <div className="flex justify-between text-[10px] text-slate-600 font-mono mt-0.5">
+            <span>{pct.toFixed(0)}% funded · {fmt(totalA)}</span>
+            <span>{fmt(totalB - totalA)} remaining</span>
+          </div>
+        </div>
+      )}
+
+      {open && (
+        <div className="p-3 space-y-2 bg-slate-950/30">
+          {items.map(item => (
+            <CategoryItemCard
+              key={item._rowNum}
+              item={item}
+              allocated={allocByType[item['Type'] || ''] || 0}
+              budgeted={pm(item['Monthly Allowance ($)'])}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const CAT_ORDER = ['Essentials', 'Stability', 'Discretionary', 'Subscription'];
+
+// ── By Category view ──────────────────────────────────────────────────────────
+
+function CategoryView({ items, allocTx }) {
+  const [showSavings, setShowSavings] = useState(false);
+
+  const allocByType = useMemo(() => {
+    const map = {};
+    allocTx.forEach(tx => {
+      if (tx.amount > 0) map[tx.type] = (map[tx.type] || 0) + tx.amount;
+    });
+    return map;
+  }, [allocTx]);
+
+  const mainItems    = items.filter(i => i['Expense'] !== 'Savings');
+  const savingsItems = items.filter(i => i['Expense'] === 'Savings');
+
+  const groups = useMemo(() => {
+    const map = {};
+    mainItems.forEach(item => {
+      const cat = item['Expense'] || 'Other';
+      if (!map[cat]) map[cat] = [];
+      map[cat].push(item);
+    });
+    return map;
+  }, [mainItems]);
+
+  const orderedKeys = [
+    ...CAT_ORDER.filter(k => groups[k]),
+    ...Object.keys(groups).filter(k => !CAT_ORDER.includes(k)),
+  ];
+
+  const totalB  = mainItems.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0);
+  const totalA  = mainItems.reduce((s, i) => s + (allocByType[i['Type'] || ''] || 0), 0);
+  const overAll = totalA > totalB && totalB > 0;
+  const pctAll  = totalB > 0 ? Math.min((totalA / totalB) * 100, 100) : 0;
+
+  const savingsB = savingsItems.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0);
+  const savingsA = savingsItems.reduce((s, i) => s + (allocByType[i['Type'] || ''] || 0), 0);
+
+  return (
+    <div className="space-y-4">
+      {/* Summary bar */}
+      <div className="bg-slate-900 rounded-2xl p-4">
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          <div>
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider">Budgeted</p>
+            <p className="text-white text-lg font-bold font-mono mt-0.5">{fmt(totalB)}</p>
+          </div>
+          <div>
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider">Allocated</p>
+            <p className={`text-lg font-bold font-mono mt-0.5 ${overAll ? 'text-rose-400' : 'text-emerald-400'}`}>
+              {fmt(totalA)}
+            </p>
+          </div>
+          <div>
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider">Remaining</p>
+            <p className={`text-lg font-bold font-mono mt-0.5 ${overAll ? 'text-rose-400' : 'text-sky-400'}`}>
+              {fmt(Math.abs(totalB - totalA))}{overAll ? ' over' : ''}
+            </p>
+          </div>
+        </div>
+        <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+          <div className="h-2 rounded-full transition-all"
+            style={{ width: `${pctAll}%`, background: overAll ? '#ef4444' : '#10b981' }} />
+        </div>
+        <p className="text-slate-500 text-[10px] font-mono mt-1">{pctAll.toFixed(0)}% funded this month</p>
+      </div>
+
+      {/* Expense-type groups */}
+      {orderedKeys.map(cat => (
+        <CategoryGroup key={cat} label={cat} items={groups[cat]} allocByType={allocByType} />
+      ))}
+
+      {/* Savings — shown separately, collapsible */}
+      {savingsItems.length > 0 && (
+        <div className="rounded-2xl border border-emerald-900/40 overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-4 py-3 bg-emerald-950/40 active:opacity-80"
+            onClick={() => setShowSavings(s => !s)}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-base">🐷</span>
+              <span className="text-emerald-300 font-semibold text-sm">Savings</span>
+              <span className="text-emerald-700 text-xs">· separate</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-emerald-400 font-mono text-sm">
+                {fmt(savingsA)}
+                <span className="text-emerald-700 text-xs font-normal"> / {fmt(savingsB)}</span>
+              </span>
+              <span className="text-emerald-600 text-xs">{showSavings ? '▲' : '▼'}</span>
+            </div>
+          </button>
+          {showSavings && (
+            <div className="p-3 space-y-2 bg-emerald-950/20">
+              {savingsItems.map(item => (
+                <CategoryItemCard
+                  key={item._rowNum}
+                  item={item}
+                  allocated={allocByType[item['Type'] || ''] || 0}
+                  budgeted={pm(item['Monthly Allowance ($)'])}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── All Entries view ──────────────────────────────────────────────────────────
+
+function AllEntriesView({ allocTx }) {
+  const sorted = useMemo(
+    () => [...allocTx].sort((a, b) => (b.dateObj?.getTime() || 0) - (a.dateObj?.getTime() || 0)),
+    [allocTx]
+  );
+
+  if (!sorted.length) {
+    return (
+      <div className="bg-slate-900 rounded-xl p-6 text-center">
+        <p className="text-slate-400 text-sm">No allocation entries this month yet.</p>
+        <p className="text-slate-600 text-xs mt-1">Process income to see entries here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-slate-500 text-[10px] uppercase tracking-wider px-1">{sorted.length} entries this month</p>
+      {sorted.map((tx, i) => (
+        <div key={i} className="bg-slate-900 rounded-xl p-3.5 flex items-center justify-between gap-3 border border-slate-800/40">
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-sm font-medium truncate">{tx.type || '—'}</p>
+            {tx.desc && <p className="text-slate-500 text-[10px] truncate mt-0.5">{tx.desc}</p>}
+            <p className="text-slate-600 text-[10px] mt-0.5">
+              {tx.account && <span>{tx.account} · </span>}
+              {tx.dateObj ? tx.dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+            </p>
+          </div>
+          <div className="text-right shrink-0">
+            <span className={`font-bold font-mono text-sm ${tx.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {tx.amount >= 0 ? '+' : ''}{fmt(tx.amount)}
+            </span>
+            {tx.done && <p className="text-[10px] text-slate-600 mt-0.5">✓ done</p>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Tab bar ───────────────────────────────────────────────────────────────────
+
+const TABS = [
+  { key: 'budget',     label: 'Budget Plan' },
+  { key: 'categories', label: 'By Category' },
+  { key: 'entries',    label: 'All Entries' },
+];
+
+function TabBar({ active, onChange }) {
+  return (
+    <div className="flex bg-slate-900 rounded-xl p-1 gap-1">
+      {TABS.map(tab => (
+        <button
+          key={tab.key}
+          onClick={() => onChange(tab.key)}
+          className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+            active === tab.key
+              ? 'bg-blue-600 text-white'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function Budget({ token }) {
   const [items, setItems]         = useState([]);
   const [headers, setHeaders]     = useState([]);
   const [pi, setPi]               = useState(0);
+  const [allocTx, setAllocTx]     = useState([]);
+  const [activeTab, setActiveTab] = useState('budget');
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [editItem, setEditItem]   = useState(null);
@@ -429,13 +715,16 @@ export default function Budget({ token }) {
   const load = useCallback(async () => {
     setLoading(true);
     const now          = new Date();
+    const mo           = now.getMonth() + 1;
+    const yr           = now.getFullYear();
     const currentMonth = MONTHS[now.getMonth()];
-    const currentYear  = String(now.getFullYear());
+    const currentYear  = String(yr);
 
     try {
-      const [expRows, summaryRows] = await Promise.all([
+      const [expRows, summaryRows, txRows] = await Promise.all([
         readRange(token, `${SHEETS.MONTHLY_EXPENSES}!A1:T50`),
         readRange(token, `${SHEETS.MONTHLY_SUMMARY}!A1:P13`),
+        readRange(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!A:F`, 'UNFORMATTED_VALUE'),
       ]);
 
       if (expRows.length) {
@@ -458,6 +747,25 @@ export default function Budget({ token }) {
           r => r[hdr.indexOf('Month')] === currentMonth && String(r[hdr.indexOf('Year')]) === currentYear
         );
         if (cur) setPi(parseFloat(cur[hdr.indexOf('Total Processed Income')]) || 0);
+      }
+
+      if (txRows.length > 1) {
+        const [, ...data] = txRows;
+        const tx = data
+          .filter(r => r[0] && r[1])
+          .map(r => {
+            const dateObj = parseSheetDate(r[0]);
+            return {
+              dateObj,
+              type:    String(r[1] || ''),
+              amount:  pm(r[2]),
+              desc:    String(r[3] || ''),
+              account: String(r[4] || ''),
+              done:    !!r[5],
+            };
+          })
+          .filter(tx => tx.dateObj && tx.dateObj.getMonth() + 1 === mo && tx.dateObj.getFullYear() === yr);
+        setAllocTx(tx);
       }
     } catch (e) {
       setError(e.message);
@@ -499,11 +807,7 @@ export default function Budget({ token }) {
     }
   }
 
-  function openEdit(item) {
-    setIsAddNew(false);
-    setEditItem(item);
-  }
-
+  function openEdit(item) { setIsAddNew(false); setEditItem(item); }
   function openAdd(priority = '2') {
     setIsAddNew(true);
     setEditItem({ Type: '', Expense: '', Account: 'Checking', Priority: priority, 'Monthly Allowance ($)': '0' });
@@ -529,73 +833,94 @@ export default function Budget({ token }) {
       <div className="px-4 pt-4 pb-3 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white">Budget</h1>
-          <p className="text-slate-500 text-xs mt-0.5">Tap any item to edit · syncs to Sheets</p>
+          <p className="text-slate-500 text-xs mt-0.5">
+            {activeTab === 'budget' ? 'Tap any item to edit · syncs to Sheets' : 'Allocation actuals vs. plan'}
+          </p>
         </div>
-        <button
-          onClick={() => openAdd('2')}
-          className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
-        >
-          + Add
-        </button>
+        {activeTab === 'budget' && (
+          <button
+            onClick={() => openAdd('2')}
+            className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+          >
+            + Add
+          </button>
+        )}
+      </div>
+
+      {/* Tab bar */}
+      <div className="px-4 mb-4">
+        <TabBar active={activeTab} onChange={setActiveTab} />
       </div>
 
       <div className="px-4 space-y-4">
 
-        {/* Stats bar */}
-        <div className="bg-slate-900 rounded-2xl p-4">
-          <div className="grid grid-cols-3 gap-3 mb-3">
-            <div>
-              <p className="text-slate-500 text-[10px] uppercase tracking-wider">{pi > 0 ? 'Income' : 'Budget'}</p>
-              <p className="text-emerald-400 text-lg font-bold font-mono tabular-nums mt-0.5">{fmt(baseline)}</p>
-              {pi > 0 && <p className="text-slate-600 text-[10px] font-mono mt-0.5">goal {fmt(totalAllowance)}</p>}
+        {/* ── Budget Plan tab (original view) ── */}
+        {activeTab === 'budget' && (
+          <>
+            <div className="bg-slate-900 rounded-2xl p-4">
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                <div>
+                  <p className="text-slate-500 text-[10px] uppercase tracking-wider">{pi > 0 ? 'Income' : 'Budget'}</p>
+                  <p className="text-emerald-400 text-lg font-bold font-mono tabular-nums mt-0.5">{fmt(baseline)}</p>
+                  {pi > 0 && <p className="text-slate-600 text-[10px] font-mono mt-0.5">goal {fmt(totalAllowance)}</p>}
+                </div>
+                <div>
+                  <p className="text-slate-500 text-[10px] uppercase tracking-wider">Spent</p>
+                  <p className={`text-lg font-bold font-mono tabular-nums mt-0.5 ${overallPct > 90 ? 'text-rose-400' : overallPct > 70 ? 'text-amber-400' : 'text-white'}`}>
+                    {fmt(totalSpent)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-slate-500 text-[10px] uppercase tracking-wider">Remaining</p>
+                  <p className={`text-lg font-bold font-mono tabular-nums mt-0.5 ${remaining < 0 ? 'text-rose-400' : 'text-sky-400'}`}>
+                    {fmt(Math.abs(remaining))}{remaining < 0 ? ' over' : ''}
+                  </p>
+                </div>
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+                <div className="h-2.5 rounded-full transition-all"
+                  style={{ width: `${Math.min(overallPct, 100)}%`, background: overallPct > 90 ? '#ef4444' : overallPct > 70 ? '#f59e0b' : '#10b981' }} />
+              </div>
+              <div className="flex justify-between text-[10px] font-mono text-slate-600 mt-1">
+                <span>{overallPct.toFixed(0)}% of budget used</span>
+                <span>{items.length} items</span>
+              </div>
             </div>
-            <div>
-              <p className="text-slate-500 text-[10px] uppercase tracking-wider">Spent</p>
-              <p className={`text-lg font-bold font-mono tabular-nums mt-0.5 ${overallPct > 90 ? 'text-rose-400' : overallPct > 70 ? 'text-amber-400' : 'text-white'}`}>
-                {fmt(totalSpent)}
-              </p>
-            </div>
-            <div>
-              <p className="text-slate-500 text-[10px] uppercase tracking-wider">Remaining</p>
-              <p className={`text-lg font-bold font-mono tabular-nums mt-0.5 ${remaining < 0 ? 'text-rose-400' : 'text-sky-400'}`}>
-                {fmt(Math.abs(remaining))}{remaining < 0 ? ' over' : ''}
-              </p>
-            </div>
-          </div>
-          <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
-            <div className="h-2.5 rounded-full transition-all"
-              style={{ width: `${Math.min(overallPct, 100)}%`, background: overallPct > 90 ? '#ef4444' : overallPct > 70 ? '#f59e0b' : '#10b981' }} />
-          </div>
-          <div className="flex justify-between text-[10px] font-mono text-slate-600 mt-1">
-            <span>{overallPct.toFixed(0)}% of budget used</span>
-            <span>{items.length} items</span>
-          </div>
-        </div>
 
-        {/* Charts */}
-        <AllocationDonut items={items} total={totalAllowance} />
-        <PriorityChart items={items} />
+            <AllocationDonut items={items} total={totalAllowance} />
+            <PriorityChart items={items} />
 
-        {saveError && (
-          <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm">{saveError}</div>
+            {saveError && (
+              <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm">{saveError}</div>
+            )}
+
+            <div className="space-y-3">
+              {priorityGroups.map(({ priority, items: gItems }) => (
+                <PrioritySection
+                  key={priority}
+                  priority={priority}
+                  items={gItems}
+                  onEdit={openEdit}
+                  onAdd={() => openAdd(priority)}
+                />
+              ))}
+            </div>
+          </>
         )}
 
-        {/* Priority-grouped sections */}
-        <div className="space-y-3">
-          {priorityGroups.map(({ priority, items: gItems }) => (
-            <PrioritySection
-              key={priority}
-              priority={priority}
-              items={gItems}
-              onEdit={openEdit}
-              onAdd={() => openAdd(priority)}
-            />
-          ))}
-        </div>
+        {/* ── By Category tab ── */}
+        {activeTab === 'categories' && (
+          <CategoryView items={items} allocTx={allocTx} />
+        )}
+
+        {/* ── All Entries tab ── */}
+        {activeTab === 'entries' && (
+          <AllEntriesView allocTx={allocTx} />
+        )}
 
       </div>
 
-      {/* Edit / Add drawer */}
+      {/* Edit / Add drawer (Budget Plan tab only) */}
       {editItem && (
         <EditDrawer
           item={editItem}
