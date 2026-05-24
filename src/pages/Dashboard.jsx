@@ -104,6 +104,8 @@ export default function Dashboard({ token }) {
   const [gasDesc, setGasDesc]           = useState('');
   const [gasLogging, setGasLogging]     = useState(false);
   const [gasLogDone, setGasLogDone]     = useState(false);
+  const [gasBalance, setGasBalance]     = useState(null);
+  const [gasBalRefresh, setGasBalRefresh] = useState(0);
   const [showExpLog, setShowExpLog]     = useState(false);
   const [expAmount, setExpAmount]       = useState('');
   const [expCategory, setExpCategory]   = useState('');
@@ -175,6 +177,23 @@ export default function Dashboard({ token }) {
       .finally(() => setLoading(false));
   }, [token]);
 
+  // Load gas balance independently so it can refresh rapidly after a log
+  useEffect(() => {
+    if (!token) return;
+    readRange(token, 'Allocation Transactions!A:C', 'UNFORMATTED_VALUE')
+      .then(rows => {
+        const [, ...data] = rows;
+        const bal = data
+          .filter(r => r[0] && String(r[1]).trim().toLowerCase() === 'gas')
+          .reduce((sum, r) => {
+            const n = parseFloat(String(r[2] || '').replace(/[$,\s]/g, ''));
+            return sum + (isNaN(n) ? 0 : n);
+          }, 0);
+        setGasBalance(bal);
+      })
+      .catch(() => {});
+  }, [token, gasBalRefresh]);
+
   if (loading) return <LoadingSpinner />;
   if (error)   return <div className="p-4 text-red-400">Error: {error}</div>;
 
@@ -222,6 +241,7 @@ export default function Dashboard({ token }) {
       setGasLogDone(true);
       setGasAmount('');
       setGasDesc('');
+      setGasBalRefresh(k => k + 1);
       setTimeout(() => { setGasLogDone(false); setShowGasLog(false); }, 1800);
     } catch (e) {
       alert(`Error logging gas: ${e.message}`);
@@ -520,7 +540,14 @@ ${stmtTxns.length ? `
               <span className="text-lg">⛽</span>
               <div className="text-left">
                 <p className="text-white text-sm font-semibold">${gasPrice.value.toFixed(3)} / gal</p>
-                <p className="text-slate-500 text-xs">NYC · {formatGasDate(gasPrice.period)}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <p className="text-slate-500 text-xs">NYC · {formatGasDate(gasPrice.period)}</p>
+                  {gasBalance !== null && (
+                    <span className={`text-xs font-mono font-medium ${gasBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      · {gasBalance >= 0 ? '+' : ''}{gasBalance < 0 ? `-$${Math.abs(gasBalance).toFixed(2)}` : `$${gasBalance.toFixed(2)}`} saved
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             <span className="text-slate-500 text-xs">→</span>
@@ -546,6 +573,14 @@ ${stmtTxns.length ? `
               </div>
               <button onClick={() => setShowGasLog(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 flex items-center justify-center">✕</button>
             </div>
+            {gasBalance !== null && (
+              <div className={`rounded-xl px-4 py-2.5 flex items-center justify-between ${gasBalance >= 0 ? 'bg-emerald-900/30 border border-emerald-800/40' : 'bg-rose-900/30 border border-rose-800/40'}`}>
+                <span className={`text-xs ${gasBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>Gas balance (all time)</span>
+                <span className={`font-mono font-bold text-sm ${gasBalance >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  {gasBalance >= 0 ? '+' : ''}{gasBalance < 0 ? `-$${Math.abs(gasBalance).toFixed(2)}` : `$${gasBalance.toFixed(2)}`}
+                </span>
+              </div>
+            )}
             {gasLogDone ? (
               <div className="text-center py-6 space-y-2">
                 <p className="text-4xl">✅</p>
@@ -1786,7 +1821,9 @@ ${stmtTxns.length ? `
           expenses={expenses}
           token={token}
           alreadyProcessed={income}
+          gasBalance={gasBalance}
           onClose={() => setShowIncome(false)}
+          onProcessed={() => setGasBalRefresh(k => k + 1)}
         />
       )}
 

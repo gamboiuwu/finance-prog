@@ -86,7 +86,7 @@ function CoverageChip({ coverage }) {
   return                     <span className="text-[10px] font-medium text-rose-400   bg-rose-900/40   px-1.5 py-0.5 rounded-full">✗ Unfunded</span>;
 }
 
-export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose, defaultIncome, onProcessed }) {
+export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose, defaultIncome, onProcessed, gasBalance }) {
   const [income,        setIncome]       = useState(defaultIncome > 0 ? String(defaultIncome.toFixed(2)) : '');
   const [source,        setSource]       = useState('');
   const [mode,          setMode]         = useState('priority');
@@ -401,6 +401,27 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                 className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3.5 outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
               />
             </div>
+            {gasBalance !== null && gasBalance !== undefined && (
+              <button
+                type="button"
+                className={`mt-2 w-full flex items-center justify-between px-4 py-2.5 rounded-xl border transition-colors ${gasBalance > 0 ? 'bg-emerald-900/30 border-emerald-800/40 hover:bg-emerald-900/50' : gasBalance < 0 ? 'bg-rose-900/20 border-rose-800/30' : 'bg-slate-800 border-slate-700'}`}
+                onClick={() => {
+                  if (gasBalance > 0) setIncome(prev => {
+                    const cur = parseFloat(prev) || 0;
+                    return String((cur + gasBalance).toFixed(2));
+                  });
+                }}
+                title={gasBalance > 0 ? 'Click to add gas savings to this income deposit' : undefined}
+              >
+                <span className={`text-xs ${gasBalance > 0 ? 'text-emerald-400' : gasBalance < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
+                  ⛽ Gas balance (all time)
+                </span>
+                <span className={`font-mono font-bold text-sm ${gasBalance > 0 ? 'text-emerald-300' : gasBalance < 0 ? 'text-rose-300' : 'text-slate-400'}`}>
+                  {gasBalance > 0 ? `+$${gasBalance.toFixed(2)}` : gasBalance < 0 ? `-$${Math.abs(gasBalance).toFixed(2)}` : '$0.00'}
+                  {gasBalance > 0 && <span className="text-[10px] text-emerald-600 ml-1 font-normal">tap to add →</span>}
+                </span>
+              </button>
+            )}
           </div>
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Source (optional)</label>
