@@ -123,8 +123,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             const d = parseSheetDate(r[0]);
             return d !== null && d.getMonth() + 1 === mo && d.getFullYear() === yr;
           })
-          .filter(r => pm(r[2]) > 0)                                         // positive amounts only
-          .filter(r => String(r[3] || '').toLowerCase().startsWith('income processed')); // written by this app only
+          .filter(r => pm(r[2]) > 0);                                        // positive amounts only
         thisMonth.forEach(r => {
           const type = r[1] || '';
           const amt  = pm(r[2]);
