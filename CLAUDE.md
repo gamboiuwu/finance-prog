@@ -40,7 +40,7 @@ src/
   pages/
     Dashboard.jsx       — Home: income stats, subscriptions, bill calendar, charts (~2000 lines)
     BusinessExpenses.jsx — Product formula builder + Sales tab + COGS tracking (~1600 lines)
-    Budget.jsx          — Budget allocation view
+    Budget.jsx          — 4-tab: Budget / Categories / Entries / Trends
     Transactions.jsx    — Transaction log
     Actions.jsx         — Allocation + Business transaction history with delete
     Summary.jsx         — Year summary
@@ -75,17 +75,6 @@ src/
 - Two modes: `priority` (fill P1 → P2 → P3) and `proportional` (split by share of remaining need)
 - Surplus: income beyond all goals distributed by user-configured weight buckets
 
-## Budget.jsx — Key Concepts (updated 2026-05-25)
-- 4 tabs: **Budget Plan** | **By Category** | **All Entries** | **Trends**
-- **Budget Plan** — priority-grouped edit view with donut + bar charts
-- **By Category** — `CategoryView`: reads Allocation Transactions, sums by Type for current month, groups by Expense category (Essentials/Stability/Discretionary/Subscription). Savings collapsible.
-- **All Entries** — `AllEntriesView`: flat sorted list of raw allocation rows for current month
-- **Trends** — `TrendsView`: loads 3-month window of allocations; shows summary header (total per month + delta) and per-category cards with `SparkBars` (3-bar CSS visualization), delta arrows, over-budget flags
-  - `allAllocTx` state: transactions from windowStart (now.getMonth()-2, day 1) to present
-  - `allocTx` state: current-month-only transactions (used by By Category + All Entries)
-- `parseSheetDate(val)` duplicated in Budget.jsx + ProcessIncome.jsx — future: extract to `lib/dateUtils.js`
-- Allocation Transactions col B ("Type") matches Monthly Expenses "Type" (item name, e.g. "Rent")
-
 ## Dashboard.jsx — Key Concepts
 - Loads on mount: Monthly Summary, Monthly Expenses, Report Links, Gas Price, Subscriptions
 - Subscriptions stored in `Subscriptions!A:E`, cycle types: monthly/annual/weekly/biweekly
@@ -93,19 +82,27 @@ src/
 - Month Close: stores `closed_{month}_{year}` in localStorage (soft close only)
 - Statement: `printStatement()` generates a printable HTML page via `window.open()`
 
+## Budget.jsx — Key Concepts (updated 2026-05-27)
+- 4 tabs: **Budget** (priority-grouped edit view) | **Categories** | **Entries** | **Trends**
+- **Categories** reads `Allocation Transactions!A:F` (UNFORMATTED_VALUE) for current month → sums by `Type` (col B) → maps against `Monthly Expenses` allowances → groups by `Expense` category (Essentials/Stability/Discretionary/Subscription). Savings items shown separately/collapsible.
+- **Entries** = flat sorted list of raw allocation rows for current month
+- **Trends** = 3-month comparison (current, last, 2 months ago). `allAllocTx` state holds ALL allocation rows (not just current month); `allocTx` is filtered to current month. Load fetches all rows once; both states populated from the same API call. `Sparkline` renders inline SVG bars (48×24px, 3 bars). `TrendsView` groups by expense category, shows delta arrows + sparklines per item.
+- `parseSheetDate(val)` duplicated in ProcessIncome.jsx — consider extracting to `src/lib/dateUtils.js`
+- Allocation Transactions column B ("Type") matches Monthly Expenses column "Type" (item name like "Rent", not the expense category)
+
 ## Task Tracking
 Maintained in Google Drive doc "Finance Tracker – Updates & Task Plans" (auto-updated by Claude).
 Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTzptqo`
-**Current task doc ID**: `165B3Kot8U8sBwezfwtE54gBzp5UYBd3K07Y7ir9KijU` (updated 2026-05-25)
+**Current task doc ID**: `14esVD0XkV2KOUmhF9WekZA-gHbK-s4klrFoT4KmsbAI` (updated 2026-05-27)
 
 ### Task Status
 | # | Task | Status |
 |---|---|---|
 | 1 | Subscriptions — add/edit/delete | ✅ COMPLETED + VERIFIED |
-| 2 | Category view shows all allocated amounts (3-tab Budget) | ✅ COMPLETED + VERIFIED |
-| 3 | Revenue counts as Profit in Sales card | ✅ COMPLETED + VERIFIED |
-| 4 | Business Expenses full accounting page (Expenses 📒 tab) | ✅ COMPLETED + VERIFIED |
-| 5 | Month-over-Month Spending Trends (4th Budget tab) | ✅ COMPLETED (2026-05-25) |
+| 2 | Category view shows all allocated amounts (3-tab Budget) | ✅ COMPLETED + VERIFIED (2026-05-24) |
+| 3 | Revenue counts as Profit in Sales card | ✅ COMPLETED + VERIFIED (2026-05-22, code-confirmed 2026-05-24) |
+| 4 | Business Expenses full accounting page (Expenses 📒 tab) | ✅ COMPLETED + VERIFIED (2026-05-27) |
+| 5 | Month-over-Month Spending Trends (4th Budget tab) | ✅ COMPLETED (2026-05-27) |
 | 6 | Budget Over-Budget Alerts & Nav Badge | ⏳ Plan written, awaiting Execute Y/N |
 | 7 | Transaction Log: Search, Filter & Running Balance | ⏳ Plan written, awaiting Execute Y/N |
 | 8 | Quick Income Templates (saved amounts) | ⏳ Plan written, awaiting Execute Y/N |
