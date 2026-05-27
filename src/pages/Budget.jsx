@@ -669,125 +669,190 @@ function AllEntriesView({ allocTx }) {
   );
 }
 
-// ── Trends view ───────────────────────────────────────────────────────────────
+// ── Sparkline mini bar chart ─────────────────────────────────────────────────
 
-function SparkBars({ values }) {
+function Sparkline({ values, color }) {
   const max = Math.max(...values, 1);
-  const cols = ['#334155', '#475569', '#3b82f6'];
+  const bars = values.length;
+  const W = 48, H = 24, gap = 3;
+  const barW = (W - gap * (bars - 1)) / bars;
   return (
-    <div className="flex items-end gap-0.5 h-7 shrink-0">
-      {values.map((v, i) => (
-        <div key={i} className="w-3 rounded-t-sm"
-          style={{ height: `${Math.max((v / max) * 100, v > 0 ? 10 : 0)}%`, background: cols[i] }} />
-      ))}
-    </div>
+    <svg width={W} height={H} className="shrink-0">
+      {values.map((v, i) => {
+        const h = Math.max((v / max) * (H - 2), v > 0 ? 3 : 0);
+        return (
+          <rect key={i} x={i * (barW + gap)} y={H - h} width={barW} height={h}
+            rx={2} fill={i === bars - 1 ? color : `${color}55`} />
+        );
+      })}
+    </svg>
   );
 }
 
-function TrendsView({ allAllocTx, items }) {
+// ── Trends view ───────────────────────────────────────────────────────────────
+
+function TrendsView({ allAllocTx, expenses }) {
   const now = new Date();
-  const months = [2, 1, 0].map(offset => {
-    const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
-    return {
-      label:  d.toLocaleDateString('en-US', { month: 'short' }),
-      prefix: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-    };
-  });
 
-  const byType = {};
-  allAllocTx.forEach(tx => {
-    if (!tx.dateObj || tx.amount <= 0) return;
-    const pfx = `${tx.dateObj.getFullYear()}-${String(tx.dateObj.getMonth() + 1).padStart(2, '0')}`;
-    const idx = months.findIndex(m => m.prefix === pfx);
-    if (idx === -1) return;
-    if (!byType[tx.type]) byType[tx.type] = [0, 0, 0];
-    byType[tx.type][idx] += tx.amount;
-  });
+  const periods = useMemo(() => (
+    [0, 1, 2].map(offset => {
+      const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+      return { mo: d.getMonth() + 1, yr: d.getFullYear(), label: MONTHS[d.getMonth()] };
+    })
+  ), []);
 
-  const types = Object.entries(byType)
-    .filter(([, v]) => v.some(x => x > 0))
-    .sort((a, b) => b[1][2] - a[1][2]);
+  const grouped = useMemo(() => {
+    const result = {};
+    allAllocTx.forEach(tx => {
+      const key = `${tx.dateObj.getFullYear()}-${tx.dateObj.getMonth() + 1}`;
+      if (!result[key]) result[key] = {};
+      result[key][tx.type] = (result[key][tx.type] || 0) + tx.amount;
+    });
+    return result;
+  }, [allAllocTx]);
 
-  const totals = months.map((_, i) =>
-    Object.values(byType).reduce((s, v) => s + (v[i] || 0), 0)
-  );
-  const thisDelta  = totals[2] - totals[1];
-  const budgetByType = {};
-  items.forEach(it => { if (it['Type']) budgetByType[it['Type']] = pm(it['Monthly Allowance ($)']); });
+  const pKeys   = periods.map(p => `${p.yr}-${p.mo}`);
+  const pTotals = pKeys.map(k => Object.values(grouped[k] || {}).reduce((s, v) => s + v, 0));
+  const delta   = pTotals[0] - pTotals[1];
 
-  if (!types.length) {
+  const expenseMap = useMemo(() => {
+    const map = {};
+    expenses.forEach(item => {
+      map[item['Type']] = {
+        budgeted: pm(item['Monthly Allowance ($)']),
+        category: item['Expense'] || 'Other',
+      };
+    });
+    return map;
+  }, [expenses]);
+
+  const activeTypes = useMemo(() => {
+    const seen = new Set();
+    pKeys.forEach(k => Object.keys(grouped[k] || {}).forEach(t => seen.add(t)));
+    expenses.filter(i => i['Expense'] !== 'Savings').forEach(i => seen.add(i['Type']));
+    return [...seen].filter(t => expenseMap[t]);
+  }, [grouped, pKeys, expenses, expenseMap]);
+
+  const categoryGroups = useMemo(() => {
+    const map = {};
+    activeTypes.forEach(type => {
+      const cat = expenseMap[type]?.category || 'Other';
+      if (!map[cat]) map[cat] = [];
+      map[cat].push(type);
+    });
+    return map;
+  }, [activeTypes, expenseMap]);
+
+  const orderedCats = [
+    ...CAT_ORDER.filter(k => categoryGroups[k]),
+    ...Object.keys(categoryGroups).filter(k => !CAT_ORDER.includes(k)),
+  ];
+
+  if (!allAllocTx.length) {
     return (
       <div className="bg-slate-900 rounded-xl p-6 text-center">
-        <p className="text-slate-400 text-sm">No allocation history yet.</p>
-        <p className="text-slate-600 text-xs mt-1">Process income to build trends data.</p>
+        <p className="text-slate-400 text-sm">No transaction history yet.</p>
+        <p className="text-slate-600 text-xs mt-1">Process income to see trends.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {/* Summary header */}
+      {/* 3-month summary */}
       <div className="bg-slate-900 rounded-2xl p-4">
-        <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-3 font-broske">3-Month Overview</p>
+        <p className="text-slate-400 text-[10px] uppercase tracking-wider mb-3 font-broske">3-Month Overview</p>
         <div className="grid grid-cols-3 gap-3 mb-3">
-          {months.map((m, i) => (
-            <div key={m.prefix}>
-              <p className="text-slate-500 text-[10px]">{m.label}</p>
-              <p className={`font-bold font-mono text-sm mt-0.5 ${i === 2 ? 'text-white' : 'text-slate-400'}`}>
-                {fmt(totals[i])}
+          {periods.map((p, i) => (
+            <div key={i} className={i > 0 ? 'opacity-60' : ''}>
+              <p className="text-slate-500 text-[10px]">{p.label}</p>
+              <p className={`text-sm font-bold font-mono mt-0.5 ${i === 0 ? 'text-white' : 'text-slate-400'}`}>
+                {fmt(pTotals[i])}
               </p>
             </div>
           ))}
         </div>
-        <span className={`text-xs font-semibold ${thisDelta > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-          {thisDelta > 0 ? '▲' : '▼'} {fmt(Math.abs(thisDelta))} vs last month
-        </span>
+        <div className={`flex items-center gap-1.5 text-sm font-medium ${
+          delta > 0 ? 'text-emerald-400' : delta < 0 ? 'text-slate-400' : 'text-slate-600'
+        }`}>
+          <span>{delta > 0 ? '▲' : delta < 0 ? '▼' : '—'}</span>
+          <span>
+            {delta !== 0
+              ? `${fmt(Math.abs(delta))} ${delta > 0 ? 'more' : 'less'} allocated than last month`
+              : 'Same as last month'}
+          </span>
+        </div>
+        <div className="mt-3">
+          <Sparkline values={[pTotals[2], pTotals[1], pTotals[0]]} color="#3b82f6" />
+        </div>
       </div>
 
-      {/* Per-category cards */}
-      <div className="space-y-2">
-        {types.map(([type, vals]) => {
-          const budget  = budgetByType[type] || 0;
-          const thisMo  = vals[2];
-          const delta   = thisMo - vals[1];
-          const isOver  = budget > 0 && thisMo > budget;
-          return (
-            <div key={type}
-              className={`bg-slate-900 rounded-xl p-3.5 border ${isOver ? 'border-rose-800/50' : 'border-slate-800/40'}`}>
+      {/* Per-category breakdown */}
+      {orderedCats.map(cat => {
+        const color     = CAT_COLORS[cat] || '#64748b';
+        const types     = categoryGroups[cat];
+        const catTotals = pKeys.map(k => types.reduce((s, t) => s + (grouped[k]?.[t] || 0), 0));
+        const catDelta  = catTotals[0] - catTotals[1];
+
+        return (
+          <div key={cat} className="rounded-2xl border border-slate-800/50 overflow-hidden">
+            <div className="px-4 py-3 bg-slate-900/80 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                <span className="text-white font-semibold text-sm">{cat}</span>
+              </div>
               <div className="flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-white text-sm font-medium truncate">{type}</p>
-                    {isOver && <span className="text-[10px] text-rose-400 shrink-0">over budget</span>}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className={`text-xs font-semibold ${delta > 0 ? 'text-rose-400' : delta < 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
-                      {delta > 0 ? '▲' : delta < 0 ? '▼' : '–'} {fmt(Math.abs(delta))}
-                    </span>
-                    {budget > 0 && <span className="text-slate-600 text-[10px]">/ {fmt(budget)} budget</span>}
-                  </div>
-                </div>
-                <SparkBars values={vals} />
-                <div className="text-right w-16 shrink-0">
-                  <p className="text-white font-bold font-mono text-sm">{fmt(thisMo)}</p>
-                  <p className="text-slate-600 text-[10px]">this mo.</p>
-                </div>
+                <span className={`text-xs font-mono ${
+                  catDelta > 0 ? 'text-emerald-400' : catDelta < 0 ? 'text-slate-500' : 'text-slate-700'
+                }`}>
+                  {catDelta !== 0
+                    ? `${catDelta > 0 ? '▲' : '▼'} ${fmt(Math.abs(catDelta))}`
+                    : '—'}
+                </span>
+                <span className="text-white font-mono text-sm font-bold">{fmt(catTotals[0])}</span>
               </div>
             </div>
-          );
-        })}
-      </div>
+            <div className="p-3 space-y-2 bg-slate-950/30">
+              {types.map(type => {
+                const vals    = pKeys.map(k => grouped[k]?.[type] || 0);
+                const typeDelta  = vals[0] - vals[1];
+                const budgeted   = expenseMap[type]?.budgeted || 0;
+                const over       = vals[0] > budgeted && budgeted > 0;
 
-      {/* Legend */}
-      <div className="flex gap-4 justify-center text-[10px] text-slate-500">
-        {months.map((m, i) => (
-          <span key={m.prefix} className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-sm inline-block"
-              style={{ background: ['#334155', '#475569', '#3b82f6'][i] }} />
-            {m.label}
-          </span>
-        ))}
-      </div>
+                return (
+                  <div key={type} className="bg-slate-900 rounded-xl p-3 flex items-center gap-3 border border-slate-800/40">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium truncate">{type}</p>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span className={`text-sm font-bold font-mono ${over ? 'text-rose-400' : 'text-white'}`}>
+                          {fmt(vals[0])}
+                        </span>
+                        <span className={`text-[11px] font-mono ${
+                          typeDelta > 0 ? 'text-emerald-400' : typeDelta < 0 ? 'text-slate-500' : 'text-slate-700'
+                        }`}>
+                          {typeDelta > 0 ? `▲ ${fmt(typeDelta)}` : typeDelta < 0 ? `▼ ${fmt(Math.abs(typeDelta))}` : '—'}
+                        </span>
+                        {over && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300">over!</span>
+                        )}
+                      </div>
+                      {budgeted > 0 && (
+                        <p className="text-slate-600 text-[10px] font-mono mt-0.5">
+                          budget {fmt(budgeted)} · prev {fmt(vals[1])}
+                        </p>
+                      )}
+                    </div>
+                    <Sparkline
+                      values={[vals[2], vals[1], vals[0]]}
+                      color={over ? '#ef4444' : color}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -795,9 +860,9 @@ function TrendsView({ allAllocTx, items }) {
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { key: 'budget',     label: 'Budget Plan' },
-  { key: 'categories', label: 'By Category' },
-  { key: 'entries',    label: 'All Entries' },
+  { key: 'budget',     label: 'Budget' },
+  { key: 'categories', label: 'Categories' },
+  { key: 'entries',    label: 'Entries' },
   { key: 'trends',     label: 'Trends' },
 ];
 
@@ -876,7 +941,7 @@ export default function Budget({ token }) {
 
       if (txRows.length > 1) {
         const [, ...data] = txRows;
-        const parsed = data
+        const allTx = data
           .filter(r => r[0] && r[1])
           .map(r => {
             const dateObj = parseSheetDate(r[0]);
@@ -890,9 +955,8 @@ export default function Budget({ token }) {
             };
           })
           .filter(tx => tx.dateObj);
-        const windowStart = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-        setAllocTx(parsed.filter(tx => tx.dateObj.getMonth() + 1 === mo && tx.dateObj.getFullYear() === yr));
-        setAllAllocTx(parsed.filter(tx => tx.dateObj >= windowStart));
+        setAllAllocTx(allTx);
+        setAllocTx(allTx.filter(tx => tx.dateObj.getMonth() + 1 === mo && tx.dateObj.getFullYear() === yr));
       }
     } catch (e) {
       setError(e.message);
@@ -961,7 +1025,9 @@ export default function Budget({ token }) {
         <div>
           <h1 className="text-xl font-bold text-white">Budget</h1>
           <p className="text-slate-500 text-xs mt-0.5">
-            {activeTab === 'budget' ? 'Tap any item to edit · syncs to Sheets' : 'Allocation actuals vs. plan'}
+            {activeTab === 'budget'     ? 'Tap any item to edit · syncs to Sheets' :
+             activeTab === 'trends'     ? 'Month-over-month allocation comparison' :
+             'Allocation actuals vs. plan'}
           </p>
         </div>
         {activeTab === 'budget' && (
@@ -1047,7 +1113,7 @@ export default function Budget({ token }) {
 
         {/* ── Trends tab ── */}
         {activeTab === 'trends' && (
-          <TrendsView allAllocTx={allAllocTx} items={items} />
+          <TrendsView allAllocTx={allAllocTx} expenses={items} />
         )}
 
       </div>
