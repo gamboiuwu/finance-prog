@@ -427,13 +427,21 @@ export default function Summary({ token }) {
   useEffect(() => {
     if (!token) return;
     setLoading(true);
-    Promise.all([
+    setError(null);
+    Promise.allSettled([
       readRange(token, 'Expense Summary!A1:S60'),
       readRange(token, 'Monthly Expenses!A1:T40'),
       readRange(token, 'Allocation Summary!A1:B10'),
     ])
-      .then(([sv, exp, alloc]) => { setSvRows(sv); setExpRows(exp); setAllocRows(alloc); })
-      .catch(e => setError(e.message))
+      .then(([svResult, expResult, allocResult]) => {
+        setSvRows(svResult.status === 'fulfilled' ? svResult.value : []);
+        if (expResult.status === 'fulfilled') {
+          setExpRows(expResult.value);
+        } else {
+          setError(expResult.reason?.message || 'Failed to load budget data');
+        }
+        setAllocRows(allocResult.status === 'fulfilled' ? allocResult.value : []);
+      })
       .finally(() => setLoading(false));
   }, [token]);
 
