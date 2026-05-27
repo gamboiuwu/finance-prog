@@ -669,12 +669,136 @@ function AllEntriesView({ allocTx }) {
   );
 }
 
+// ── Trends view ───────────────────────────────────────────────────────────────
+
+function SparkBars({ values }) {
+  const max = Math.max(...values, 1);
+  const cols = ['#334155', '#475569', '#3b82f6'];
+  return (
+    <div className="flex items-end gap-0.5 h-7 shrink-0">
+      {values.map((v, i) => (
+        <div key={i} className="w-3 rounded-t-sm"
+          style={{ height: `${Math.max((v / max) * 100, v > 0 ? 10 : 0)}%`, background: cols[i] }} />
+      ))}
+    </div>
+  );
+}
+
+function TrendsView({ allAllocTx, items }) {
+  const now = new Date();
+  const months = [2, 1, 0].map(offset => {
+    const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    return {
+      label:  d.toLocaleDateString('en-US', { month: 'short' }),
+      prefix: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+    };
+  });
+
+  const byType = {};
+  allAllocTx.forEach(tx => {
+    if (!tx.dateObj || tx.amount <= 0) return;
+    const pfx = `${tx.dateObj.getFullYear()}-${String(tx.dateObj.getMonth() + 1).padStart(2, '0')}`;
+    const idx = months.findIndex(m => m.prefix === pfx);
+    if (idx === -1) return;
+    if (!byType[tx.type]) byType[tx.type] = [0, 0, 0];
+    byType[tx.type][idx] += tx.amount;
+  });
+
+  const types = Object.entries(byType)
+    .filter(([, v]) => v.some(x => x > 0))
+    .sort((a, b) => b[1][2] - a[1][2]);
+
+  const totals = months.map((_, i) =>
+    Object.values(byType).reduce((s, v) => s + (v[i] || 0), 0)
+  );
+  const thisDelta  = totals[2] - totals[1];
+  const budgetByType = {};
+  items.forEach(it => { if (it['Type']) budgetByType[it['Type']] = pm(it['Monthly Allowance ($)']); });
+
+  if (!types.length) {
+    return (
+      <div className="bg-slate-900 rounded-xl p-6 text-center">
+        <p className="text-slate-400 text-sm">No allocation history yet.</p>
+        <p className="text-slate-600 text-xs mt-1">Process income to build trends data.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Summary header */}
+      <div className="bg-slate-900 rounded-2xl p-4">
+        <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-3 font-broske">3-Month Overview</p>
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          {months.map((m, i) => (
+            <div key={m.prefix}>
+              <p className="text-slate-500 text-[10px]">{m.label}</p>
+              <p className={`font-bold font-mono text-sm mt-0.5 ${i === 2 ? 'text-white' : 'text-slate-400'}`}>
+                {fmt(totals[i])}
+              </p>
+            </div>
+          ))}
+        </div>
+        <span className={`text-xs font-semibold ${thisDelta > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+          {thisDelta > 0 ? '▲' : '▼'} {fmt(Math.abs(thisDelta))} vs last month
+        </span>
+      </div>
+
+      {/* Per-category cards */}
+      <div className="space-y-2">
+        {types.map(([type, vals]) => {
+          const budget  = budgetByType[type] || 0;
+          const thisMo  = vals[2];
+          const delta   = thisMo - vals[1];
+          const isOver  = budget > 0 && thisMo > budget;
+          return (
+            <div key={type}
+              className={`bg-slate-900 rounded-xl p-3.5 border ${isOver ? 'border-rose-800/50' : 'border-slate-800/40'}`}>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-white text-sm font-medium truncate">{type}</p>
+                    {isOver && <span className="text-[10px] text-rose-400 shrink-0">over budget</span>}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className={`text-xs font-semibold ${delta > 0 ? 'text-rose-400' : delta < 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                      {delta > 0 ? '▲' : delta < 0 ? '▼' : '–'} {fmt(Math.abs(delta))}
+                    </span>
+                    {budget > 0 && <span className="text-slate-600 text-[10px]">/ {fmt(budget)} budget</span>}
+                  </div>
+                </div>
+                <SparkBars values={vals} />
+                <div className="text-right w-16 shrink-0">
+                  <p className="text-white font-bold font-mono text-sm">{fmt(thisMo)}</p>
+                  <p className="text-slate-600 text-[10px]">this mo.</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Legend */}
+      <div className="flex gap-4 justify-center text-[10px] text-slate-500">
+        {months.map((m, i) => (
+          <span key={m.prefix} className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-sm inline-block"
+              style={{ background: ['#334155', '#475569', '#3b82f6'][i] }} />
+            {m.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 
 const TABS = [
   { key: 'budget',     label: 'Budget Plan' },
   { key: 'categories', label: 'By Category' },
   { key: 'entries',    label: 'All Entries' },
+  { key: 'trends',     label: 'Trends' },
 ];
 
 function TabBar({ active, onChange }) {
@@ -703,8 +827,9 @@ export default function Budget({ token }) {
   const [items, setItems]         = useState([]);
   const [headers, setHeaders]     = useState([]);
   const [pi, setPi]               = useState(0);
-  const [allocTx, setAllocTx]     = useState([]);
-  const [activeTab, setActiveTab] = useState('budget');
+  const [allocTx, setAllocTx]       = useState([]);
+  const [allAllocTx, setAllAllocTx] = useState([]);
+  const [activeTab, setActiveTab]   = useState('budget');
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [editItem, setEditItem]   = useState(null);
@@ -751,7 +876,7 @@ export default function Budget({ token }) {
 
       if (txRows.length > 1) {
         const [, ...data] = txRows;
-        const tx = data
+        const parsed = data
           .filter(r => r[0] && r[1])
           .map(r => {
             const dateObj = parseSheetDate(r[0]);
@@ -764,8 +889,10 @@ export default function Budget({ token }) {
               done:    !!r[5],
             };
           })
-          .filter(tx => tx.dateObj && tx.dateObj.getMonth() + 1 === mo && tx.dateObj.getFullYear() === yr);
-        setAllocTx(tx);
+          .filter(tx => tx.dateObj);
+        const windowStart = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+        setAllocTx(parsed.filter(tx => tx.dateObj.getMonth() + 1 === mo && tx.dateObj.getFullYear() === yr));
+        setAllAllocTx(parsed.filter(tx => tx.dateObj >= windowStart));
       }
     } catch (e) {
       setError(e.message);
@@ -916,6 +1043,11 @@ export default function Budget({ token }) {
         {/* ── All Entries tab ── */}
         {activeTab === 'entries' && (
           <AllEntriesView allocTx={allocTx} />
+        )}
+
+        {/* ── Trends tab ── */}
+        {activeTab === 'trends' && (
+          <TrendsView allAllocTx={allAllocTx} items={items} />
         )}
 
       </div>
