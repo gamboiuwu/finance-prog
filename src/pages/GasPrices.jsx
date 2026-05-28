@@ -43,7 +43,20 @@ export default function GasPrices() {
   useEffect(() => { load(); }, []);
 
   if (loading) return <LoadingSpinner />;
-  if (error) return <div className="p-4 text-red-400">Failed to load gas prices: {error}</div>;
+  if (error) return (
+    <div className="p-4 space-y-3">
+      <div className="bg-red-900/30 border border-red-700/40 rounded-xl p-4 text-sm text-red-300">
+        <p className="font-semibold mb-1">Could not load gas prices</p>
+        <p className="text-red-400/80">{error}</p>
+      </div>
+      <button
+        onClick={() => load()}
+        className="w-full bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm py-2.5 rounded-xl transition-colors"
+      >
+        ↻ Retry
+      </button>
+    </div>
+  );
 
   // Find global max for bar scaling
   let globalMax = 0;
