@@ -105,7 +105,7 @@ src/
 ## Task Tracking
 Maintained in Google Drive doc "Finance Tracker – Updates & Task Plans" (auto-updated by Claude).
 Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTzptqo`
-**Current task doc ID**: `1bAYegcTm63v8rQQlhC8ddqtjU0c8nYmRGS5Urtt0PK8` (updated 2026-05-28)
+**Current task doc ID**: `1j-CtW2Wu-PN9mVRWrFNGKoQEUhLrTXdk7rvIvvh84jU` (updated 2026-05-28)
 
 ### Task Status
 | # | Task | Status |
@@ -115,24 +115,30 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 | 3 | Revenue counts as Profit in Sales card | ✅ COMPLETED + VERIFIED (2026-05-22, code-confirmed 2026-05-24) |
 | 4 | Business Expenses full accounting page (Expenses 📒 tab) | ✅ COMPLETED + VERIFIED (2026-05-27) |
 | 5 | Month-over-Month Spending Trends (4th Budget tab) | ✅ COMPLETED + VERIFIED (2026-05-28) |
-| 6 | Budget Over-Budget Alerts & Nav Badge | ✅ COMPLETED (2026-05-28) |
+| 6 | Budget Over-Budget Alerts & Nav Badge | ✅ COMPLETED + VERIFIED (2026-05-28) |
 | 7 | Transaction Log: Search, Filter & Running Balance | ⏳ Plan written, awaiting Execute Y/N |
 | 8 | Quick Income Templates (saved amounts) | ⏳ Plan written, awaiting Execute Y/N |
 | 9 | Savings Goals with Milestone Tracking | ⏳ Plan written, awaiting Execute Y/N |
-| 10 | Dashboard Financial Health Score | ⏳ Plan written, awaiting Execute Y/N |
+| 10 | Dashboard Financial Health Score | ✅ COMPLETED (2026-05-28) |
 | 11 | Year-to-Date Budget Summary | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 | 12 | Commission & Art Income Tracker Improvements | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 | 13 | Subscription Cost Optimization Insights | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
+| 14 | Net Worth Snapshot | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
+| 15 | Tax Prep Summary | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
+| 16 | Recurring Income Forecast | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 
 ### Task Plans Summary (for quick reference)
-- **Task 6**: ✅ Nav badge on Budget item + amber alert banner on Dashboard + "Not yet funded" chip row in CategoryView. Uses localStorage (_fin_budget_alert) + custom event for same-tab sync.
+- **Task 6**: ✅ VERIFIED. Nav badge on Budget item + amber alert banner on Dashboard + "Not yet funded" chip row in CategoryView. Uses localStorage (_fin_budget_alert) + custom event for same-tab sync.
 - **Task 7**: Search + filter chips + totals footer on Transactions page. Q: Default all-time or current month? Delete from here? Amount search? CSV export?
 - **Task 8**: Income template chips in ProcessIncome modal — tap to pre-fill amount. Stored in localStorage. Q: Global or account-specific? Include processing mode? Max 5 or 8?
 - **Task 9**: Savings Goals sheet tab + 5th Budget tab with progress bars and milestone toasts. Q: 5th Budget tab or standalone page? Track start date? Show projected completion?
-- **Task 10**: Financial Health Score (0–100) arc gauge on Dashboard. 4 weighted signals. Q: Position on Dashboard? Personal target score? Push notification below 40?
+- **Task 10**: ✅ COMPLETED. Arc gauge on Dashboard (prominent, above month header). 4 signals: Essential Coverage 40pts, Savings Rate 25pts, Allocation Completeness 20pts, Over-Budget Penalty -15pts max. Target 80 marked in amber. Expandable breakdown. 6-month history sparkline (localStorage). Browser push notification when score < 40 (once/day). State: healthScore { total, signals, history, loaded }.
 - **Task 11**: YTD Budget Summary — new tab in Summary page. Shows total income vs goal, per-category YTD actuals vs budget, best/worst month cards.
 - **Task 12**: Commission income bridge — "Mark Complete + Process" button links commissions to Process Income modal; outstanding badge on Art nav item.
 - **Task 13**: Subscription cost insights — annual cost view, cost ranking, 90-day renewal calendar, month-over-month subscription trend.
+- **Task 14**: Net Worth Snapshot — track assets/liabilities in a new sheet tab; shows net worth number + monthly delta + trend chart.
+- **Task 15**: Tax Prep Summary — year-end income/expense summary organized by tax category (W2, 1099, COGS, deductions).
+- **Task 16**: Recurring Income Forecast — next-3-month cash flow prediction based on historical averages + fixed subscriptions.
 
 ## Git Workflow
 1. Source changes → feature branch (e.g. `claude/zealous-euler-p8sWK`) based on `main`
