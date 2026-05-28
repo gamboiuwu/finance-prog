@@ -2862,7 +2862,7 @@ export default function BusinessExpenses({ token }) {
       )}
 
       {viewMode === 'timeclock' && (
-        <TimeClockView products={products} />
+        <TimeClockView products={products} token={token} />
       )}
 
       {editing    && <FormulaEditor product={editing}    onSave={handleSave} onClose={() => setEditing(null)}    saving={saving} />}

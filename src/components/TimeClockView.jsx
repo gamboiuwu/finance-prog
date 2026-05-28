@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { appendRow, ensureSheetTab, readRange, batchUpdateCells } from '../lib/sheets';
 
 // ── localStorage keys ─────────────────────────────────────────────────────────
 const KEY_SESSIONS  = 'biz_timeclock_sessions';
@@ -97,6 +98,10 @@ function computeProfit(product, qty) {
     remaining = Math.max(0, remaining - allocated);
     if (block.category === 'Profit' || block.category === 'Revenue') profitAmt += allocated;
   });
+  // Any unallocated balance after cost blocks is also the owner's profit.
+  // This handles products where profit is implicit (no explicit Profit block),
+  // and is harmless when a Profit block exists since remaining will be ~0.
+  profitAmt += remaining;
   return profitAmt * qty;
 }
 
@@ -279,7 +284,7 @@ function SessionCompleteModal({ duration, products, onSave, onDiscard }) {
             Save Session {totalProfit > 0 ? `(+$${totalProfit.toFixed(2)})` : ''}
           </button>
         </div>
-        <p className="text-center text-slate-600 text-xs mt-3 px-5">Saving records the session locally. You can process income separately from the Sales tab.</p>
+        <p className="text-center text-slate-600 text-xs mt-3 px-5">Session saved locally and to your Work Sessions sheet. Process income anytime from the Sales tab.</p>
       </div>
     </div>
   );
@@ -335,7 +340,10 @@ function HistoryPanel({ sessions, onDelete }) {
 }
 
 // ── Main TimeClockView ────────────────────────────────────────────────────────
-export default function TimeClockView({ products }) {
+const WORK_SESSIONS_SHEET = 'Work Sessions';
+const WORK_SESSIONS_HEADERS = ['Date', 'Start Time', 'Duration (sec)', 'Duration', 'Products', 'Total Units', 'Total Profit', '$/hr', 'Notes'];
+
+export default function TimeClockView({ products, token }) {
   const [sessions,    setSessions]    = useState(loadSessions);
   const [active,      setActive]      = useState(loadActive);
   const [elapsed,     setElapsed]     = useState(0);      // seconds
@@ -421,13 +429,13 @@ export default function TimeClockView({ products }) {
     clearInterval(tickRef.current);
   }
 
-  function handleSaveSession({ items, totalProfit, notes }) {
+  async function handleSaveSession({ items, totalProfit, notes }) {
     const dur = completeDur;
     const prev = loadSessions();
-    // Achievement check before save
+    const startISO = active.startTime;
     const newSession = {
       id: Math.random().toString(36).slice(2, 10),
-      startTime: active.startTime,
+      startTime: startISO,
       endTime:   new Date().toISOString(),
       duration:  dur,
       items,
@@ -444,6 +452,42 @@ export default function TimeClockView({ products }) {
     saveSessions(updated);
     saveActive(null);
     setSessions(updated);
+
+    // Persist to Google Sheets in the background (non-blocking)
+    if (token) {
+      const d = new Date(startISO);
+      const dateStr = d.toISOString().slice(0, 10);
+      const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      const totalUnits = items.reduce((s, it) => s + it.qty, 0);
+      const hourlyRate = dur > 0 ? (totalProfit / (dur / 3600)).toFixed(2) : '0.00';
+      const productsStr = items.length
+        ? items.map(it => `${it.qty}x ${it.productName}`).join(', ')
+        : '—';
+      try {
+        await ensureSheetTab(token, WORK_SESSIONS_SHEET);
+        // Write header row if sheet is fresh
+        const existing = await readRange(token, `${WORK_SESSIONS_SHEET}!A1:A1`);
+        if (!existing.length || !existing[0]?.length) {
+          await batchUpdateCells(token, WORK_SESSIONS_HEADERS.map((h, i) => ({
+            range: `${WORK_SESSIONS_SHEET}!${String.fromCharCode(65 + i)}1`,
+            value: h,
+          })));
+        }
+        await appendRow(token, `${WORK_SESSIONS_SHEET}!A:I`, [
+          dateStr,
+          timeStr,
+          dur,
+          fmtDurationLong(dur),
+          productsStr,
+          totalUnits,
+          totalProfit.toFixed(2),
+          hourlyRate,
+          notes || '',
+        ]);
+      } catch (e) {
+        console.error('TimeClockView: failed to write to Sheets', e);
+      }
+    }
     setActive(null);
     setElapsed(0);
     setShowComplete(false);
