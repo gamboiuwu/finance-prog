@@ -18,12 +18,13 @@ export const PRODUCTS = [
 ];
 
 export async function fetchGasPrices(apiKey = 'DEMO_KEY') {
-  // Return cached if fresh
+  let staleCache = null;
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (raw) {
       const cached = JSON.parse(raw);
       if (Date.now() - cached.ts < CACHE_TTL) return cached.data;
+      staleCache = cached;
     }
   } catch {}
 
@@ -31,8 +32,17 @@ export async function fetchGasPrices(apiKey = 'DEMO_KEY') {
   const prods = PRODUCTS.map(p => `facets[product][]=${p.code}`).join('&');
   const url = `${EIA_BASE}?api_key=${apiKey}&frequency=weekly&data[0]=value&${areas}&${prods}&sort[0][column]=period&sort[0][direction]=desc&length=30`;
 
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`EIA API ${res.status}`);
+  let res;
+  try {
+    res = await fetch(url);
+  } catch {
+    if (staleCache) return { ...staleCache.data, stale: true };
+    throw new Error('Network error — EIA API unreachable');
+  }
+  if (!res.ok) {
+    if (staleCache) return { ...staleCache.data, stale: true };
+    throw new Error(`EIA API ${res.status}`);
+  }
   const json = await res.json();
   const rows = json.response?.data || [];
 
