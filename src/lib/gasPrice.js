@@ -41,6 +41,7 @@ export async function fetchGasPrices(apiKey = 'DEMO_KEY') {
   }
   if (!res.ok) {
     if (staleCache) return { ...staleCache.data, stale: true };
+    if (res.status === 429) throw new Error('Rate limited — EIA API throttled the DEMO_KEY. Try again in a few minutes.');
     throw new Error(`EIA API ${res.status}`);
   }
   const json = await res.json();
