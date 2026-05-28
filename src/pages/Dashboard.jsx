@@ -129,6 +129,10 @@ export default function Dashboard({ token }) {
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
   const currentYear  = now.getFullYear();
+  // The month available to close is always the previous calendar month
+  const closeDate  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const closeMonth = MONTHS[closeDate.getMonth()];
+  const closeYear  = closeDate.getFullYear();
 
   useEffect(() => {
     if (!token) return;
@@ -542,17 +546,16 @@ ${stmtTxns.length ? `
         </button>
       </div>
 
-      {/* ── End-of-month close banner ───────────────────────── */}
+      {/* ── End-of-month close banner (only after the month has ended) ── */}
       {(() => {
-        const daysInMonth = new Date(currentYear, now.getMonth() + 1, 0).getDate();
-        const dayOfMonth  = now.getDate();
-        const isMonthEnd  = dayOfMonth >= daysInMonth - 4; // last 5 days
-        if (!isMonthEnd) return null;
+        const alreadyClosed = localStorage.getItem(`closed_${closeMonth}_${closeYear}`) === 'true';
+        // Show only in the first 7 days of a new month so the previous month can be closed
+        if (now.getDate() > 7 || alreadyClosed) return null;
         return (
           <div className="bg-gradient-to-r from-indigo-900/50 to-violet-900/50 border border-indigo-700/50 rounded-2xl p-4 flex items-center justify-between gap-3">
             <div>
-              <p className="text-indigo-200 font-bold text-sm font-broske">📅 {currentMonth} is ending</p>
-              <p className="text-indigo-400 text-xs mt-0.5">Ready to close the month and start fresh?</p>
+              <p className="text-indigo-200 font-bold text-sm font-broske">📅 {closeMonth} has ended</p>
+              <p className="text-indigo-400 text-xs mt-0.5">Close out {closeMonth} and start {currentMonth} fresh</p>
             </div>
             <button
               onClick={() => setShowMonthClose(true)}
@@ -1809,7 +1812,7 @@ ${stmtTxns.length ? `
           <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
             <div className="shrink-0 border-b border-slate-800 px-5 py-4 flex items-center justify-between">
               <div>
-                <h2 className="text-white font-bold text-lg font-broske">Close {currentMonth} {currentYear}</h2>
+                <h2 className="text-white font-bold text-lg font-broske">Close {closeMonth} {closeYear}</h2>
                 <p className="text-slate-400 text-xs mt-0.5">Review your month before starting fresh</p>
               </div>
               <button onClick={() => setShowMonthClose(false)} className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">✕</button>
@@ -1858,8 +1861,8 @@ ${stmtTxns.length ? `
               <div className="bg-blue-900/20 border border-blue-800/40 rounded-2xl p-4 space-y-2">
                 <p className="text-blue-300 font-broske text-xs uppercase tracking-wider">What happens when you close</p>
                 <ul className="text-slate-300 text-sm space-y-1.5">
-                  <li className="flex gap-2"><span className="text-blue-400 shrink-0">→</span>Your {currentMonth} data is preserved as history</li>
-                  <li className="flex gap-2"><span className="text-blue-400 shrink-0">→</span>Income processed resets to $0.00 for {currentMonth === 'December' ? 'January' : ['January','February','March','April','May','June','July','August','September','October','November','December'][now.getMonth() + 1]}</li>
+                  <li className="flex gap-2"><span className="text-blue-400 shrink-0">→</span>Your {closeMonth} data is preserved as history</li>
+                  <li className="flex gap-2"><span className="text-blue-400 shrink-0">→</span>Income processed resets to $0.00 for {currentMonth}</li>
                   <li className="flex gap-2"><span className="text-blue-400 shrink-0">→</span>All category gaps reset — full monthly goals to fill again</li>
                 </ul>
               </div>
@@ -1868,7 +1871,7 @@ ${stmtTxns.length ? `
                 onClick={openStatement}
                 className="w-full py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors border border-slate-700"
               >
-                📄 View Full {currentMonth} Statement First
+                📄 View Full {closeMonth} Statement First
               </button>
             </div>
 
@@ -1877,14 +1880,11 @@ ${stmtTxns.length ? `
               <button
                 onClick={() => {
                   setShowMonthClose(false);
-                  // Store in localStorage so dashboard shows "month closed" state
-                  const key = `closed_${currentMonth}_${currentYear}`;
-                  localStorage.setItem(key, 'true');
-                  // Brief success overlay handled by closing the modal
+                  localStorage.setItem(`closed_${closeMonth}_${closeYear}`, 'true');
                 }}
                 className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm transition-colors"
               >
-                ✓ Close {currentMonth} — Start {['January','February','March','April','May','June','July','August','September','October','November','December'][(now.getMonth() + 1) % 12]} Fresh
+                ✓ Close {closeMonth} — Start {currentMonth} Fresh
               </button>
             </div>
           </div>
