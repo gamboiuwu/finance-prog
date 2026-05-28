@@ -174,8 +174,26 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
     Priority:                String(item['Priority']         || '2'),
     'Monthly Allowance ($)': String(item['Monthly Allowance ($)'] || '0'),
   });
+  const [balanceType, setBalanceType] = useState(() => {
+    try {
+      const map = JSON.parse(localStorage.getItem('_fin_budget_balance_type') || '{}');
+      return map[item['Type'] || ''] || 'monthly';
+    } catch { return 'monthly'; }
+  });
 
   function set(k, v) { setFields(f => ({ ...f, [k]: v })); }
+
+  function handleSave() {
+    const typeName = fields['Type'];
+    if (typeName) {
+      try {
+        const map = JSON.parse(localStorage.getItem('_fin_budget_balance_type') || '{}');
+        map[typeName] = balanceType;
+        localStorage.setItem('_fin_budget_balance_type', JSON.stringify(map));
+      } catch {}
+    }
+    onSave(fields);
+  }
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50">
@@ -270,10 +288,30 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
               ))}
             </div>
           </div>
+
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Balance Tracking</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'monthly', icon: '📅', title: 'Monthly Goal',    sub: 'Resets each month — tracks only current-month deposits' },
+                { id: 'running', icon: '🔄', title: 'Running Balance', sub: 'Cumulative net — deposits minus spending, all time' },
+              ].map(({ id, icon, title, sub }) => {
+                const active = balanceType === id;
+                return (
+                  <button key={id} onClick={() => setBalanceType(id)}
+                    className={`py-3 px-2 rounded-xl text-left border transition-all ${active ? 'bg-sky-900/50 border-sky-600/60 text-sky-200' : 'bg-slate-800 border-slate-700 text-slate-400'}`}
+                  >
+                    <div className="text-sm font-bold">{icon} {title}</div>
+                    <div className="text-[10px] mt-0.5 opacity-70 leading-tight">{sub}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         <button
-          onClick={() => onSave(fields)}
+          onClick={handleSave}
           disabled={saving || !fields['Type']}
           className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-bold transition-colors"
         >
