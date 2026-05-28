@@ -40,7 +40,7 @@ src/
   pages/
     Dashboard.jsx       — Home: income stats, subscriptions, bill calendar, charts (~2000 lines)
     BusinessExpenses.jsx — Product formula builder + Sales tab + COGS tracking (~1600 lines)
-    Budget.jsx          — 4-tab: Budget / Categories / Entries / Trends
+    Budget.jsx          — 4-tab: Budget / Categories / Entries / Trends (Goals pending)
     Transactions.jsx    — Transaction log
     Actions.jsx         — Allocation + Business transaction history with delete
     Summary.jsx         — Year summary
@@ -93,7 +93,7 @@ src/
 ## Task Tracking
 Maintained in Google Drive doc "Finance Tracker – Updates & Task Plans" (auto-updated by Claude).
 Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTzptqo`
-**Current task doc ID**: `14esVD0XkV2KOUmhF9WekZA-gHbK-s4klrFoT4KmsbAI` (updated 2026-05-27)
+**Current task doc ID**: `1bAYegcTm63v8rQQlhC8ddqtjU0c8nYmRGS5Urtt0PK8` (updated 2026-05-28)
 
 ### Task Status
 | # | Task | Status |
@@ -102,20 +102,25 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 | 2 | Category view shows all allocated amounts (3-tab Budget) | ✅ COMPLETED + VERIFIED (2026-05-24) |
 | 3 | Revenue counts as Profit in Sales card | ✅ COMPLETED + VERIFIED (2026-05-22, code-confirmed 2026-05-24) |
 | 4 | Business Expenses full accounting page (Expenses 📒 tab) | ✅ COMPLETED + VERIFIED (2026-05-27) |
-| 5 | Month-over-Month Spending Trends (4th Budget tab) | ✅ COMPLETED (2026-05-27) |
-| 6 | Budget Over-Budget Alerts & Nav Badge | ⏳ Plan written, awaiting Execute Y/N |
+| 5 | Month-over-Month Spending Trends (4th Budget tab) | ✅ COMPLETED + VERIFIED (2026-05-28) |
+| 6 | Budget Over-Budget Alerts & Nav Badge | ✅ COMPLETED (2026-05-28) |
 | 7 | Transaction Log: Search, Filter & Running Balance | ⏳ Plan written, awaiting Execute Y/N |
-| 8 | Quick Income Templates (saved amounts) | ⏳ Plan written 2026-05-26, awaiting Execute Y/N |
-| 9 | Savings Goals with Milestone Tracking | ⏳ Plan written 2026-05-26, awaiting Execute Y/N |
-| 10 | Dashboard Financial Health Score | ⏳ Plan written 2026-05-26, awaiting Execute Y/N |
+| 8 | Quick Income Templates (saved amounts) | ⏳ Plan written, awaiting Execute Y/N |
+| 9 | Savings Goals with Milestone Tracking | ⏳ Plan written, awaiting Execute Y/N |
+| 10 | Dashboard Financial Health Score | ⏳ Plan written, awaiting Execute Y/N |
+| 11 | Year-to-Date Budget Summary | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
+| 12 | Commission & Art Income Tracker Improvements | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
+| 13 | Subscription Cost Optimization Insights | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 
 ### Task Plans Summary (for quick reference)
-- **Task 5**: 4th "Trends" tab in Budget page — reads Allocation Transactions for last 3 months, shows per-category sparklines and delta arrows. Q: Show all categories or only active ones? 3-month or 6-month window? Over-budget highlight? Income trend line?
-- **Task 6**: Nav badge (red dot) on Budget nav item + Dashboard alert banner when over-budget. Q: Banner every open or once/day? All zero-allocated or P1 only? Vibration? Include Savings in alerts?
+- **Task 6**: ✅ Nav badge on Budget item + amber alert banner on Dashboard + "Not yet funded" chip row in CategoryView. Uses localStorage (_fin_budget_alert) + custom event for same-tab sync.
 - **Task 7**: Search + filter chips + totals footer on Transactions page. Q: Default all-time or current month? Delete from here? Amount search? CSV export?
-- **Task 8**: Income template chips in ProcessIncome modal — tap to pre-fill amount. Stored in localStorage. Q: How many templates? Auto-advance or manual? Per-template default account? Sort by recency?
-- **Task 9**: Savings Goals sheet tab + Dashboard progress cards with milestone markers. Q: All-time or start-date tracking? Dashboard inline or separate page? Require linked category? Auto-archive?
-- **Task 10**: Financial Health Score (0–100) arc gauge on Dashboard. Weighted: budget adherence/income processed/savings rate/bills covered/spending trend. Q: Position on Dashboard? Business income included? Target score alerts? Number vs letter grade?
+- **Task 8**: Income template chips in ProcessIncome modal — tap to pre-fill amount. Stored in localStorage. Q: Global or account-specific? Include processing mode? Max 5 or 8?
+- **Task 9**: Savings Goals sheet tab + 5th Budget tab with progress bars and milestone toasts. Q: 5th Budget tab or standalone page? Track start date? Show projected completion?
+- **Task 10**: Financial Health Score (0–100) arc gauge on Dashboard. 4 weighted signals. Q: Position on Dashboard? Personal target score? Push notification below 40?
+- **Task 11**: YTD Budget Summary — new tab in Summary page. Shows total income vs goal, per-category YTD actuals vs budget, best/worst month cards.
+- **Task 12**: Commission income bridge — "Mark Complete + Process" button links commissions to Process Income modal; outstanding badge on Art nav item.
+- **Task 13**: Subscription cost insights — annual cost view, cost ranking, 90-day renewal calendar, month-over-month subscription trend.
 
 ## Git Workflow
 1. Source changes → feature branch (e.g. `claude/zealous-euler-p8sWK`) based on `main`
