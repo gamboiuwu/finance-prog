@@ -105,7 +105,6 @@ export default function Dashboard({ token }) {
   const [gasLogging, setGasLogging]     = useState(false);
   const [gasLogDone, setGasLogDone]     = useState(false);
   const [gasBalance, setGasBalance]     = useState(null);
-  const [gasBalRefresh, setGasBalRefresh] = useState(0);
   const [showExpLog, setShowExpLog]     = useState(false);
   const [expAmount, setExpAmount]       = useState('');
   const [expCategory, setExpCategory]   = useState('');
@@ -137,15 +136,16 @@ export default function Dashboard({ token }) {
   useEffect(() => {
     if (!token) return;
     setLoading(true);
+    // Core sheet data only — the external gas-price API is fetched separately
+    // (below) so a slow/rate-limited EIA response can never block first paint.
     Promise.all([
       readRange(token, `${SHEETS.MONTHLY_SUMMARY}!A1:P13`),
       readRange(token, `${SHEETS.MONTHLY_EXPENSES}!A1:T40`),
       readReportLinks(token),
-      fetchGasPrices().catch(() => null),
       readRange(token, 'Subscriptions!A:E').catch(() => []),
       readRange(token, 'Allocation Transactions!A:F', 'UNFORMATTED_VALUE').catch(() => []),
     ])
-      .then(([summaryRows, expRows, links, gas, subRows, allocRows]) => {
+      .then(([summaryRows, expRows, links, subRows, allocRows]) => {
         setReportLinks(links);
 
         if (summaryRows.length) {
@@ -164,16 +164,19 @@ export default function Dashboard({ token }) {
           setExpenses(expItems);
         }
 
-        // Compute budget alerts + income/spent totals for current month
+        // Single pass over Allocation Transactions: current-month budget totals
+        // + all-time gas balance (replaces the separate A:C read for gas).
         if (allocRows.length > 1) {
           const d0 = new Date();
           const mo0 = d0.getMonth() + 1;
           const yr0 = d0.getFullYear();
           const abt = {};
-          let monthIncome = 0, monthSpent = 0;
+          let monthIncome = 0, monthSpent = 0, gasBal = 0;
           const [, ...allocData] = allocRows;
           allocData.forEach(r => {
             if (!r[0] || !r[1]) return;
+            const amt = pm(r[2]);
+            if (String(r[1]).trim().toLowerCase() === 'gas') gasBal += amt;
             const ds = String(r[0]);
             const n = Number(ds);
             let d;
@@ -184,7 +187,6 @@ export default function Dashboard({ token }) {
             }
             if (!d || isNaN(d.getTime())) return;
             if (d.getMonth() + 1 !== mo0 || d.getFullYear() !== yr0) return;
-            const amt = pm(r[2]);
             if (amt > 0) {
               abt[String(r[1])] = (abt[String(r[1])] || 0) + amt;
               monthIncome += amt;
@@ -193,6 +195,7 @@ export default function Dashboard({ token }) {
             }
           });
           setAllocTotals({ income: monthIncome, spent: monthSpent });
+          setGasBalance(gasBal);
           if (expItems.length) {
             const mainExp = expItems.filter(i => i['Expense'] !== 'Savings');
             const overCount = mainExp.filter(i => {
@@ -208,11 +211,6 @@ export default function Dashboard({ token }) {
             localStorage.setItem('_fin_budget_alert', JSON.stringify({ count: overCount, month: `${yr0}-${mo0}` }));
             window.dispatchEvent(new Event('_fin_budget_alert_update'));
           }
-        }
-
-        if (gas) {
-          const nyc = gas.byRegion['Y35NY']?.products['EPMR']?.value;
-          setGasPrice({ value: nyc, period: gas.period });
         }
 
         if (subRows.length > 1) {
@@ -232,22 +230,20 @@ export default function Dashboard({ token }) {
       .finally(() => setLoading(false));
   }, [token]);
 
-  // Load gas balance independently so it can refresh rapidly after a log
+  // Fetch the external gas-price API after first paint (non-blocking) so a
+  // slow or rate-limited EIA response never delays the dashboard rendering.
   useEffect(() => {
     if (!token) return;
-    readRange(token, 'Allocation Transactions!A:C', 'UNFORMATTED_VALUE')
-      .then(rows => {
-        const [, ...data] = rows;
-        const bal = data
-          .filter(r => r[0] && String(r[1]).trim().toLowerCase() === 'gas')
-          .reduce((sum, r) => {
-            const n = parseFloat(String(r[2] || '').replace(/[$,\s]/g, ''));
-            return sum + (isNaN(n) ? 0 : n);
-          }, 0);
-        setGasBalance(bal);
+    let cancelled = false;
+    fetchGasPrices()
+      .then(gas => {
+        if (cancelled || !gas) return;
+        const nyc = gas.byRegion['Y35NY']?.products['EPMR']?.value;
+        setGasPrice({ value: nyc, period: gas.period });
       })
       .catch(() => {});
-  }, [token, gasBalRefresh]);
+    return () => { cancelled = true; };
+  }, [token]);
 
   if (loading) return <LoadingSpinner />;
   if (error)   return <div className="p-4 text-red-400">Error: {error}</div>;
@@ -296,7 +292,7 @@ export default function Dashboard({ token }) {
       setGasLogDone(true);
       setGasAmount('');
       setGasDesc('');
-      setGasBalRefresh(k => k + 1);
+      setGasBalance(b => (b ?? 0) - Math.abs(amt));
       setTimeout(() => { setGasLogDone(false); setShowGasLog(false); }, 1800);
     } catch (e) {
       alert(`Error logging gas: ${e.message}`);
@@ -523,7 +519,7 @@ ${stmtTxns.length ? `
   }
 
   return (
-    <div className="stagger p-4 space-y-5 pb-24">
+    <div className="stagger p-4 space-y-5 pb-24 md:max-w-4xl md:mx-auto">
 
       {/* ── Process Income + Statement CTAs ─────────────────── */}
       <div className="flex gap-3">
@@ -696,7 +692,7 @@ ${stmtTxns.length ? `
                   disabled={!gasAmount || gasLogging}
                   className="w-full py-3.5 rounded-xl bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-bold transition-colors"
                 >
-                  {gasLogging ? 'Logging…' : `⛽ Log $${parseFloat(gasAmount || 0).toFixed(2)} Gas Spend`}
+                  {gasLogging ? 'Logging…' : parseFloat(gasAmount) > 0 ? `⛽ Log $${parseFloat(gasAmount).toFixed(2)} Gas Spend` : '⛽ Enter an amount'}
                 </button>
               </>
             )}
@@ -1039,7 +1035,13 @@ ${stmtTxns.length ? `
                   disabled={!expAmount || !expCategory || expLogging}
                   className="w-full py-3.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-bold transition-colors"
                 >
-                  {expLogging ? 'Logging…' : `Log $${parseFloat(expAmount || 0).toFixed(2)} — ${expCategory || 'select category'}`}
+                  {expLogging
+                    ? 'Logging…'
+                    : !(parseFloat(expAmount) > 0)
+                      ? 'Enter an amount'
+                      : !expCategory
+                        ? 'Select a category'
+                        : `Log $${parseFloat(expAmount).toFixed(2)} — ${expCategory}`}
                 </button>
               </>
             )}

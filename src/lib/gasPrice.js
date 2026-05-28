@@ -34,7 +34,14 @@ export async function fetchGasPrices(apiKey = 'DEMO_KEY') {
 
   let res;
   try {
-    res = await fetch(url);
+    // Abort the request if the EIA API is slow/unreachable so callers never hang
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    try {
+      res = await fetch(url, { signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
   } catch {
     if (staleCache) return { ...staleCache.data, stale: true };
     throw new Error('Network error — EIA API unreachable');
