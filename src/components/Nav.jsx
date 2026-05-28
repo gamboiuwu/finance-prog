@@ -47,7 +47,7 @@ export default function Nav() {
               }`
             }
           >
-            <span className="text-base leading-none relative">
+            <span className="nav-icon text-base leading-none relative">
               {icon}
               {to === '/budget' && budgetBadge > 0 && (
                 <span className="absolute -top-1 -right-2 min-w-[14px] h-3.5 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 leading-none">
@@ -55,7 +55,7 @@ export default function Nav() {
                 </span>
               )}
             </span>
-            <span className="text-[10px]">{label}</span>
+            <span className="text-[10px] transition-colors duration-150">{label}</span>
           </NavLink>
         ))}
       </div>

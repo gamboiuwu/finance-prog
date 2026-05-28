@@ -156,7 +156,7 @@ export default function Commissions({ token }) {
   const totalPaid = inquiries.reduce((s, i) => s + (parseFloat(i['Paid Amount, Method']) || 0), 0);
 
   return (
-    <div className="p-4 pb-24 space-y-4">
+    <div className="stagger p-4 pb-24 space-y-4">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-white">Commissions</h1>

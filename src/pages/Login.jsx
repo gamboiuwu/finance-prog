@@ -22,7 +22,7 @@ export default function Login({ onLogin }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 gap-6">
+    <div className="animate-fade-in min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 gap-6">
       <div className="text-center space-y-2">
         <div className="text-5xl mb-4">💰</div>
         <h1 className="text-3xl font-bold text-white">Finance Tracker</h1>

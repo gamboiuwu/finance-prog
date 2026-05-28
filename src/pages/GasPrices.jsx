@@ -78,7 +78,7 @@ export default function GasPrices() {
   };
 
   return (
-    <div className="p-4 pb-24 space-y-4">
+    <div className="stagger p-4 pb-24 space-y-4">
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>

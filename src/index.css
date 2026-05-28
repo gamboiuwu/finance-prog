@@ -64,3 +64,142 @@
     scrollbar-width: none;
   }
 }
+
+/* ── Animation keyframes ─────────────────────────────── */
+
+@keyframes fadeIn {
+  from { opacity: 0 }
+  to   { opacity: 1 }
+}
+
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(20px) }
+  to   { opacity: 1; transform: translateY(0) }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95) }
+  to   { opacity: 1; transform: scale(1) }
+}
+
+@keyframes slideUpModal {
+  from { transform: translateY(100%) }
+  to   { transform: translateY(0) }
+}
+
+@keyframes slideDownFade {
+  from { opacity: 0; transform: translateY(-10px) }
+  to   { opacity: 1; transform: translateY(0) }
+}
+
+@keyframes navIndicator {
+  from { width: 0; opacity: 0 }
+  to   { width: 24px; opacity: 1 }
+}
+
+/* ── Page entrance ───────────────────────────────────── */
+
+.page-enter {
+  animation: fadeSlideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Staggered list children ─────────────────────────── */
+
+.stagger > * {
+  animation: fadeSlideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stagger > *:nth-child(1)   { animation-delay:   0ms; }
+.stagger > *:nth-child(2)   { animation-delay:  48ms; }
+.stagger > *:nth-child(3)   { animation-delay:  96ms; }
+.stagger > *:nth-child(4)   { animation-delay: 144ms; }
+.stagger > *:nth-child(5)   { animation-delay: 192ms; }
+.stagger > *:nth-child(6)   { animation-delay: 240ms; }
+.stagger > *:nth-child(7)   { animation-delay: 288ms; }
+.stagger > *:nth-child(8)   { animation-delay: 336ms; }
+.stagger > *:nth-child(n+9) { animation-delay: 380ms; }
+
+/* ── Utility animation classes ───────────────────────── */
+
+.animate-fade-in  { animation: fadeIn      0.3s  ease both; }
+.animate-scale-in { animation: scaleIn     0.22s ease both; }
+.animate-slide-down { animation: slideDownFade 0.2s ease both; }
+
+/* ── Modal / drawer animations ───────────────────────── */
+
+/* Bottom-sheet panel */
+.modal-sheet {
+  animation: slideUpModal 0.36s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* All fixed z-50 overlays auto-fade their backdrop */
+[class~="z-50"][class~="fixed"] {
+  animation: fadeIn 0.22s ease both;
+}
+
+/* Dropdowns / menus slide down */
+.menu-enter {
+  animation: slideDownFade 0.18s ease both;
+}
+
+/* ── Progress bar fill animation ─────────────────────── */
+
+/* Animate from 0 on first paint (needs @starting-style, degrades gracefully) */
+.rounded-full > div[style*="width"],
+.rounded-full > .flex > div[style*="width"] {
+  transition: width 0.75s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@starting-style {
+  .rounded-full > div[style*="width"],
+  .rounded-full > .flex > div[style*="width"] {
+    width: 0 !important;
+  }
+}
+
+/* ── Nav tab animations ───────────────────────────────── */
+
+/* Each tab smoothly transitions position + color */
+nav a {
+  position: relative;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+              color 0.15s ease;
+}
+nav [aria-current="page"] {
+  transform: translateY(-3px);
+}
+
+/* Active indicator line at top of tab */
+nav [aria-current="page"]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 2px;
+  background: #3b82f6;
+  border-radius: 0 0 3px 3px;
+  animation: navIndicator 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Icon lift + scale when active */
+nav .nav-icon {
+  display: inline-block;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+nav [aria-current="page"] .nav-icon {
+  transform: scale(1.18);
+}
+
+/* ── Interactive feel ────────────────────────────────── */
+
+/* Card hover lift */
+.card-hover {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+.card-hover:active {
+  transform: scale(0.98);
+}
