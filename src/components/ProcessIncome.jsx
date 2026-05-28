@@ -274,6 +274,25 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     setTimeout(() => setCopied(false), 2000);
   }
 
+  // Per-account totals: already this month + being added now
+  const accountTiles = useMemo(() => {
+    const map = {};
+    deposits.forEach(d => {
+      if (!map[d.account]) map[d.account] = { adding: 0, already: 0 };
+      map[d.account].adding  += d.deposit;
+      map[d.account].already += d.already;
+    });
+    surplusDeposits.forEach(it => {
+      if (!it.name?.trim() || it.deposit <= 0) return;
+      const acct = it.account || 'Savings';
+      if (!map[acct]) map[acct] = { adding: 0, already: 0 };
+      map[acct].adding += it.deposit;
+    });
+    return ACCOUNT_ORDER
+      .filter(a => map[a])
+      .map(a => ({ name: a, ...map[a], style: ACCOUNT_ICONS[a] || { icon: '💰', color: 'text-slate-300', bg: 'bg-slate-800 border-slate-700' } }));
+  }, [deposits, surplusDeposits]);
+
   // ── Success ───────────────────────────────────────────────────────────────
   if (done) {
     return (
@@ -296,25 +315,6 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
       </div>
     );
   }
-
-  // Per-account totals: already this month + being added now
-  const accountTiles = useMemo(() => {
-    const map = {};
-    deposits.forEach(d => {
-      if (!map[d.account]) map[d.account] = { adding: 0, already: 0 };
-      map[d.account].adding  += d.deposit;
-      map[d.account].already += d.already;
-    });
-    surplusDeposits.forEach(it => {
-      if (!it.name?.trim() || it.deposit <= 0) return;
-      const acct = it.account || 'Savings';
-      if (!map[acct]) map[acct] = { adding: 0, already: 0 };
-      map[acct].adding += it.deposit;
-    });
-    return ACCOUNT_ORDER
-      .filter(a => map[a])
-      .map(a => ({ name: a, ...map[a], style: ACCOUNT_ICONS[a] || { icon: '💰', color: 'text-slate-300', bg: 'bg-slate-800 border-slate-700' } }));
-  }, [deposits, surplusDeposits]);
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
