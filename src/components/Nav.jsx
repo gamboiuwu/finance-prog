@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 const tabs = [
   { to: '/',             label: 'Home',    icon: '⌂'  },
@@ -10,7 +11,28 @@ const tabs = [
   { to: '/actions',     label: 'History', icon: '↺'  },
 ];
 
+function readBudgetBadge() {
+  try {
+    const stored = JSON.parse(localStorage.getItem('_fin_budget_alert') || '{}');
+    const now = new Date();
+    if (stored.month === `${now.getFullYear()}-${now.getMonth() + 1}`) return stored.count || 0;
+  } catch {}
+  return 0;
+}
+
 export default function Nav() {
+  const [budgetBadge, setBudgetBadge] = useState(readBudgetBadge);
+
+  useEffect(() => {
+    const refresh = () => setBudgetBadge(readBudgetBadge());
+    window.addEventListener('storage', refresh);
+    window.addEventListener('_fin_budget_alert_update', refresh);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener('_fin_budget_alert_update', refresh);
+    };
+  }, []);
+
   return (
     <nav className="fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 z-40 safe-area-pb">
       <div className="flex">
@@ -25,7 +47,14 @@ export default function Nav() {
               }`
             }
           >
-            <span className="text-base leading-none">{icon}</span>
+            <span className="text-base leading-none relative">
+              {icon}
+              {to === '/budget' && budgetBadge > 0 && (
+                <span className="absolute -top-1 -right-2 min-w-[14px] h-3.5 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 leading-none">
+                  {budgetBadge > 9 ? '9+' : budgetBadge}
+                </span>
+              )}
+            </span>
             <span className="text-[10px]">{label}</span>
           </NavLink>
         ))}

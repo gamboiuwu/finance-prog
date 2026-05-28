@@ -123,6 +123,7 @@ export default function Dashboard({ token }) {
   const [stmtLoading, setStmtLoading]   = useState(false);
   const [stmtTxns, setStmtTxns]         = useState([]);
   const [stmtError, setStmtError]       = useState(null);
+  const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0 });
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -137,8 +138,9 @@ export default function Dashboard({ token }) {
       readReportLinks(token),
       fetchGasPrices().catch(() => null),
       readRange(token, 'Subscriptions!A:E').catch(() => []),
+      readRange(token, 'Allocation Transactions!A:F', 'UNFORMATTED_VALUE').catch(() => []),
     ])
-      .then(([summaryRows, expRows, links, gas, subRows]) => {
+      .then(([summaryRows, expRows, links, gas, subRows, allocRows]) => {
         setReportLinks(links);
 
         if (summaryRows.length) {
@@ -148,11 +150,50 @@ export default function Dashboard({ token }) {
           ));
         }
 
+        let expItems = [];
         if (expRows.length) {
           const [headers, ...data] = expRows;
-          setExpenses(data.filter(r => r[0]).map(r =>
+          expItems = data.filter(r => r[0]).map(r =>
             headers.reduce((o, h, i) => { o[h] = r[i] ?? null; return o; }, {})
-          ));
+          );
+          setExpenses(expItems);
+        }
+
+        // Compute budget alerts for current month
+        if (expItems.length && allocRows.length > 1) {
+          const d0 = new Date();
+          const mo0 = d0.getMonth() + 1;
+          const yr0 = d0.getFullYear();
+          const abt = {};
+          const [, ...allocData] = allocRows;
+          allocData.forEach(r => {
+            if (!r[0] || !r[1]) return;
+            const ds = String(r[0]);
+            const n = Number(ds);
+            let d;
+            if (!isNaN(n) && n > 1000 && !ds.includes('/')) {
+              d = new Date(Math.round((n - 25569) * 86400000));
+            } else {
+              d = new Date(ds);
+            }
+            if (!d || isNaN(d.getTime())) return;
+            if (d.getMonth() + 1 !== mo0 || d.getFullYear() !== yr0) return;
+            const amt = pm(r[2]);
+            if (amt > 0) abt[String(r[1])] = (abt[String(r[1])] || 0) + amt;
+          });
+          const mainExp = expItems.filter(i => i['Expense'] !== 'Savings');
+          const overCount = mainExp.filter(i => {
+            const b = pm(i['Monthly Allowance ($)']);
+            return b > 0 && (abt[i['Type'] || ''] || 0) > b;
+          }).length;
+          const needsCount = mainExp.filter(i =>
+            String(i['Priority'] ?? '3') === '1' &&
+            pm(i['Monthly Allowance ($)']) > 0 &&
+            !(abt[i['Type'] || ''] > 0)
+          ).length;
+          setBudgetAlerts({ overCount, needsCount });
+          localStorage.setItem('_fin_budget_alert', JSON.stringify({ count: overCount, month: `${yr0}-${mo0}` }));
+          window.dispatchEvent(new Event('_fin_budget_alert_update'));
         }
 
         if (gas) {
@@ -512,6 +553,31 @@ ${stmtTxns.length ? `
           </div>
         );
       })()}
+
+      {/* ── Budget Alert Banner ─────────────────────────────── */}
+      {(budgetAlerts.overCount > 0 || budgetAlerts.needsCount > 0) && (
+        <button
+          onClick={() => navigate('/budget')}
+          className="w-full bg-amber-900/40 border border-amber-700/60 rounded-2xl p-3 flex items-center justify-between gap-3 active:opacity-80 text-left"
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="text-amber-400 text-lg shrink-0">⚠</span>
+            <div>
+              {budgetAlerts.overCount > 0 && (
+                <p className="text-amber-200 font-semibold text-sm">
+                  {budgetAlerts.overCount} {budgetAlerts.overCount === 1 ? 'category' : 'categories'} over budget
+                </p>
+              )}
+              {budgetAlerts.needsCount > 0 && (
+                <p className="text-amber-400/80 text-xs mt-0.5">
+                  {budgetAlerts.needsCount} essential{budgetAlerts.needsCount !== 1 ? 's' : ''} not yet funded
+                </p>
+              )}
+            </div>
+          </div>
+          <span className="text-amber-500 text-xs shrink-0 font-medium">View Budget →</span>
+        </button>
+      )}
 
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex justify-between items-start">

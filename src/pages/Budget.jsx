@@ -555,8 +555,28 @@ function CategoryView({ items, allocTx }) {
   const savingsB = savingsItems.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0);
   const savingsA = savingsItems.reduce((s, i) => s + (allocByType[i['Type'] || ''] || 0), 0);
 
+  const needsFunding = mainItems.filter(i =>
+    String(i['Priority'] ?? '3') === '1' &&
+    pm(i['Monthly Allowance ($)']) > 0 &&
+    !(allocByType[i['Type'] || ''] > 0)
+  );
+
   return (
     <div className="space-y-4">
+      {/* Needs Funding alert */}
+      {needsFunding.length > 0 && (
+        <div className="bg-rose-950/40 border border-rose-700/50 rounded-2xl p-3">
+          <p className="text-rose-300 font-semibold text-xs uppercase tracking-wide mb-2">⚡ Not yet funded — Essentials</p>
+          <div className="flex flex-wrap gap-1.5">
+            {needsFunding.map(item => (
+              <span key={item._rowNum} className="text-rose-200 bg-rose-900/50 text-xs px-2 py-1 rounded-lg font-mono">
+                {item['Type']} · {fmt(pm(item['Monthly Allowance ($)']))}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Summary bar */}
       <div className="bg-slate-900 rounded-2xl p-4">
         <div className="grid grid-cols-3 gap-3 mb-3">
