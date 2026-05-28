@@ -11,6 +11,43 @@ import {
 const SHEET = SHEETS.BUSINESS_PRODUCTS;
 const HEADERS = ['ID', 'Name', 'StartPrice', 'Formula'];
 
+/*
+ * ───────────────────────────────────────────────────────────────────────────
+ * BUSINESS MONEY MODEL — how every number on this page is computed
+ * ───────────────────────────────────────────────────────────────────────────
+ * Source sheets:
+ *   • Business Products         (A:D) ID, Name, StartPrice, Formula(JSON blocks)
+ *   • Business Transactions     (A:H) Date, Client, Product, Qty, Unit, Revenue, Margin%, Allocs(JSON)
+ *   • Business Account Spending (A:E) Date, Account, Amount, Vendor, Description
+ *   • Business Expenses         (A:G) Date, Vendor, Amount, Category, Product, Payment, Notes
+ *
+ * A product Formula is a waterfall of blocks {category, type:'fixed'|'percent', value}.
+ * computeFormula() spends each block out of StartPrice in order; percent blocks take
+ * a % of what REMAINS. computeFormulaProportional() scales fixed blocks by
+ * actualRevenue/StartPrice when a real sale is processed.
+ *
+ * Per-category ledger — the SINGLE source of truth shared by Accounts & Insights:
+ *   earned(C)  = Σ Business Transactions allocs[C]            (set aside by sales)
+ *   spent(C)   = Σ Business Account Spending where Account=C  (direct bucket draw)
+ *              + Σ Business Expenses        where Category=C  (logged expense)
+ *   balance(C) = earned(C) − spent(C)
+ *   Profit/Revenue spending rows tagged "processed as personal income" are owner
+ *   withdrawals, NOT a business cost — excluded from P&L expenses below.
+ *
+ * Profit (Sales tab):  totalProfit = earned(Profit) + earned(Revenue)
+ *                      netProfit   = totalProfit − withdrawals(Profit+Revenue)
+ *
+ * P&L (Insights tab):  Revenue      = Σ Business Transactions Revenue
+ *                      COGS         = actual spend (expenses + spending) categorised COGS
+ *                      OpEx         = all other actual spend (excl. owner withdrawals)
+ *                      Gross Profit = Revenue − COGS
+ *                      Net Profit   = Revenue − COGS − OpEx
+ *
+ * Categories & colours have ONE source of truth: BUILT_IN_CATS + CAT_COLORS.
+ * EXP_CATEGORIES = BUILT_IN_CATS minus Profit/Revenue (profit isn't a spendable cost).
+ * ───────────────────────────────────────────────────────────────────────────
+ */
+
 const BUILT_IN_CATS = ['COGS', 'Merchandise', 'Profit', 'Revenue', 'Materials', 'Labor', 'Overhead', 'Shipping', 'Platform Fees', 'Taxes', 'Other'];
 
 // Revenue is treated as profit — same color, counts toward the Profit tile and Process button
@@ -27,6 +64,13 @@ const CAT_COLORS = {
   Taxes:          '#dc2626',
   Other:          '#94a3b8',
 };
+
+// Categories that represent real money OUT (everything except Profit/Revenue, which
+// are money IN set aside for the owner). Used by both the Expenses and Accounts tabs.
+const EXP_CATEGORIES = BUILT_IN_CATS.filter(c => c !== 'Profit' && c !== 'Revenue');
+
+// Single colour lookup for any category — falls back to a neutral slate.
+function catColor(name) { return CAT_COLORS[name] || CAT_COLORS.Other; }
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
@@ -464,19 +508,8 @@ const TRANS_SHEET = 'Business Transactions';
 const SPEND_SHEET = SHEETS.BUSINESS_ACCOUNT_SPENDING;
 const BIZ_EXP_SHEET = SHEETS.BUSINESS_EXPENSES;
 const BIZ_EXP_HEADERS = ['Date', 'Vendor', 'Amount', 'Category', 'Product', 'Payment', 'Notes'];
-const EXP_CATEGORIES = ['COGS', 'Merchandise', 'Materials', 'Labor', 'Overhead', 'Shipping', 'Platform Fees', 'Taxes', 'Other'];
 const EXP_PAYMENT_SOURCES = ['Checking', 'Cash', 'Business Card', 'PayPal', 'Other'];
-const EXP_CAT_COLORS = {
-  COGS:           '#3b82f6',
-  Merchandise:    '#a855f7',
-  Materials:      '#f59e0b',
-  Labor:          '#f43f5e',
-  Overhead:       '#64748b',
-  Shipping:       '#06b6d4',
-  'Platform Fees':'#ec4899',
-  Taxes:          '#dc2626',
-  Other:          '#94a3b8',
-};
+// EXP_CATEGORIES + colours now come from the unified model at the top of the file.
 
 function ProcessModal({ product, token, onClose, onSuccess }) {
   const [inputMode, setInputMode] = useState('amount'); // 'amount' | 'quantity'
@@ -969,6 +1002,24 @@ function localDateTimeStr() {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// Normalise any sheet date cell (serial number, YYYY-MM-DD, or M/D/YYYY) to a
+// 'YYYY-MM' month key. Returns '' when unparseable. Used by the Insights tab so
+// transactions, account spending, and expenses all bucket into the same months.
+function monthKey(v) {
+  if (v == null || v === '') return '';
+  const n = Number(v);
+  const s = String(v);
+  if (!isNaN(n) && n > 1000 && !s.includes('-') && !s.includes('/')) {
+    const d = new Date(Math.round((Math.floor(n) - 25569) * 86400000));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+  if (s.includes('-')) return s.slice(0, 7);
+  if (s.includes('/')) { const p = s.split('/'); return `${p[2]}-${String(p[0]).padStart(2, '0')}`; }
+  return '';
+}
+
+const IS_OWNER_DRAW = d => String(d || '').toLowerCase().includes('processed as personal income');
+
 function fmtDateTime(date, time) {
   if (!date) return '—';
   const d = new Date(date + 'T12:00:00');
@@ -1455,6 +1506,7 @@ function SalesView({ token, products }) {
 function AccountsView({ token, products, refreshKey }) {
   const [txns,     setTxns]     = useState([]);
   const [spending, setSpending] = useState([]);
+  const [bizExp,   setBizExp]   = useState([]); // Business Expenses rows, matched by Category
   const [loading,  setLoading]  = useState(true);
   const [err,      setErr]      = useState(null);
   const [openAcct, setOpenAcct] = useState(null);
@@ -1466,10 +1518,13 @@ function AccountsView({ token, products, refreshKey }) {
     (async () => {
       setLoading(true); setErr(null);
       try {
-        const [salesRows, spendRows] = await Promise.all([
+        const [salesRows, spendRows, expRows] = await Promise.all([
           readRange(token, `${TRANS_SHEET}!A:H`, 'UNFORMATTED_VALUE'),
           ensureSheetTab(token, SPEND_SHEET)
             .then(() => readRange(token, `${SPEND_SHEET}!A:E`, 'UNFORMATTED_VALUE'))
+            .catch(() => []),
+          ensureSheetTab(token, BIZ_EXP_SHEET)
+            .then(() => readRange(token, `${BIZ_EXP_SHEET}!A:G`, 'UNFORMATTED_VALUE'))
             .catch(() => []),
         ]);
         if (cancelled) return;
@@ -1489,7 +1544,7 @@ function AccountsView({ token, products, refreshKey }) {
           .filter(Boolean);
         setTxns(parsedSales);
 
-        // Parse spending (drawdowns)
+        // Parse spending (direct bucket drawdowns)
         const parsedSpend = (spendRows || [])
           .slice(String(spendRows?.[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
           .map((r, idx) => ({
@@ -1499,6 +1554,17 @@ function AccountsView({ token, products, refreshKey }) {
           }))
           .filter(r => r.account);
         setSpending(parsedSpend);
+
+        // Parse Business Expenses → spending matched to a category bucket.
+        // This is what makes the Expenses tab and the Accounts tab agree.
+        const parsedExp = (expRows || [])
+          .slice(String(expRows?.[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
+          .map(r => ({
+            date: r[0], vendor: r[1] || '', amount: parseFloat(r[2]) || 0,
+            category: r[3] || '', product: r[4] || '', notes: r[6] || '',
+          }))
+          .filter(r => r.category && r.amount);
+        setBizExp(parsedExp);
       } catch (e) {
         if (!cancelled) setErr(e.message);
       } finally {
@@ -1508,26 +1574,29 @@ function AccountsView({ token, products, refreshKey }) {
     return () => { cancelled = true; };
   }, [token, refreshKey, internal]);
 
-  // Discover accounts: union of allocation category names across products + any
-  // category that has historical sales/spending. Use blockLabel so custom
-  // "Other" names show up too.
+  // Discover accounts: union of formula categories + any category that has
+  // historical sales, direct spending, OR a logged expense. blockLabel keeps
+  // custom "Other" names visible.
   const accountNames = useMemo(() => {
     const set = new Set();
     products.forEach(p => (p.formula || []).forEach(b => set.add(blockLabel(b))));
     txns.forEach(t => Object.keys(t.allocs || {}).forEach(k => set.add(k)));
     spending.forEach(s => set.add(s.account));
+    bizExp.forEach(e => set.add(e.category));
     return Array.from(set);
-  }, [products, txns, spending]);
+  }, [products, txns, spending, bizExp]);
 
   const accounts = useMemo(() => accountNames.map(name => {
-    const contributed = txns.reduce((s, t) => s + (parseFloat(t.allocs?.[name]) || 0), 0);
-    const spent       = spending.filter(s => s.account === name).reduce((s, r) => s + r.amount, 0);
-    const balance     = contributed - spent;
+    const contributed  = txns.reduce((s, t) => s + (parseFloat(t.allocs?.[name]) || 0), 0);
+    const spentDirect  = spending.filter(s => s.account === name).reduce((s, r) => s + r.amount, 0);
+    const spentExpense = bizExp.filter(e => e.category === name).reduce((s, e) => s + e.amount, 0);
+    const spent        = spentDirect + spentExpense;
+    const balance      = contributed - spent;
     // Pull a representative color from any product block whose label matches
     const block = products.flatMap(p => p.formula || []).find(b => blockLabel(b) === name);
-    const color = block ? blockColor(block) : (CAT_COLORS[name] || CAT_COLORS.Other);
-    return { name, contributed, spent, balance, color };
-  }).sort((a, b) => b.balance - a.balance), [accountNames, txns, spending, products]);
+    const color = block ? blockColor(block) : catColor(name);
+    return { name, contributed, spent, spentDirect, spentExpense, balance, color };
+  }).sort((a, b) => b.balance - a.balance), [accountNames, txns, spending, bizExp, products]);
 
   if (loading) return <div className="px-4 py-10"><LoadingSpinner /></div>;
 
@@ -1537,8 +1606,10 @@ function AccountsView({ token, products, refreshKey }) {
         <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm">{err}</div>
       )}
       <p className="text-slate-500 text-xs">
-        Each formula category is a "bucket" — tap one to spend out of it (writes a row to the
-        <span className="text-slate-300"> Business Account Spending</span> sheet).
+        Each category is a "bucket": <span className="text-emerald-400">earned</span> from sales minus everything
+        <span className="text-rose-400"> spent</span>. Spending counts whether you tap a bucket here
+        <span className="text-slate-300"> or</span> log it on the <span className="text-slate-300">Expenses 📒</span> tab —
+        both feed the same balance.
       </p>
 
       {/* Diagnostics: shows what AccountsView actually read from the sheet */}
@@ -1599,6 +1670,9 @@ function AccountsView({ token, products, refreshKey }) {
             <div className="mt-2 flex flex-col gap-0.5 text-[10px] text-slate-500 font-mono tabular-nums">
               <span>+ ${a.contributed.toFixed(2)} earned</span>
               <span>− ${a.spent.toFixed(2)} spent</span>
+              {a.spentExpense > 0 && (
+                <span className="text-slate-600">incl. ${a.spentExpense.toFixed(2)} from Expenses</span>
+              )}
             </div>
           </button>
         ))}
@@ -1608,7 +1682,12 @@ function AccountsView({ token, products, refreshKey }) {
         <AccountSpendModal
           token={token}
           account={openAcct}
-          history={spending.filter(s => s.account === openAcct.name)}
+          history={[
+            ...spending.filter(s => s.account === openAcct.name)
+              .map(s => ({ date: s.date, amount: s.amount, vendor: s.vendor, description: s.description, source: 'direct' })),
+            ...bizExp.filter(e => e.category === openAcct.name)
+              .map(e => ({ date: e.date, amount: e.amount, vendor: e.vendor, description: e.notes || e.product, source: 'expense' })),
+          ].sort((a, b) => String(b.date).localeCompare(String(a.date)))}
           contributions={txns
             .filter(t => parseFloat(t.allocs?.[openAcct.name]) > 0)
             .map(t => ({ date: t.date, label: `${t.product}${t.client ? ' — ' + t.client : ''}`, amount: parseFloat(t.allocs[openAcct.name]) }))}
@@ -1732,9 +1811,12 @@ function AccountSpendModal({ token, account, history, contributions, onClose, on
                 <div>
                   <p className="text-rose-400 text-[10px] uppercase tracking-wider font-broske mb-1.5">Spent ({history.length})</p>
                   <ul className="divide-y divide-slate-800 rounded-xl bg-slate-800/40 overflow-hidden">
-                    {history.slice().reverse().slice(0, 30).map((h, i) => (
-                      <li key={i} className="flex justify-between px-3 py-2 text-sm">
-                        <span className="text-slate-300 truncate pr-2">{[h.vendor, h.description].filter(Boolean).join(' — ') || '—'}</span>
+                    {history.slice(0, 30).map((h, i) => (
+                      <li key={i} className="flex justify-between items-center px-3 py-2 text-sm gap-2">
+                        <span className="text-slate-300 truncate pr-2">
+                          {[h.vendor, h.description].filter(Boolean).join(' — ') || '—'}
+                          {h.source === 'expense' && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-slate-700 text-slate-400 align-middle">📒</span>}
+                        </span>
                         <span className="text-rose-400 font-mono tabular-nums shrink-0">−${h.amount.toFixed(2)}</span>
                       </li>
                     ))}
@@ -2117,7 +2199,7 @@ function ExpensesTab({ token, products }) {
               <PieChart width={110} height={110}>
                 <Pie data={catChartData} cx={55} cy={55} innerRadius={30} outerRadius={50}
                   dataKey="value" stroke="none" paddingAngle={2}>
-                  {catChartData.map((entry, i) => <Cell key={i} fill={EXP_CAT_COLORS[entry.name] || '#64748b'} />)}
+                  {catChartData.map((entry, i) => <Cell key={i} fill={catColor(entry.name)} />)}
                 </Pie>
                 <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }}
                   formatter={v => [`$${v.toFixed(2)}`]} />
@@ -2134,7 +2216,7 @@ function ExpensesTab({ token, products }) {
                   <div key={name} className="space-y-0.5">
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: EXP_CAT_COLORS[name] || '#64748b' }} />
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: catColor(name) }} />
                         <span className="text-slate-300 truncate">{name}</span>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0 ml-2">
@@ -2144,7 +2226,7 @@ function ExpensesTab({ token, products }) {
                     </div>
                     <div className="w-full bg-slate-800 rounded-full h-1 overflow-hidden">
                       <div className="h-1 rounded-full transition-all"
-                        style={{ width: `${totalThis > 0 ? (value / totalThis) * 100 : 0}%`, background: EXP_CAT_COLORS[name] || '#64748b' }} />
+                        style={{ width: `${totalThis > 0 ? (value / totalThis) * 100 : 0}%`, background: catColor(name) }} />
                     </div>
                   </div>
                 );
@@ -2168,7 +2250,7 @@ function ExpensesTab({ token, products }) {
               />
               <Bar dataKey="lastMonth" fill="#334155" radius={[3, 3, 0, 0]} name="lastMonth" />
               <Bar dataKey="thisMonth" radius={[3, 3, 0, 0]} name="thisMonth">
-                {barData.map((entry, i) => <Cell key={i} fill={EXP_CAT_COLORS[entry.fullName] || '#64748b'} />)}
+                {barData.map((entry, i) => <Cell key={i} fill={catColor(entry.fullName)} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -2238,7 +2320,7 @@ function ExpensesTab({ token, products }) {
                 <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                   {e.category && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                      style={{ background: `${EXP_CAT_COLORS[e.category] || '#64748b'}25`, color: EXP_CAT_COLORS[e.category] || '#94a3b8' }}>
+                      style={{ background: `${catColor(e.category)}25`, color: catColor(e.category) }}>
                       {e.category}
                     </span>
                   )}
@@ -2273,6 +2355,219 @@ function ExpensesTab({ token, products }) {
   );
 }
 
+// ── Insights tab — 3 analytical tools (P&L, Spending Trends, Top Vendors) ──────
+// All three read the same three sheets and reuse the per-category money model
+// documented at the top of this file, so every figure reconciles with the
+// Sales, Accounts, and Expenses tabs.
+
+function InsightsView({ token }) {
+  const [sales,    setSales]    = useState([]); // { revenue, mkey }
+  const [spend,    setSpend]    = useState([]); // { account, amount, vendor, mkey, draw }
+  const [exp,      setExp]      = useState([]); // { category, amount, vendor, mkey }
+  const [loading,  setLoading]  = useState(true);
+  const [err,      setErr]      = useState(null);
+  const [period,   setPeriod]   = useState('month');
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true); setErr(null);
+      try {
+        const [salesRows, spendRows, expRows] = await Promise.all([
+          readRange(token, `${TRANS_SHEET}!A:H`, 'UNFORMATTED_VALUE').catch(() => []),
+          ensureSheetTab(token, SPEND_SHEET).then(() => readRange(token, `${SPEND_SHEET}!A:E`, 'UNFORMATTED_VALUE')).catch(() => []),
+          ensureSheetTab(token, BIZ_EXP_SHEET).then(() => readRange(token, `${BIZ_EXP_SHEET}!A:G`, 'UNFORMATTED_VALUE')).catch(() => []),
+        ]);
+        if (cancelled) return;
+
+        setSales((salesRows || [])
+          .slice(String(salesRows?.[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
+          .map(r => (r && r.some(c => c !== '' && c != null))
+            ? { revenue: parseFloat(r[5]) || 0, mkey: monthKey(r[0]) } : null)
+          .filter(Boolean));
+
+        setSpend((spendRows || [])
+          .slice(String(spendRows?.[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
+          .map(r => r[1] ? {
+            account: r[1] || '', amount: parseFloat(r[2]) || 0,
+            vendor: r[3] || '', mkey: monthKey(r[0]), draw: IS_OWNER_DRAW(r[4]),
+          } : null)
+          .filter(Boolean));
+
+        setExp((expRows || [])
+          .slice(String(expRows?.[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
+          .map(r => (r[3] && parseFloat(r[2])) ? {
+            category: r[3] || '', amount: parseFloat(r[2]) || 0,
+            vendor: r[1] || '', mkey: monthKey(r[0]),
+          } : null)
+          .filter(Boolean));
+      } catch (e) {
+        if (!cancelled) setErr(e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
+
+  const now      = new Date();
+  const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const curYear  = String(now.getFullYear());
+  const inPeriod = mkey => period === 'all' ? true : period === 'year' ? mkey.startsWith(curYear) : mkey === curMonth;
+
+  // Actual cash-out rows = all expenses + account spending that ISN'T an owner draw.
+  const costRows = useMemo(() => ([
+    ...exp.map(e => ({ cat: e.category, amount: e.amount, vendor: e.vendor, mkey: e.mkey })),
+    ...spend.filter(s => !s.draw).map(s => ({ cat: s.account, amount: s.amount, vendor: s.vendor, mkey: s.mkey })),
+  ]), [exp, spend]);
+
+  // ── Tool 1: Profit & Loss ──
+  const pnl = useMemo(() => {
+    const revenue = sales.filter(s => inPeriod(s.mkey)).reduce((a, s) => a + s.revenue, 0);
+    const rows    = costRows.filter(r => inPeriod(r.mkey));
+    const cogs    = rows.filter(r => r.cat === 'COGS').reduce((a, r) => a + r.amount, 0);
+    const opex    = rows.filter(r => r.cat !== 'COGS').reduce((a, r) => a + r.amount, 0);
+    const gross   = revenue - cogs;
+    const net     = revenue - cogs - opex;
+    const margin  = revenue > 0 ? (net / revenue) * 100 : null;
+    // OpEx by category for the breakdown
+    const byCat = {};
+    rows.filter(r => r.cat !== 'COGS').forEach(r => { byCat[r.cat] = (byCat[r.cat] || 0) + r.amount; });
+    const opexByCat = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+    return { revenue, cogs, opex, gross, net, margin, opexByCat };
+  }, [sales, costRows, period]);
+
+  // ── Tool 2: Spending trends (last 6 months of actual cash-out) ──
+  const trend = useMemo(() => {
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleDateString('en-US', { month: 'short' }) });
+    }
+    const totals = months.map(m => costRows.filter(r => r.mkey === m.key).reduce((a, r) => a + r.amount, 0));
+    const max    = Math.max(...totals, 1);
+    const data   = months.map((m, i) => ({ name: m.label, value: totals[i] }));
+    const delta  = totals[5] - totals[4];
+    return { data, max, delta, latest: totals[5], prev: totals[4] };
+  }, [costRows]);
+
+  // ── Tool 3: Top vendors (actual cash-out, all time) ──
+  const vendors = useMemo(() => {
+    const map = {};
+    costRows.forEach(r => { const v = (r.vendor || '').trim(); if (v) map[v] = (map[v] || 0) + r.amount; });
+    const ranked = Object.entries(map).sort((a, b) => b[1] - a[1]);
+    const total  = ranked.reduce((a, [, v]) => a + v, 0);
+    return { ranked: ranked.slice(0, 8), total };
+  }, [costRows]);
+
+  if (loading) return <div className="px-4 py-10"><LoadingSpinner /></div>;
+
+  const periodLabel = period === 'month' ? 'This Month' : period === 'year' ? 'This Year' : 'All Time';
+
+  return (
+    <div className="px-4 space-y-4">
+      {err && <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm">{err}</div>}
+
+      {/* Period selector — drives the P&L statement */}
+      <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
+        {PERIOD_OPTIONS.map(o => (
+          <button key={o.key} onClick={() => setPeriod(o.key)}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${period === o.key ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Tool 1: Profit & Loss statement ── */}
+      <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-slate-300 text-sm font-bold font-broske">📊 Profit &amp; Loss</p>
+          <span className="text-slate-500 text-[10px] uppercase tracking-wider">{periodLabel}</span>
+        </div>
+        <div className="space-y-1.5 text-sm font-mono tabular-nums">
+          <div className="flex justify-between"><span className="text-slate-400">Revenue</span><span className="text-emerald-400">${pnl.revenue.toFixed(2)}</span></div>
+          <div className="flex justify-between"><span className="text-slate-400">− COGS</span><span className="text-rose-300">${pnl.cogs.toFixed(2)}</span></div>
+          <div className="flex justify-between border-t border-slate-800 pt-1.5"><span className="text-slate-300">Gross Profit</span><span className={pnl.gross >= 0 ? 'text-white' : 'text-rose-400'}>${pnl.gross.toFixed(2)}</span></div>
+          <div className="flex justify-between"><span className="text-slate-400">− Operating Expenses</span><span className="text-rose-300">${pnl.opex.toFixed(2)}</span></div>
+          <div className="flex justify-between border-t border-slate-700 pt-1.5 text-base font-bold">
+            <span className="text-white">Net Profit</span>
+            <span className={pnl.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}>${pnl.net.toFixed(2)}</span>
+          </div>
+          {pnl.margin !== null && (
+            <div className="flex justify-between text-[11px]"><span className="text-slate-500">Net margin</span>
+              <span className={pnl.margin >= 20 ? 'text-emerald-400' : pnl.margin >= 0 ? 'text-amber-400' : 'text-rose-400'}>{pnl.margin.toFixed(1)}%</span>
+            </div>
+          )}
+        </div>
+        {pnl.opexByCat.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-slate-800 space-y-1">
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-1">Operating expenses by category</p>
+            {pnl.opexByCat.map(([cat, amt]) => (
+              <div key={cat} className="flex items-center justify-between text-xs">
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: catColor(cat) }} /><span className="text-slate-400">{cat}</span></span>
+                <span className="text-slate-300 font-mono tabular-nums">${amt.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {pnl.revenue === 0 && pnl.cogs === 0 && pnl.opex === 0 && (
+          <p className="text-slate-600 text-xs text-center mt-3">No activity in this period.</p>
+        )}
+      </div>
+
+      {/* ── Tool 2: Spending trends ── */}
+      <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-slate-300 text-sm font-bold font-broske">📈 Spending Trend</p>
+          <span className="text-[11px] font-mono tabular-nums">
+            {trend.prev > 0 ? (
+              <span className={trend.delta > 0 ? 'text-rose-400' : 'text-emerald-400'}>
+                {trend.delta > 0 ? '▲' : '▼'} ${Math.abs(trend.delta).toFixed(2)} vs last mo
+              </span>
+            ) : <span className="text-slate-600">last 6 months</span>}
+          </span>
+        </div>
+        <ResponsiveContainer width="100%" height={130}>
+          <BarChart data={trend.data} barCategoryGap="28%">
+            <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={40} />
+            <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }} formatter={v => [`$${Number(v).toFixed(2)}`, 'Spent']} cursor={{ fill: '#1e293b55' }} />
+            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+              {trend.data.map((d, i) => <Cell key={i} fill={i === trend.data.length - 1 ? '#3b82f6' : '#334155'} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ── Tool 3: Top vendors ── */}
+      <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
+        <p className="text-slate-300 text-sm font-bold font-broske mb-3">🏷️ Top Vendors <span className="text-slate-600 text-[10px] font-normal">· all time</span></p>
+        {vendors.ranked.length === 0 ? (
+          <p className="text-slate-600 text-xs text-center py-2">No vendor data yet — add a payee when logging spending.</p>
+        ) : (
+          <div className="space-y-2.5">
+            {vendors.ranked.map(([name, amt]) => {
+              const pct = vendors.total > 0 ? (amt / vendors.total) * 100 : 0;
+              return (
+                <div key={name} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300 truncate pr-2">{name}</span>
+                    <span className="text-slate-400 font-mono tabular-nums shrink-0">${amt.toFixed(2)} · {pct.toFixed(0)}%</span>
+                  </div>
+                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                    <div className="h-1.5 rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function BusinessExpenses({ token }) {
@@ -2282,7 +2577,8 @@ export default function BusinessExpenses({ token }) {
   const [saving,     setSaving]     = useState(false);
   const [editing,          setEditing]          = useState(null);
   const [processing,       setProcessing]       = useState(null);
-  const [viewMode,         setViewMode]         = useState('cards'); // 'cards' | 'compare'
+  const [viewMode,         setViewMode]         = useState('products'); // products | sales | accounts | expenses | insights
+  const [productView,      setProductView]      = useState('cards');    // cards | compare (within Products)
   const [salesRefreshKey,  setSalesRefreshKey]  = useState(0);
 
   const load = useCallback(async () => {
@@ -2388,8 +2684,8 @@ export default function BusinessExpenses({ token }) {
           </div>
         )}
 
-        {/* Summary strip */}
-        {products.length > 0 && (
+        {/* Summary strip — only on the Products tab */}
+        {viewMode === 'products' && products.length > 0 && (
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-slate-800 rounded-xl p-3">
               <p className="text-slate-500 text-[10px] uppercase tracking-wider">Products</p>
@@ -2414,23 +2710,36 @@ export default function BusinessExpenses({ token }) {
           </div>
         )}
 
-        {/* View toggle */}
+        {/* Primary tab bar */}
         <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
           {[
-            ...(products.length > 0 ? [['cards','Cards'],['compare','Compare']] : []),
+            ['products','Products 💼'],
             ['sales','Sales 📊'],
             ['accounts','Accounts 🏦'],
             ['expenses','Expenses 📒'],
+            ['insights','Insights 📈'],
           ].map(([v, lbl]) => (
             <button key={v} onClick={() => setViewMode(v)}
-              className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+              className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
               {lbl}
             </button>
           ))}
         </div>
 
+        {/* Products sub-toggle: Cards vs Compare */}
+        {viewMode === 'products' && products.length > 0 && (
+          <div className="flex gap-2">
+            {[['cards','▦ Cards'],['compare','⇄ Compare']].map(([v, lbl]) => (
+              <button key={v} onClick={() => setProductView(v)}
+                className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${productView === v ? 'border-slate-500 text-white bg-slate-700' : 'border-slate-700 text-slate-400 bg-slate-800/50'}`}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Empty state */}
-        {!error && products.length === 0 && viewMode !== 'sales' && viewMode !== 'expenses' && (
+        {!error && products.length === 0 && viewMode === 'products' && (
           <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-3">
             <p className="text-4xl">💼</p>
             <p className="text-white font-semibold font-broske">No products yet</p>
@@ -2445,10 +2754,10 @@ export default function BusinessExpenses({ token }) {
         )}
 
         {/* Compare view */}
-        {viewMode === 'compare' && <CompareTable products={products} />}
+        {viewMode === 'products' && productView === 'compare' && <CompareTable products={products} />}
 
         {/* Cards view */}
-        {viewMode === 'cards' && (
+        {viewMode === 'products' && productView === 'cards' && (
           <div className="space-y-3">
             {products.map(product => {
               const { steps, remaining } = computeFormula(product.startPrice, product.formula);
@@ -2544,6 +2853,10 @@ export default function BusinessExpenses({ token }) {
         <div className="px-4 pb-4">
           <ExpensesTab token={token} products={products} />
         </div>
+      )}
+
+      {viewMode === 'insights' && (
+        <InsightsView token={token} />
       )}
 
       {editing    && <FormulaEditor product={editing}    onSave={handleSave} onClose={() => setEditing(null)}    saving={saving} />}

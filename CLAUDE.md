@@ -62,12 +62,24 @@ src/
 - `computeFormulaProportional(actualRevenue, basePrice, blocks)` — scales fixed amounts by revenue/basePrice ratio
 - **Profit = 'Profit' + 'Revenue' allocation categories** — both are summed for the Profit tile and Process button
 - `profitMarginPct(steps, startPrice)` — returns combined (Profit+Revenue)/startPrice %
-- `BUILT_IN_CATS` — dropdown options for formula blocks (Revenue now included)
+- **Unified category model (the source of truth — see the big comment block at top of the file):**
+  - `BUILT_IN_CATS` — all formula-block categories (incl. Profit/Revenue/Other)
+  - `CAT_COLORS` + `catColor(name)` — ONE colour lookup for every tab (replaced the old `EXP_CAT_COLORS`)
+  - `EXP_CATEGORIES = BUILT_IN_CATS minus Profit/Revenue` (profit isn't a spendable cost)
+- **Per-category ledger** (shared by Accounts + Insights): `balance(C) = earned(C) − spent(C)` where
+  `earned(C)` = Σ sales allocs[C], `spent(C)` = Σ `Business Account Spending`[Account=C] + Σ `Business Expenses`[Category=C].
+  Profit/Revenue rows tagged "processed as personal income" are owner draws → excluded from P&L costs (`IS_OWNER_DRAW`).
+- **Tabs** (`viewMode`): `products` (Cards/Compare sub-toggle via `productView`) · `sales` · `accounts` · `expenses` · `insights`
 - Sales tab reads `Business Transactions!A:H`; col H is `allocs` JSON `{category: amount}`
-- **Expenses 📒 tab** — `ExpensesTab` component; reads/writes `Business Expenses!A:G`
+- **Accounts 🏦 tab** — `AccountsView`; now reads all 3 sheets so an Expenses-tab spend reduces the matching bucket balance (the Accounts↔Expenses sync). Modal history merges direct spends + expense rows (📒 tag).
+- **Expenses 📒 tab** — `ExpensesTab`; reads/writes `Business Expenses!A:G`
   - Reorder thresholds stored in `localStorage` as `biz_reorder_thresholds` (JSON keyed by product ID)
-  - `ThresholdModal` — set COGS threshold per product
-  - `ReorderQAModal` — guided Q&A + copy-to-clipboard purchase summary
+  - `ThresholdModal` — set COGS threshold per product · `ReorderQAModal` — guided Q&A + copy-to-clipboard
+- **Insights 📈 tab** — `InsightsView`; 3 tools, all reconcile with the ledger above:
+  1. **P&L statement** (period: month/year/all) — Revenue − COGS = Gross; − OpEx = Net; net margin %
+  2. **Spending Trend** — last-6-month bar chart of actual cash-out + MoM delta
+  3. **Top Vendors** — ranked vendor spend with share % (from both spending sheets)
+  - `monthKey(v)` normalises serial/`YYYY-MM-DD`/`M/D/YYYY` dates to `YYYY-MM` so all sheets bucket together
 
 ## ProcessIncome.jsx — Key Concepts
 - Reads `Allocation Transactions!A:F` to find already-deposited amounts this month
