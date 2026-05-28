@@ -124,6 +124,7 @@ export default function Dashboard({ token }) {
   const [stmtTxns, setStmtTxns]         = useState([]);
   const [stmtError, setStmtError]       = useState(null);
   const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0 });
+  const [allocTotals, setAllocTotals]   = useState({ income: 0, spent: 0 });
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -159,12 +160,13 @@ export default function Dashboard({ token }) {
           setExpenses(expItems);
         }
 
-        // Compute budget alerts for current month
-        if (expItems.length && allocRows.length > 1) {
+        // Compute budget alerts + income/spent totals for current month
+        if (allocRows.length > 1) {
           const d0 = new Date();
           const mo0 = d0.getMonth() + 1;
           const yr0 = d0.getFullYear();
           const abt = {};
+          let monthIncome = 0, monthSpent = 0;
           const [, ...allocData] = allocRows;
           allocData.forEach(r => {
             if (!r[0] || !r[1]) return;
@@ -179,21 +181,29 @@ export default function Dashboard({ token }) {
             if (!d || isNaN(d.getTime())) return;
             if (d.getMonth() + 1 !== mo0 || d.getFullYear() !== yr0) return;
             const amt = pm(r[2]);
-            if (amt > 0) abt[String(r[1])] = (abt[String(r[1])] || 0) + amt;
+            if (amt > 0) {
+              abt[String(r[1])] = (abt[String(r[1])] || 0) + amt;
+              monthIncome += amt;
+            } else {
+              monthSpent += Math.abs(amt);
+            }
           });
-          const mainExp = expItems.filter(i => i['Expense'] !== 'Savings');
-          const overCount = mainExp.filter(i => {
-            const b = pm(i['Monthly Allowance ($)']);
-            return b > 0 && (abt[i['Type'] || ''] || 0) > b;
-          }).length;
-          const needsCount = mainExp.filter(i =>
-            String(i['Priority'] ?? '3') === '1' &&
-            pm(i['Monthly Allowance ($)']) > 0 &&
-            !(abt[i['Type'] || ''] > 0)
-          ).length;
-          setBudgetAlerts({ overCount, needsCount });
-          localStorage.setItem('_fin_budget_alert', JSON.stringify({ count: overCount, month: `${yr0}-${mo0}` }));
-          window.dispatchEvent(new Event('_fin_budget_alert_update'));
+          setAllocTotals({ income: monthIncome, spent: monthSpent });
+          if (expItems.length) {
+            const mainExp = expItems.filter(i => i['Expense'] !== 'Savings');
+            const overCount = mainExp.filter(i => {
+              const b = pm(i['Monthly Allowance ($)']);
+              return b > 0 && (abt[i['Type'] || ''] || 0) > b;
+            }).length;
+            const needsCount = mainExp.filter(i =>
+              String(i['Priority'] ?? '3') === '1' &&
+              pm(i['Monthly Allowance ($)']) > 0 &&
+              !(abt[i['Type'] || ''] > 0)
+            ).length;
+            setBudgetAlerts({ overCount, needsCount });
+            localStorage.setItem('_fin_budget_alert', JSON.stringify({ count: overCount, month: `${yr0}-${mo0}` }));
+            window.dispatchEvent(new Event('_fin_budget_alert_update'));
+          }
         }
 
         if (gas) {
@@ -242,10 +252,10 @@ export default function Dashboard({ token }) {
     m => m['Month'] === currentMonth && String(m['Year']) === String(currentYear)
   );
 
-  const income      = pm(current?.['Total Processed Income']);
+  const income      = allocTotals.income  || pm(current?.['Total Processed Income']);
   const unprocessed = pm(current?.['Unprocessed Income']);
-  const spent       = pm(current?.['Total Spent']);
-  const goal        = pm(current?.['Allowance Goal']);
+  const spent       = allocTotals.spent   || pm(current?.['Total Spent']);
+  const goal        = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0) || pm(current?.['Allowance Goal']);
   const net         = income - spent;
   const goalPct     = goal > 0 ? (income / goal) * 100 : 0;
   const spendPct    = income > 0 ? (spent / income) * 100 : 0;
@@ -361,9 +371,9 @@ export default function Dashboard({ token }) {
       if (n == null || isNaN(n)) return '—';
       return n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
     };
-    const income = pm(current?.['Total Processed Income']);
-    const spent  = pm(current?.['Total Spent']);
-    const goal   = pm(current?.['Allowance Goal']);
+    const income = stmtTxns.reduce((s, t) => t.amount > 0 ? s + t.amount : s, 0) || pm(current?.['Total Processed Income']);
+    const spent  = stmtTxns.reduce((s, t) => t.amount < 0 ? s + Math.abs(t.amount) : s, 0) || pm(current?.['Total Spent']);
+    const goal   = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0) || pm(current?.['Allowance Goal']);
     const net    = income - spent;
 
     // Group expenses by priority
@@ -1937,10 +1947,10 @@ ${stmtTxns.length ? `
 
               {!stmtLoading && !stmtError && (() => {
                 const fmtS = n => n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
-                const totalIncome = pm(current?.['Total Processed Income']);
-                const totalSpent  = pm(current?.['Total Spent']);
+                const totalIncome = stmtTxns.reduce((s, t) => t.amount > 0 ? s + t.amount : s, 0) || pm(current?.['Total Processed Income']);
+                const totalSpent  = stmtTxns.reduce((s, t) => t.amount < 0 ? s + Math.abs(t.amount) : s, 0) || pm(current?.['Total Spent']);
+                const goalAmt     = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0) || pm(current?.['Allowance Goal']);
                 const netSaved    = totalIncome - totalSpent;
-                const goalAmt     = pm(current?.['Allowance Goal']);
 
                 // Spending by category — negative transactions only, grouped by type
                 const catSpend = {};
