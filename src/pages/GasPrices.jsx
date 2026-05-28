@@ -81,6 +81,13 @@ export default function GasPrices() {
         </button>
       </div>
 
+      {/* Stale data warning */}
+      {data.stale && (
+        <div className="bg-amber-900/30 border border-amber-700/40 rounded-xl px-4 py-2.5 text-xs text-amber-300">
+          EIA API unavailable — showing cached data. Tap Refresh to retry.
+        </div>
+      )}
+
       {/* Data freshness */}
       <div className="bg-slate-800/60 rounded-xl px-4 py-2.5 flex justify-between items-center text-xs">
         <span className="text-slate-400">EIA weekly data — published every Monday</span>
