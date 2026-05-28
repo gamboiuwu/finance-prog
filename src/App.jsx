@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { HashRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { getStoredToken, clearToken } from './lib/auth';
 import { isPinSet, isSessionLocked, markUnlocked, clearPin } from './lib/pin';
 import Login from './pages/Login';
@@ -14,6 +14,25 @@ import GasPrices from './pages/GasPrices';
 import BusinessExpenses from './pages/BusinessExpenses';
 import Actions from './pages/Actions';
 import Nav from './components/Nav';
+
+function AnimatedRoutes({ token }) {
+  const location = useLocation();
+  return (
+    <main key={location.pathname} className="page-enter max-w-lg mx-auto md:max-w-none md:px-8 lg:px-16">
+      <Routes>
+        <Route path="/"                      element={<Dashboard        token={token} />} />
+        <Route path="/budget"                element={<Budget           token={token} />} />
+        <Route path="/summary"               element={<Summary          token={token} />} />
+        <Route path="/transactions"          element={<Transactions     token={token} />} />
+        <Route path="/commissions"           element={<Commissions      token={token} />} />
+        <Route path="/gas"                   element={<GasPrices />} />
+        <Route path="/business"              element={<BusinessExpenses token={token} />} />
+        <Route path="/actions"              element={<Actions           token={token} />} />
+        <Route path="/month/:sheetId/:month" element={<MonthlyDetail    token={token} />} />
+      </Routes>
+    </main>
+  );
+}
 
 export default function App() {
   const [token, setToken]           = useState(() => getStoredToken());
@@ -89,7 +108,7 @@ export default function App() {
               🔒
             </button>
             {showChangePinMenu && (
-              <div className="absolute right-0 top-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50 w-44 py-1 text-sm">
+              <div className="menu-enter absolute right-0 top-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50 w-44 py-1 text-sm">
                 <button
                   onClick={() => { setPinUnlocked(false); setShowChangePinMenu(false); clearPin(); }}
                   className="w-full text-left px-4 py-2.5 text-slate-200 hover:bg-slate-700 transition-colors"
@@ -120,19 +139,7 @@ export default function App() {
           </div>
         </header>
 
-        <main className="max-w-lg mx-auto md:max-w-none md:px-8 lg:px-16">
-          <Routes>
-            <Route path="/"                      element={<Dashboard     token={token} />} />
-            <Route path="/budget"                element={<Budget        token={token} />} />
-            <Route path="/summary"               element={<Summary       token={token} />} />
-            <Route path="/transactions"          element={<Transactions  token={token} />} />
-            <Route path="/commissions"           element={<Commissions   token={token} />} />
-            <Route path="/gas"                   element={<GasPrices />} />
-            <Route path="/business"              element={<BusinessExpenses token={token} />} />
-            <Route path="/actions"               element={<Actions          token={token} />} />
-            <Route path="/month/:sheetId/:month" element={<MonthlyDetail token={token} />} />
-          </Routes>
-        </main>
+        <AnimatedRoutes token={token} />
 
         <Nav />
       </div>

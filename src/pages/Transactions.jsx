@@ -275,7 +275,7 @@ export default function Transactions({ token }) {
   const monthData = Object.entries(monthMap).map(([month, spent]) => ({ month, spent }));
 
   return (
-    <div className="p-4 pb-24 space-y-4">
+    <div className="stagger p-4 pb-24 space-y-4">
       {/* Title + Add */}
       <div className="flex justify-between items-center">
         <div>

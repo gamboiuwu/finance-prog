@@ -103,7 +103,7 @@ export default function PinGate({ mode, onUnlock, onSignOut }) {
   const dots = step === 'confirm' ? confirm.length : pin.length;
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-8 select-none">
+    <div className="animate-scale-in min-h-screen bg-slate-950 flex flex-col items-center justify-center px-8 select-none">
       <div className="text-5xl mb-2">🔒</div>
       <h1 className="text-white font-bold text-xl mt-2">
         {isCreate

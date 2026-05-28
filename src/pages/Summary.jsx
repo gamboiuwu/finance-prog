@@ -573,7 +573,7 @@ export default function Summary({ token }) {
 
       {/* Tile grid — draggable */}
       <div className="px-4">
-        <div className="flex flex-wrap gap-2">
+        <div className="stagger flex flex-wrap gap-2">
           {activeOrder.map((id, idx) => {
             const wide = WIDE_TILES.has(id);
             const content = renderTile(id, c, sv, overrides, openEdit);

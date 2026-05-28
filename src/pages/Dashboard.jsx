@@ -523,7 +523,7 @@ ${stmtTxns.length ? `
   }
 
   return (
-    <div className="p-4 space-y-5 pb-24">
+    <div className="stagger p-4 space-y-5 pb-24">
 
       {/* ── Process Income + Statement CTAs ─────────────────── */}
       <div className="flex gap-3">
@@ -644,7 +644,7 @@ ${stmtTxns.length ? `
       {/* ── Gas spend modal ──────────────────────────────────── */}
       {showGasLog && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50">
-          <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4">
+          <div className="modal-sheet bg-slate-900 w-full rounded-t-3xl p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-white font-bold">⛽ Log Gas Spend</h3>
@@ -982,7 +982,7 @@ ${stmtTxns.length ? `
       {/* ── Quick Expense Log modal ──────────────────────────── */}
       {showExpLog && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50">
-          <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4">
+          <div className="modal-sheet bg-slate-900 w-full rounded-t-3xl p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-white font-bold">🧾 Log Expense</h3>
@@ -1631,7 +1631,7 @@ ${stmtTxns.length ? `
 
           return (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50">
-              <div className="bg-slate-900 w-full rounded-t-3xl max-h-[88vh] overflow-y-auto">
+              <div className="modal-sheet bg-slate-900 w-full rounded-t-3xl max-h-[88vh] overflow-y-auto">
                 <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
                   <div>
                     <h3 className="text-white font-bold font-broske">Commission Price Calculator</h3>

@@ -391,7 +391,7 @@ export default function Actions({ token }) {
 
       {/* Categories view */}
       {filter === 'Categories' && (
-        <div className="px-4 space-y-2">
+        <div className="stagger px-4 space-y-2">
           {categories.length === 0 && (
             <div className="bg-slate-900 rounded-2xl p-8 text-center">
               <p className="text-slate-500 text-sm">No transactions yet</p>
@@ -451,7 +451,7 @@ export default function Actions({ token }) {
               <p className="text-slate-500 text-sm">No actions found</p>
             </div>
           )}
-          <div className="px-4 space-y-2">
+          <div className="stagger px-4 space-y-2">
             {filtered.map(item => (
               <ActionCard
                 key={item.id}

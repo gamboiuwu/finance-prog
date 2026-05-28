@@ -1768,7 +1768,7 @@ function ThresholdModal({ product, current, onSave, onClose }) {
   const [val, setVal] = useState(String(current || ''));
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-end">
-      <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+      <div className="modal-sheet bg-slate-900 w-full rounded-t-3xl p-5 space-y-4 max-h-[70vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="text-white font-bold">Reorder Threshold — {product.name}</h3>
           <button onClick={onClose} className="w-8 h-8 bg-slate-700 rounded-full text-slate-300 flex items-center justify-center">✕</button>
@@ -1823,7 +1823,7 @@ function ReorderQAModal({ product, cogsAmt, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-end">
-      <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4 max-h-[88vh] overflow-y-auto">
+      <div className="modal-sheet bg-slate-900 w-full rounded-t-3xl p-5 space-y-4 max-h-[88vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-white font-bold">Plan Reorder — {product.name}</h3>
@@ -2379,7 +2379,7 @@ export default function BusinessExpenses({ token }) {
         </button>
       </div>
 
-      <div className="px-4 space-y-4">
+      <div className="stagger px-4 space-y-4">
         {error && (
           <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm space-y-2">
             <p className="font-medium">Could not load Business Products sheet</p>
