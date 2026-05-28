@@ -95,8 +95,10 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   const [logError,      setLogError]     = useState(null);
   const [copied,        setCopied]       = useState(false);
   const [alreadyByType, setAlreadyByType] = useState({});
-  const [alreadyRows,   setAlreadyRows]  = useState([]);   // raw rows for diagnostic
+  const [alreadyRows,   setAlreadyRows]  = useState([]);
   const [histLoading,   setHistLoading]  = useState(true);
+  // balance type map: type name → 'monthly' | 'running'
+  const [balTypes,      setBalTypes]     = useState({});
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [surplusItems,  setSurplusItems]  = useState(() => {
     try { return JSON.parse(localStorage.getItem('processIncome_surplusItems') || '[]'); }
@@ -108,30 +110,55 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     localStorage.setItem('processIncome_surplusItems', JSON.stringify(surplusItems));
   }, [surplusItems]);
 
-  // Load this month's already-deposited amounts per category
+  // Load already-deposited / running-balance amounts per category.
+  // Monthly items: sum positive "income processed" rows for current month only.
+  // Running items: net of ALL transactions (all time, pos+neg) for that type.
   useEffect(() => {
     if (!token) { setHistLoading(false); return; }
     const mo = new Date().getMonth() + 1;
     const yr = new Date().getFullYear();
+
+    let types = {};
+    try { types = JSON.parse(localStorage.getItem('_fin_budget_balance_type') || '{}'); } catch {}
+    setBalTypes(types);
+
     readRange(token, 'Allocation Transactions!A:F', 'UNFORMATTED_VALUE')
       .then(rows => {
         const [, ...data] = rows;
+        const allValid = data.filter(r => r[0]);
         const map = {};
-        const thisMonth = data
-          .filter(r => r[0])
-          .filter(r => {
-            const d = parseSheetDate(r[0]);
-            return d !== null && d.getMonth() + 1 === mo && d.getFullYear() === yr;
-          })
-          .filter(r => pm(r[2]) > 0)                                         // positive amounts only
-          .filter(r => String(r[3] || '').toLowerCase().startsWith('income processed')); // written by this app only
-        thisMonth.forEach(r => {
-          const type = r[1] || '';
-          const amt  = pm(r[2]);
-          map[type] = (map[type] || 0) + amt;
+
+        allValid.forEach(r => {
+          const type = String(r[1] || '');
+          if (!type) return;
+          const d = parseSheetDate(r[0]);
+          if (!d) return;
+          const amt = pm(r[2]);
+          const isCurrentMonth = d.getMonth() + 1 === mo && d.getFullYear() === yr;
+          const isIncomeRow    = String(r[3] || '').toLowerCase().startsWith('income processed');
+
+          if ((types[type] || 'monthly') === 'running') {
+            // All-time net: count every positive deposit AND every negative spend
+            map[type] = (map[type] || 0) + amt;
+          } else {
+            // Monthly: only current-month income-processed deposits
+            if (isCurrentMonth && amt > 0 && isIncomeRow) {
+              map[type] = (map[type] || 0) + amt;
+            }
+          }
         });
+
         setAlreadyByType(map);
-        setAlreadyRows(thisMonth);
+
+        // Diagnostic row list: current-month income rows only (for header breakdown)
+        setAlreadyRows(
+          allValid.filter(r => {
+            const d = parseSheetDate(r[0]);
+            return d && d.getMonth() + 1 === mo && d.getFullYear() === yr
+              && pm(r[2]) > 0
+              && String(r[3] || '').toLowerCase().startsWith('income processed');
+          })
+        );
       })
       .catch(() => {})
       .finally(() => setHistLoading(false));
@@ -327,8 +354,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                 className="text-left mt-0.5"
               >
                 <p className="text-slate-400 text-xs underline decoration-dotted underline-offset-2">
-                  {fmt(totalAlready)} already deposited this month
-                  <span className="text-slate-600 ml-1">({alreadyRows.length} rows) {showBreakdown ? '▲' : '▼'}</span>
+                  {fmt(totalAlready)} covered (deposits + running balances)
+                  <span className="text-slate-600 ml-1">({alreadyRows.length} rows this month) {showBreakdown ? '▲' : '▼'}</span>
                 </p>
               </button>
             )}
@@ -538,24 +565,33 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                           <span className="text-slate-500 text-[10px]">goal {fmt(d.allowance)}</span>
                         </div>
                         {/* Already-contributed bar */}
-                        <div className="mt-1.5 space-y-0.5">
-                          <div className="flex h-2 bg-slate-700 rounded-full overflow-hidden">
-                            <div
-                              style={{ width: `${d.allowance > 0 ? Math.min((d.already / d.allowance) * 100, 100) : 0}%`, background: '#10b981', opacity: 0.5 }}
-                              title={`Already: ${fmt(d.already)}`}
-                            />
-                            <div
-                              style={{ width: `${d.allowance > 0 ? Math.min((d.deposit / d.allowance) * 100, 100) : 0}%`, background: '#3b82f6' }}
-                              title={`Adding: ${fmt(d.deposit)}`}
-                            />
-                          </div>
-                          <div className="flex justify-between text-[10px] text-slate-600">
-                            {d.already > 0 && <span className="text-emerald-600">{fmt(d.already)} prior</span>}
-                            {d.stillNeeds > 0 && d.stillNeeds !== d.allowance && (
-                              <span className="ml-auto">{fmt(d.stillNeeds)} still needed</span>
-                            )}
-                          </div>
-                        </div>
+                        {(() => {
+                          const isRunning = (balTypes[d.type] || 'monthly') === 'running';
+                          const alreadyPct = d.allowance > 0 ? Math.min(Math.max((d.already / d.allowance) * 100, 0), 100) : 0;
+                          const depositPct = d.allowance > 0 ? Math.min((d.deposit / d.allowance) * 100, 100) : 0;
+                          return (
+                            <div className="mt-1.5 space-y-0.5">
+                              <div className="flex h-2 bg-slate-700 rounded-full overflow-hidden">
+                                <div style={{ width: `${alreadyPct}%`, background: d.already < 0 ? '#f43f5e' : '#10b981', opacity: 0.5 }}
+                                  title={isRunning ? `Net balance: ${fmt(d.already)}` : `Prior deposits: ${fmt(d.already)}`} />
+                                <div style={{ width: `${depositPct}%`, background: '#3b82f6' }}
+                                  title={`Adding: ${fmt(d.deposit)}`} />
+                              </div>
+                              <div className="flex justify-between text-[10px] text-slate-600">
+                                {d.already !== 0 && (
+                                  <span className={d.already < 0 ? 'text-rose-600' : 'text-emerald-600'}>
+                                    {isRunning
+                                      ? `${d.already >= 0 ? '+' : ''}${fmt(d.already)} net balance`
+                                      : `${fmt(d.already)} prior`}
+                                  </span>
+                                )}
+                                {d.stillNeeds > 0 && d.stillNeeds !== d.allowance && (
+                                  <span className="ml-auto">{fmt(d.stillNeeds)} still needed</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div className="text-right shrink-0 flex flex-col items-end gap-1">
                         <p className="text-white text-sm font-semibold">+{fmt(d.deposit)}</p>
