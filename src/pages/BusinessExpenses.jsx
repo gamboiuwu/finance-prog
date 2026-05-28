@@ -3,6 +3,7 @@ import { readRange, appendRow, batchUpdateCells, ensureSheetTab, clearRow } from
 import { SHEETS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ProcessIncome from '../components/ProcessIncome';
+import TimeClockView from '../components/TimeClockView';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis,
@@ -2577,7 +2578,7 @@ export default function BusinessExpenses({ token }) {
   const [saving,     setSaving]     = useState(false);
   const [editing,          setEditing]          = useState(null);
   const [processing,       setProcessing]       = useState(null);
-  const [viewMode,         setViewMode]         = useState('products'); // products | sales | accounts | expenses | insights
+  const [viewMode,         setViewMode]         = useState('products'); // products | sales | accounts | expenses | insights | timeclock
   const [productView,      setProductView]      = useState('cards');    // cards | compare (within Products)
   const [salesRefreshKey,  setSalesRefreshKey]  = useState(0);
 
@@ -2711,16 +2712,17 @@ export default function BusinessExpenses({ token }) {
         )}
 
         {/* Primary tab bar */}
-        <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
+        <div className="flex bg-slate-800 rounded-xl p-1 gap-1 overflow-x-auto">
           {[
-            ['products','Products 💼'],
-            ['sales','Sales 📊'],
-            ['accounts','Accounts 🏦'],
-            ['expenses','Expenses 📒'],
-            ['insights','Insights 📈'],
+            ['products','💼'],
+            ['sales','📊'],
+            ['accounts','🏦'],
+            ['expenses','📒'],
+            ['insights','📈'],
+            ['timeclock','⏱'],
           ].map(([v, lbl]) => (
             <button key={v} onClick={() => setViewMode(v)}
-              className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+              className={`flex-1 py-1.5 rounded-lg text-sm font-medium transition-colors shrink-0 min-w-[2.5rem] ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
               {lbl}
             </button>
           ))}
@@ -2857,6 +2859,10 @@ export default function BusinessExpenses({ token }) {
 
       {viewMode === 'insights' && (
         <InsightsView token={token} />
+      )}
+
+      {viewMode === 'timeclock' && (
+        <TimeClockView products={products} />
       )}
 
       {editing    && <FormulaEditor product={editing}    onSave={handleSave} onClose={() => setEditing(null)}    saving={saving} />}
