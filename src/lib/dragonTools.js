@@ -5,6 +5,10 @@
 // Google Sheet, and feeds the result back. Nothing executes on Anthropic's side.
 import { readRange } from './sheets';
 import { SHEETS } from '../config';
+import {
+  recalcMonthlySummary, updateSubscription, updateBudgetAllowance,
+  setAllocationAmount, deleteAllocation,
+} from './sheetWrite';
 
 const SUBSCRIPTIONS_SHEET = 'Subscriptions';
 
@@ -62,6 +66,79 @@ export const TOOLS = [
     description: "The user's recurring subscriptions: Name, Cost, billing Cycle (monthly/annual/weekly/biweekly), Start Date, and Account. Use this for questions about recurring costs, subscription spend, or what they could cancel.",
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
+
+  // ── Write tools — see the "Making changes" rules in the system prompt ──
+  {
+    name: 'update_monthly_summary',
+    description: "Set the income, spent, and/or savings figures for one month in Monthly Summary. Provide the month by name (e.g. 'May'). Only pass the fields you want to change. Confirm the exact numbers with the user before calling.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        month:   { type: 'string', description: "Month name, e.g. 'May'." },
+        income:  { type: 'number' },
+        spent:   { type: 'number' },
+        savings: { type: 'number' },
+      },
+      required: ['month'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'update_subscription',
+    description: "Update a subscription's cost and/or billing cycle, matched by name (partial match ok, e.g. 'Claude'). Confirm the new values with the user first.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        name:   { type: 'string', description: 'Subscription name to match.' },
+        amount: { type: 'number', description: 'New cost.' },
+        cycle:  { type: 'string', description: "Billing cycle: monthly / annual / weekly / biweekly." },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'update_budget_allowance',
+    description: "Set a budget category's monthly allowance, matched by its Type name (e.g. 'Coffee Budget'). Confirm the new allowance with the user first.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        type:              { type: 'string', description: 'Budget category Type/name.' },
+        monthly_allowance: { type: 'number', description: 'New monthly allowance.' },
+      },
+      required: ['type', 'monthly_allowance'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'set_allocation_amount',
+    description: "Fill in the Amount on a logged allocation row, located by month (YYYY-MM), category (Type), and account. Use this to repair rows that have a category and date but no amount.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        month:    { type: 'string', description: 'YYYY-MM, e.g. 2026-05.' },
+        category: { type: 'string', description: 'Allocation Type (e.g. Gas).' },
+        account:  { type: 'string', description: 'Account (e.g. Cash).' },
+        amount:   { type: 'number', description: 'Correct amount to set.' },
+      },
+      required: ['month', 'category', 'account', 'amount'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'delete_allocation',
+    description: "DESTRUCTIVE: remove an allocation row, located by month (YYYY-MM), category, and account. Only call this when the user explicitly asks to delete that row.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        month:    { type: 'string', description: 'YYYY-MM.' },
+        category: { type: 'string' },
+        account:  { type: 'string' },
+      },
+      required: ['month', 'category', 'account'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 // Execute one tool call. Always resolves to a string; on failure returns an
@@ -89,6 +166,31 @@ export async function runTool(name, input, token) {
         const rows = await readRange(token, `${SUBSCRIPTIONS_SHEET}!A:E`);
         return pack(rows);
       }
+
+      // ── Write tools ──
+      case 'update_monthly_summary': {
+        const n = await recalcMonthlySummary(token, {
+          monthName: input.month, income: input.income, spent: input.spent, savings: input.savings,
+        });
+        return `OK: updated ${n} field(s) on the ${input.month} summary row.`;
+      }
+      case 'update_subscription': {
+        const matched = await updateSubscription(token, { name: input.name, amount: input.amount, cycle: input.cycle });
+        return `OK: updated subscription "${matched}".`;
+      }
+      case 'update_budget_allowance': {
+        const matched = await updateBudgetAllowance(token, { type: input.type, monthlyAllowance: input.monthly_allowance });
+        return `OK: set "${matched}" monthly allowance to ${input.monthly_allowance}.`;
+      }
+      case 'set_allocation_amount': {
+        const row = await setAllocationAmount(token, { month: input.month, category: input.category, account: input.account, amount: input.amount });
+        return `OK: set amount ${input.amount} on the ${input.category}/${input.account} allocation (row ${row}).`;
+      }
+      case 'delete_allocation': {
+        const row = await deleteAllocation(token, { month: input.month, category: input.category, account: input.account });
+        return `OK: deleted the ${input.category}/${input.account} allocation (row ${row}).`;
+      }
+
       default:
         return `ERROR: unknown tool "${name}".`;
     }
