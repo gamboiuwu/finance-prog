@@ -105,7 +105,7 @@ src/
 ## Task Tracking
 Maintained in Google Drive doc "Finance Tracker – Updates & Task Plans" (auto-updated by Claude).
 Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTzptqo`
-**Current task doc ID**: `1P98B_cC-KrnrL1HjztIltpzYyvrn2GowM8dUye8t-YM` (updated 2026-05-29)
+**Current task doc ID**: `1valNf_bPUvhQyPsePqTliJwXWPiCiyUYn0IW7qx6mWI` (updated 2026-05-29)
 
 ### Task Status
 | # | Task | Status |
@@ -126,9 +126,12 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 | 14 | Net Worth Snapshot | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 | 15 | Tax Prep Summary | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 | 16 | Recurring Income Forecast | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
-| 17 | 6-Month Income vs Expense Trend Chart | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
+| 17 | 6-Month Income vs Expense Trend Chart | ✅ COMPLETED + VERIFIED (2026-05-29) |
 | 18 | Monthly Journal / Memo per Month | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
 | 19 | Split Transaction Entry | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
+| 20 | Payday Tracker & Days-Until-Paycheck | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
+| 21 | Budget Category Notes & Annotations | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
+| 22 | Subscription Renewal Push Notifications | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
 
 ### Task Plans Summary (for quick reference)
 - **Task 6**: ✅ VERIFIED. Nav badge on Budget item + amber alert banner on Dashboard + "Not yet funded" chip row in CategoryView. Uses localStorage (_fin_budget_alert) + custom event for same-tab sync.
@@ -142,9 +145,12 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 - **Task 14**: Net Worth Snapshot — track assets/liabilities in a new sheet tab; shows net worth number + monthly delta + trend chart.
 - **Task 15**: Tax Prep Summary — year-end income/expense summary organized by tax category (W2, 1099, COGS, deductions).
 - **Task 16**: Recurring Income Forecast — next-3-month cash flow prediction based on historical averages + fixed subscriptions.
-- **Task 17**: 6-Month Income vs Expense Trend Chart — dual grouped-bar chart on Dashboard. Reads Monthly Summary (already loaded). Q: expanded/collapsed by default? Bar vs line chart? Show net line?
+- **Task 17**: ✅ VERIFIED (2026-05-29). TrendChartCard component in Dashboard.jsx (before `export default`). Collapsed by default; tap ▼ to expand. Grouped bar chart (teal=income, rose=expenses), last 6 months from `chartData.slice(-6)`. Delta summary: last-mo vs prev income/expense delta + 6-mo avg net. Zero new API calls — uses `chartData` (Monthly Summary already loaded). State: `trendExpanded` in Dashboard. Chart uses existing Recharts BarChart import.
 - **Task 18**: Monthly Journal/Memo — attach a short text note to any month (stored localStorage or Sheets). Q: Dashboard or Summary page? localStorage or Sheets sync?
 - **Task 19**: Split Transaction Entry — log one payment across multiple categories in one flow. Q: Max 3 or 5 splits? Visual link indicator? Fixed total or per-row amounts?
+- **Task 20**: Payday Tracker — "Days until paycheck" chip + spending-pace warning. localStorage only. Q: pay schedule type? which pages to show on? payday push notification?
+- **Task 21**: Budget Category Notes — per-category sticky notes in Budget Categories tab. localStorage (_fin_cat_notes). Q: tied to item or expense group? persist month-to-month?
+- **Task 22**: Subscription Renewal Push Notifications — notify N days before renewal using existing Notification API. localStorage (_fin_sub_notif_config, _fin_sub_notif_sent). Q: lead time global or per-sub? opt-out per sub?
 
 ## Git Workflow
 1. Source changes → feature branch (e.g. `claude/zealous-euler-p8sWK`) based on `main`
