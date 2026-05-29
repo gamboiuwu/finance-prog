@@ -151,9 +151,9 @@ function SessionCompleteModal({ duration, products, onSave, onDiscard }) {
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-end justify-center" onClick={e => e.target === e.currentTarget && onDiscard()}>
-      <div className="bg-slate-900 rounded-t-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto pb-8">
+      <div className="bg-slate-900 rounded-t-3xl w-full max-w-lg max-h-[90dvh] flex flex-col">
         {/* Header */}
-        <div className="px-5 pt-6 pb-4 border-b border-slate-800">
+        <div className="shrink-0 px-5 pt-6 pb-4 border-b border-slate-800">
           <div className="flex items-center gap-3 mb-1">
             <span className="text-3xl">🏁</span>
             <div>
@@ -164,7 +164,7 @@ function SessionCompleteModal({ duration, products, onSave, onDiscard }) {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 px-5 pt-4 pb-2">
+        <div className="shrink-0 flex gap-1 px-5 pt-4 pb-2">
           {[['summary','Summary'],['products','What I Made']].map(([v,l]) => (
             <button key={v} onClick={() => setTab(v)}
               className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === v ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
@@ -173,6 +173,7 @@ function SessionCompleteModal({ duration, products, onSave, onDiscard }) {
           ))}
         </div>
 
+        <div className="flex-1 overflow-y-auto">
         {tab === 'summary' && (
           <div className="px-5 space-y-4 pt-2">
             {/* Profit preview */}
@@ -273,8 +274,10 @@ function SessionCompleteModal({ duration, products, onSave, onDiscard }) {
           </div>
         )}
 
+        </div>{/* end scrollable area */}
+
         {/* Actions */}
-        <div className="px-5 pt-5 flex gap-3">
+        <div className="shrink-0 px-5 py-4 border-t border-slate-800 safe-area-bottom flex gap-3">
           <button onClick={onDiscard}
             className="flex-1 py-3 rounded-xl text-sm font-medium text-slate-400 bg-slate-800 hover:bg-slate-700 transition-colors">
             Discard
@@ -284,7 +287,7 @@ function SessionCompleteModal({ duration, products, onSave, onDiscard }) {
             Save Session {totalProfit > 0 ? `(+$${totalProfit.toFixed(2)})` : ''}
           </button>
         </div>
-        <p className="text-center text-slate-600 text-xs mt-3 px-5">Session saved locally and to your Work Sessions sheet. Process income anytime from the Sales tab.</p>
+        <p className="text-center text-slate-600 text-xs pb-2 px-5">Session saved locally and to your Work Sessions sheet. Process income anytime from the Sales tab.</p>
       </div>
     </div>
   );
