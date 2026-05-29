@@ -340,7 +340,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         </div>
       )}
 
-      <div className="modal-sheet bg-slate-900 w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[94vh]">
+      <div className="modal-sheet bg-slate-900 w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[94dvh]">
 
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-700 shrink-0">

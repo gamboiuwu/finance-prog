@@ -45,7 +45,7 @@ function AddModal({ onSave, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div className="bg-slate-800 rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[90dvh] overflow-y-auto">
         <div className="flex justify-between items-center">
           <h2 className="text-white font-semibold text-lg">New Inquiry</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">✕</button>

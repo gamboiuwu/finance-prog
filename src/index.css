@@ -26,11 +26,21 @@
     -webkit-tap-highlight-color: transparent;
     color-scheme: dark;
     background-color: #020617;
+    height: 100%;
+    overflow: hidden;
   }
   body {
     background-color: #020617; /* slate-950 */
     color: white;
     font-family: 'ZTNature', system-ui, -apple-system, sans-serif;
+    height: 100%;
+    overflow: hidden;
+  }
+  #root {
+    height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: none;
   }
   input, select, textarea, button {
     color-scheme: dark;
@@ -54,6 +64,12 @@
     font-variant-numeric: tabular-nums;
   }
   .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .modal-sheet {
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+  }
+  .safe-area-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .scrollbar-hide::-webkit-scrollbar {

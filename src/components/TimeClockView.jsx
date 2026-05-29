@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { appendRow, ensureSheetTab, readRange, batchUpdateCells } from '../lib/sheets';
 
 // ── localStorage keys ─────────────────────────────────────────────────────────
 const KEY_SESSIONS  = 'biz_timeclock_sessions';
@@ -97,6 +98,10 @@ function computeProfit(product, qty) {
     remaining = Math.max(0, remaining - allocated);
     if (block.category === 'Profit' || block.category === 'Revenue') profitAmt += allocated;
   });
+  // Any unallocated balance after cost blocks is also the owner's profit.
+  // This handles products where profit is implicit (no explicit Profit block),
+  // and is harmless when a Profit block exists since remaining will be ~0.
+  profitAmt += remaining;
   return profitAmt * qty;
 }
 
@@ -146,9 +151,9 @@ function SessionCompleteModal({ duration, products, onSave, onDiscard }) {
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-end justify-center" onClick={e => e.target === e.currentTarget && onDiscard()}>
-      <div className="bg-slate-900 rounded-t-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto pb-8">
+      <div className="bg-slate-900 rounded-t-3xl w-full max-w-lg max-h-[90dvh] flex flex-col">
         {/* Header */}
-        <div className="px-5 pt-6 pb-4 border-b border-slate-800">
+        <div className="shrink-0 px-5 pt-6 pb-4 border-b border-slate-800">
           <div className="flex items-center gap-3 mb-1">
             <span className="text-3xl">🏁</span>
             <div>
@@ -159,7 +164,7 @@ function SessionCompleteModal({ duration, products, onSave, onDiscard }) {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 px-5 pt-4 pb-2">
+        <div className="shrink-0 flex gap-1 px-5 pt-4 pb-2">
           {[['summary','Summary'],['products','What I Made']].map(([v,l]) => (
             <button key={v} onClick={() => setTab(v)}
               className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === v ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
@@ -168,6 +173,7 @@ function SessionCompleteModal({ duration, products, onSave, onDiscard }) {
           ))}
         </div>
 
+        <div className="flex-1 overflow-y-auto">
         {tab === 'summary' && (
           <div className="px-5 space-y-4 pt-2">
             {/* Profit preview */}
@@ -268,8 +274,10 @@ function SessionCompleteModal({ duration, products, onSave, onDiscard }) {
           </div>
         )}
 
+        </div>{/* end scrollable area */}
+
         {/* Actions */}
-        <div className="px-5 pt-5 flex gap-3">
+        <div className="shrink-0 px-5 py-4 border-t border-slate-800 safe-area-bottom flex gap-3">
           <button onClick={onDiscard}
             className="flex-1 py-3 rounded-xl text-sm font-medium text-slate-400 bg-slate-800 hover:bg-slate-700 transition-colors">
             Discard
@@ -279,7 +287,7 @@ function SessionCompleteModal({ duration, products, onSave, onDiscard }) {
             Save Session {totalProfit > 0 ? `(+$${totalProfit.toFixed(2)})` : ''}
           </button>
         </div>
-        <p className="text-center text-slate-600 text-xs mt-3 px-5">Saving records the session locally. You can process income separately from the Sales tab.</p>
+        <p className="text-center text-slate-600 text-xs pb-2 px-5">Session saved locally and to your Work Sessions sheet. Process income anytime from the Sales tab.</p>
       </div>
     </div>
   );
@@ -335,7 +343,10 @@ function HistoryPanel({ sessions, onDelete }) {
 }
 
 // ── Main TimeClockView ────────────────────────────────────────────────────────
-export default function TimeClockView({ products }) {
+const WORK_SESSIONS_SHEET = 'Work Sessions';
+const WORK_SESSIONS_HEADERS = ['Date', 'Start Time', 'Duration (sec)', 'Duration', 'Products', 'Total Units', 'Total Profit', '$/hr', 'Notes'];
+
+export default function TimeClockView({ products, token }) {
   const [sessions,    setSessions]    = useState(loadSessions);
   const [active,      setActive]      = useState(loadActive);
   const [elapsed,     setElapsed]     = useState(0);      // seconds
@@ -421,13 +432,13 @@ export default function TimeClockView({ products }) {
     clearInterval(tickRef.current);
   }
 
-  function handleSaveSession({ items, totalProfit, notes }) {
+  async function handleSaveSession({ items, totalProfit, notes }) {
     const dur = completeDur;
     const prev = loadSessions();
-    // Achievement check before save
+    const startISO = active.startTime;
     const newSession = {
       id: Math.random().toString(36).slice(2, 10),
-      startTime: active.startTime,
+      startTime: startISO,
       endTime:   new Date().toISOString(),
       duration:  dur,
       items,
@@ -444,6 +455,42 @@ export default function TimeClockView({ products }) {
     saveSessions(updated);
     saveActive(null);
     setSessions(updated);
+
+    // Persist to Google Sheets in the background (non-blocking)
+    if (token) {
+      const d = new Date(startISO);
+      const dateStr = d.toISOString().slice(0, 10);
+      const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      const totalUnits = items.reduce((s, it) => s + it.qty, 0);
+      const hourlyRate = dur > 0 ? (totalProfit / (dur / 3600)).toFixed(2) : '0.00';
+      const productsStr = items.length
+        ? items.map(it => `${it.qty}x ${it.productName}`).join(', ')
+        : '—';
+      try {
+        await ensureSheetTab(token, WORK_SESSIONS_SHEET);
+        // Write header row if sheet is fresh
+        const existing = await readRange(token, `${WORK_SESSIONS_SHEET}!A1:A1`);
+        if (!existing.length || !existing[0]?.length) {
+          await batchUpdateCells(token, WORK_SESSIONS_HEADERS.map((h, i) => ({
+            range: `${WORK_SESSIONS_SHEET}!${String.fromCharCode(65 + i)}1`,
+            value: h,
+          })));
+        }
+        await appendRow(token, `${WORK_SESSIONS_SHEET}!A:I`, [
+          dateStr,
+          timeStr,
+          dur,
+          fmtDurationLong(dur),
+          productsStr,
+          totalUnits,
+          totalProfit.toFixed(2),
+          hourlyRate,
+          notes || '',
+        ]);
+      } catch (e) {
+        console.error('TimeClockView: failed to write to Sheets', e);
+      }
+    }
     setActive(null);
     setElapsed(0);
     setShowComplete(false);

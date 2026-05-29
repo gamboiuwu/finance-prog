@@ -231,7 +231,7 @@ function TierModal({ tier, onSave, onDelete, onClose, saving }) {
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+      <div className="bg-slate-800 rounded-2xl w-full max-w-lg max-h-[92dvh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-700">
           <h2 className="text-white font-bold font-broske text-lg">

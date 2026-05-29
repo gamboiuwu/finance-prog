@@ -197,7 +197,7 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50">
-      <div className="modal-sheet bg-slate-900 w-full rounded-t-3xl p-5 space-y-4 max-h-[88vh] overflow-y-auto">
+      <div className="modal-sheet bg-slate-900 w-full rounded-t-3xl p-5 space-y-4 max-h-[88dvh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="text-white font-bold">{isNew ? '+ New Budget Item' : 'Edit Budget Item'}</h3>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 flex items-center justify-center">✕</button>

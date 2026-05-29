@@ -1777,7 +1777,7 @@ ${stmtTxns.length ? `
 
           return (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50">
-              <div className="modal-sheet bg-slate-900 w-full rounded-t-3xl max-h-[88vh] overflow-y-auto">
+              <div className="modal-sheet bg-slate-900 w-full rounded-t-3xl max-h-[88dvh] overflow-y-auto">
                 <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
                   <div>
                     <h3 className="text-white font-bold font-broske">Commission Price Calculator</h3>

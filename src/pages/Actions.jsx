@@ -166,7 +166,7 @@ function CategoryDetail({ category, items, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end">
-      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[92dvh] flex flex-col">
 
         <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">

@@ -22,6 +22,7 @@ function readBudgetBadge() {
 
 export default function Nav() {
   const [budgetBadge, setBudgetBadge] = useState(readBudgetBadge);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   useEffect(() => {
     const refresh = () => setBudgetBadge(readBudgetBadge());
@@ -33,8 +34,19 @@ export default function Nav() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    const handler = () => {
+      // If visual viewport height is significantly less than window height, keyboard is open
+      setKeyboardOpen(vv.height < window.innerHeight * 0.75);
+    };
+    vv.addEventListener('resize', handler);
+    return () => vv.removeEventListener('resize', handler);
+  }, []);
+
   return (
-    <nav className="fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 z-40 safe-area-pb">
+    <nav className={`fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 z-40 safe-area-pb ${keyboardOpen ? 'translate-y-full' : ''} transition-transform duration-200`}>
       <div className="flex">
         {tabs.map(({ to, label, icon }) => (
           <NavLink
