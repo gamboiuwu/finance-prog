@@ -15,6 +15,7 @@ import BusinessExpenses from './pages/BusinessExpenses';
 import Actions from './pages/Actions';
 import DragonBot from './pages/DragonBot';
 import DataRepair from './components/DataRepair';
+import IssueReporter from './components/IssueReporter';
 import Nav from './components/Nav';
 
 function AnimatedRoutes({ token }) {
@@ -145,6 +146,8 @@ export default function App() {
         <AnimatedRoutes token={token} />
 
         <DataRepair token={token} />
+
+        <IssueReporter token={token} />
 
         <Nav />
       </div>
