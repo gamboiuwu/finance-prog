@@ -56,6 +56,12 @@
   .safe-area-pb {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+  .modal-sheet {
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+  }
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }

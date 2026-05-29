@@ -562,7 +562,7 @@ function ProcessModal({ product, token, onClose, onSuccess }) {
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end z-50">
-      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[90vh] flex flex-col">
+      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[90dvh] flex flex-col">
         {/* Header */}
         <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div>
@@ -839,7 +839,7 @@ function EditTransactionModal({ tx, products, token, onSave, onDelete, onClose }
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end z-50">
-      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[92dvh] flex flex-col">
 
         <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div>
@@ -1846,6 +1846,93 @@ function AccountSpendModal({ token, account, history, contributions, onClose, on
 }
 
 // ── Business Expenses Tracker ─────────────────────────────────────────────────
+
+function AddExpenseModal({ products, saving, onSave, onClose, form, setForm }) {
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-end" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[92dvh] flex flex-col">
+        <div className="shrink-0 flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-800">
+          <h3 className="text-white font-bold">Add Expense</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Date</label>
+            <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+              className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Vendor / Description</label>
+            <input type="text" value={form.vendor} onChange={e => setForm(f => ({ ...f, vendor: e.target.value }))}
+              placeholder="e.g. Sticker Mule, Amazon…"
+              className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600" />
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Amount</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-lg">$</span>
+              <input type="number" step="0.01" min="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+                placeholder="0.00" inputMode="decimal"
+                className="w-full bg-slate-800 text-white rounded-xl pl-9 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono tabular-nums placeholder-slate-600" />
+            </div>
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Category</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {EXP_CATEGORIES.map(c => (
+                <button key={c} onClick={() => setForm(f => ({ ...f, category: c }))}
+                  className={`py-2 rounded-lg text-[11px] font-medium transition-colors border truncate ${form.category === c ? 'border-blue-600 text-blue-300 bg-blue-900/40' : 'border-slate-700 text-slate-400 bg-slate-800'}`}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+          {products.length > 0 && (
+            <div>
+              <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Link to Product (optional)</label>
+              <div className="flex gap-1.5 flex-wrap">
+                <button onClick={() => setForm(f => ({ ...f, product: '' }))}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${form.product === '' ? 'border-slate-500 text-white bg-slate-700' : 'border-slate-700 text-slate-500 bg-slate-800'}`}>
+                  None
+                </button>
+                {products.map(p => (
+                  <button key={p.id} onClick={() => setForm(f => ({ ...f, product: p.name }))}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${form.product === p.name ? 'border-green-600 text-green-300 bg-green-900/30' : 'border-slate-700 text-slate-400 bg-slate-800'}`}>
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Payment Source</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {EXP_PAYMENT_SOURCES.map(p => (
+                <button key={p} onClick={() => setForm(f => ({ ...f, payment: p }))}
+                  className={`py-2 rounded-lg text-xs font-medium transition-colors border ${form.payment === p ? 'border-blue-600 text-blue-300 bg-blue-900/40' : 'border-slate-700 text-slate-400 bg-slate-800'}`}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Notes / Receipt URL (optional)</label>
+            <input type="text" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              placeholder="Paste a receipt link or add notes…"
+              className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600" />
+          </div>
+        </div>
+        <div className="shrink-0 px-5 py-4 border-t border-slate-800 safe-area-bottom">
+          <button onClick={onSave}
+            disabled={saving || !form.vendor.trim() || !form.amount || parseFloat(form.amount) <= 0}
+            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-sm transition-colors">
+            {saving ? 'Saving…' : 'Add Expense'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ThresholdModal({ product, current, onSave, onClose }) {
   const [val, setVal] = useState(String(current || ''));
