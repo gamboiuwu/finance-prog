@@ -258,6 +258,7 @@ export default function Dashboard({ token }) {
   const [subscriptions, setSubscriptions]   = useState([]);
   const [showSubs, setShowSubs]             = useState(false);
   const [calMonth, setCalMonth]             = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const [selectedCalDay, setSelectedCalDay] = useState(null);
   const [stmtLoading, setStmtLoading]   = useState(false);
   const [stmtTxns, setStmtTxns]         = useState([]);
   const [stmtError, setStmtError]       = useState(null);
@@ -1036,11 +1037,16 @@ ${stmtTxns.length ? `
               ))}
               {cells.map((d, i) => {
                 if (!d) return <div key={`e-${i}`} />;
-                const isToday = d === todayD;
-                const events  = dueDays[d] || [];
+                const isToday    = d === todayD;
+                const events     = dueDays[d] || [];
+                const isSelected = selectedCalDay === d;
                 return (
-                  <div key={d} className={`rounded-lg p-0.5 flex flex-col items-center gap-0.5 ${isToday ? 'bg-slate-600' : events.length ? 'bg-teal-900/30' : ''}`}>
-                    <span className={`text-[11px] font-medium leading-none pt-0.5 ${isToday ? 'text-white font-bold' : 'text-slate-400'}`}>{d}</span>
+                  <div
+                    key={d}
+                    onClick={() => events.length ? setSelectedCalDay(isSelected ? null : d) : null}
+                    className={`rounded-lg p-0.5 flex flex-col items-center gap-0.5 ${events.length ? 'cursor-pointer' : ''} ${isSelected ? 'bg-teal-700/60 ring-1 ring-teal-400' : isToday ? 'bg-slate-600' : events.length ? 'bg-teal-900/30' : ''}`}
+                  >
+                    <span className={`text-[11px] font-medium leading-none pt-0.5 ${isToday && !isSelected ? 'text-white font-bold' : isSelected ? 'text-teal-200 font-bold' : 'text-slate-400'}`}>{d}</span>
                     {events.length > 0 && (
                       <div className="flex gap-0.5 flex-wrap justify-center">
                         {events.slice(0, 3).map((_, ei) => (
@@ -1053,8 +1059,33 @@ ${stmtTxns.length ? `
               })}
             </div>
 
+            {/* Selected day subscriptions */}
+            {selectedCalDay && (dueDays[selectedCalDay] || []).length > 0 && (
+              <div className="border-t border-teal-800/60 pt-2 space-y-1">
+                <p className="text-teal-400 text-[10px] uppercase tracking-wider">
+                  Due on {MONTH_NAMES[m]} {selectedCalDay}
+                </p>
+                {(dueDays[selectedCalDay] || []).map((name, i) => {
+                  const sub = subscriptions.find(s => s['Name'] === name);
+                  return (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0" />
+                        <span className="text-slate-200 truncate">{name}</span>
+                      </div>
+                      {sub?.['Amount'] && (
+                        <span className="text-slate-400 font-mono shrink-0">
+                          ${parseFloat(sub['Amount'] || 0).toFixed(2)}{cycleAmountLabel(sub['Cycle'])}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Upcoming list */}
-            {upcoming.length > 0 ? (
+            {!selectedCalDay && upcoming.length > 0 ? (
               <div className="space-y-1 border-t border-slate-700 pt-2">
                 <p className="text-slate-500 text-[10px] uppercase tracking-wider">Due next 14 days</p>
                 {upcoming.map((s, i) => (
@@ -1074,7 +1105,7 @@ ${stmtTxns.length ? `
                   </div>
                 ))}
               </div>
-            ) : subscriptions.length === 0 ? (
+            ) : !selectedCalDay && subscriptions.length === 0 ? (
               <p className="text-slate-600 text-xs text-center border-t border-slate-700 pt-2">Add subscriptions to see due dates</p>
             ) : null}
           </div>

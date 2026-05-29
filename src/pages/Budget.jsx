@@ -173,6 +173,7 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
     Account:                 item['Account']                 || 'Checking',
     Priority:                String(item['Priority']         || '2'),
     'Monthly Allowance ($)': String(item['Monthly Allowance ($)'] || '0'),
+    'Actual Spend':          String(item['Actual Spend']     || '0'),
   });
   const [balanceType, setBalanceType] = useState(() => {
     try {
@@ -227,6 +228,21 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
               />
             </div>
           </div>
+
+          {!isNew && (
+            <div>
+              <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Actual Spend This Month</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-lg">$</span>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={fields['Actual Spend']}
+                  onChange={e => set('Actual Spend', e.target.value)}
+                  className="w-full bg-slate-800 text-white text-xl font-bold rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 font-mono tabular-nums"
+                />
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Priority</label>

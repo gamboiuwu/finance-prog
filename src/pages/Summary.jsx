@@ -466,6 +466,18 @@ export default function Summary({ token }) {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  // When a fresh live price arrives, clear any stale manual override so the live value shows.
+  useEffect(() => {
+    if (!livePrice) return;
+    setOverrides(prev => {
+      if (!prev['gasPrice']) return prev;
+      const updated = { ...prev };
+      delete updated['gasPrice'];
+      localStorage.setItem('summary_overrides', JSON.stringify(updated));
+      return updated;
+    });
+  }, [livePrice]);
+
   const sv = useMemo(() => extractSV(svRows), [svRows]);
   const expenses = useMemo(() => {
     if (!expRows.length) return [];

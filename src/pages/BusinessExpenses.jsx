@@ -1108,7 +1108,7 @@ function SalesView({ token, products }) {
               qty:       r[3] || '',
               unitPrice: parseFloat(r[4]) || 0,
               revenue:   parseFloat(r[5]) || 0,
-              margin:    r[6] || '',
+              margin:    (typeof r[6] === 'string' && r[6].startsWith('#')) ? '' : (r[6] || ''),
               allocs,
             };
           })
