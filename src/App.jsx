@@ -14,6 +14,7 @@ import GasPrices from './pages/GasPrices';
 import BusinessExpenses from './pages/BusinessExpenses';
 import Actions from './pages/Actions';
 import DragonBot from './pages/DragonBot';
+import DataRepair from './components/DataRepair';
 import Nav from './components/Nav';
 
 function AnimatedRoutes({ token }) {
@@ -142,6 +143,8 @@ export default function App() {
         </header>
 
         <AnimatedRoutes token={token} />
+
+        <DataRepair token={token} />
 
         <Nav />
       </div>
