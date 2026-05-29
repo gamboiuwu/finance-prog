@@ -105,7 +105,7 @@ src/
 ## Task Tracking
 Maintained in Google Drive doc "Finance Tracker – Updates & Task Plans" (auto-updated by Claude).
 Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTzptqo`
-**Current task doc ID**: `1j-CtW2Wu-PN9mVRWrFNGKoQEUhLrTXdk7rvIvvh84jU` (updated 2026-05-28)
+**Current task doc ID**: `1P98B_cC-KrnrL1HjztIltpzYyvrn2GowM8dUye8t-YM` (updated 2026-05-29)
 
 ### Task Status
 | # | Task | Status |
@@ -116,29 +116,35 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 | 4 | Business Expenses full accounting page (Expenses 📒 tab) | ✅ COMPLETED + VERIFIED (2026-05-27) |
 | 5 | Month-over-Month Spending Trends (4th Budget tab) | ✅ COMPLETED + VERIFIED (2026-05-28) |
 | 6 | Budget Over-Budget Alerts & Nav Badge | ✅ COMPLETED + VERIFIED (2026-05-28) |
-| 7 | Transaction Log: Search, Filter & Running Balance | ⏳ Plan written, awaiting Execute Y/N |
+| 7 | Transaction Log: Search, Filter & Running Balance | ✅ COMPLETED + VERIFIED (2026-05-29) |
 | 8 | Quick Income Templates (saved amounts) | ⏳ Plan written, awaiting Execute Y/N |
 | 9 | Savings Goals with Milestone Tracking | ⏳ Plan written, awaiting Execute Y/N |
-| 10 | Dashboard Financial Health Score | ✅ COMPLETED (2026-05-28) |
+| 10 | Dashboard Financial Health Score | ✅ COMPLETED + VERIFIED (2026-05-29) |
 | 11 | Year-to-Date Budget Summary | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 | 12 | Commission & Art Income Tracker Improvements | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 | 13 | Subscription Cost Optimization Insights | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 | 14 | Net Worth Snapshot | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 | 15 | Tax Prep Summary | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 | 16 | Recurring Income Forecast | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
+| 17 | 6-Month Income vs Expense Trend Chart | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
+| 18 | Monthly Journal / Memo per Month | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
+| 19 | Split Transaction Entry | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
 
 ### Task Plans Summary (for quick reference)
 - **Task 6**: ✅ VERIFIED. Nav badge on Budget item + amber alert banner on Dashboard + "Not yet funded" chip row in CategoryView. Uses localStorage (_fin_budget_alert) + custom event for same-tab sync.
-- **Task 7**: Search + filter chips + totals footer on Transactions page. Q: Default all-time or current month? Delete from here? Amount search? CSV export?
+- **Task 7**: ✅ VERIFIED (2026-05-29). Search bar (realtime, matches category/description/amount/account), filter chips (This Month default/Last Month/All Time + Done/Pending status), sort toggle (newest/oldest), CSV copy to clipboard, running balance footer (Net/Count/Avg). Charts only shown in All Time mode. Row limit raised to 1000. `parseSheetDate()` + `monthKey()` helpers added locally.
 - **Task 8**: Income template chips in ProcessIncome modal — tap to pre-fill amount. Stored in localStorage. Q: Global or account-specific? Include processing mode? Max 5 or 8?
 - **Task 9**: Savings Goals sheet tab + 5th Budget tab with progress bars and milestone toasts. Q: 5th Budget tab or standalone page? Track start date? Show projected completion?
-- **Task 10**: ✅ COMPLETED. Arc gauge on Dashboard (prominent, above month header). 4 signals: Essential Coverage 40pts, Savings Rate 25pts, Allocation Completeness 20pts, Over-Budget Penalty -15pts max. Target 80 marked in amber. Expandable breakdown. 6-month history sparkline (localStorage). Browser push notification when score < 40 (once/day). State: healthScore { total, signals, history, loaded }.
+- **Task 10**: ✅ VERIFIED (2026-05-29). Arc gauge on Dashboard (prominent, above month header). 4 signals: Essential Coverage 40pts, Savings Rate 25pts, Allocation Completeness 20pts, Over-Budget Penalty -15pts max. Target 80 marked in amber. Expandable breakdown. 6-month history sparkline (localStorage). Browser push notification when score < 40 (once/day). Code verified: signals compute correctly at Dashboard.jsx:297-330; gauge renders correctly (240° arc, GAUGE_START=150, gap at bottom); health card at line 725.
 - **Task 11**: YTD Budget Summary — new tab in Summary page. Shows total income vs goal, per-category YTD actuals vs budget, best/worst month cards.
 - **Task 12**: Commission income bridge — "Mark Complete + Process" button links commissions to Process Income modal; outstanding badge on Art nav item.
 - **Task 13**: Subscription cost insights — annual cost view, cost ranking, 90-day renewal calendar, month-over-month subscription trend.
 - **Task 14**: Net Worth Snapshot — track assets/liabilities in a new sheet tab; shows net worth number + monthly delta + trend chart.
 - **Task 15**: Tax Prep Summary — year-end income/expense summary organized by tax category (W2, 1099, COGS, deductions).
 - **Task 16**: Recurring Income Forecast — next-3-month cash flow prediction based on historical averages + fixed subscriptions.
+- **Task 17**: 6-Month Income vs Expense Trend Chart — dual grouped-bar chart on Dashboard. Reads Monthly Summary (already loaded). Q: expanded/collapsed by default? Bar vs line chart? Show net line?
+- **Task 18**: Monthly Journal/Memo — attach a short text note to any month (stored localStorage or Sheets). Q: Dashboard or Summary page? localStorage or Sheets sync?
+- **Task 19**: Split Transaction Entry — log one payment across multiple categories in one flow. Q: Max 3 or 5 splits? Visual link indicator? Fixed total or per-row amounts?
 
 ## Git Workflow
 1. Source changes → feature branch (e.g. `claude/zealous-euler-p8sWK`) based on `main`
