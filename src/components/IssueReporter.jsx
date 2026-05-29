@@ -10,7 +10,7 @@
 // for the daily routine to read — a static site cannot push to the repo itself, so
 // the JSON file is the hand-off.
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { appendRow, ensureSheetTab } from '../lib/sheets';
+import { ISSUES_SPREADSHEET_ID } from '../config';
 
 const STORE_KEY = 'fin_issues';
 const MAX_ISSUES = 30;
@@ -172,15 +172,24 @@ export default function IssueReporter({ token }) {
     const issue = { ...draft, comment: comment.trim(), severity, screenshot: shot };
     const next = saveIssues([...loadIssues(), issue]);
     setCount(next.length);
-    // Best-effort durable copy of the text fields to a Sheet tab.
+    // Best-effort durable copy of the text fields to the public Finance Issues sheet,
+    // which the daily routine reads with its API key. Screenshots stay local (kept out
+    // of the link-viewable sheet); they are still in the JSON export.
     if (token) {
       try {
-        await ensureSheetTab(token, 'Issues');
-        await appendRow(token, 'Issues!A:H', [
-          issue.time, issue.route, issue.severity, issue.selector || issue.tag || '',
-          (issue.text || '').slice(0, 200), issue.comment,
-          shot ? 'screenshot in export JSON' : 'no screenshot', issue.ua,
-        ]);
+        const range = encodeURIComponent('Sheet1!A:I');
+        await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${ISSUES_SPREADSHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ values: [[
+              issue.time, issue.route, issue.severity, issue.selector || issue.tag || '',
+              (issue.text || '').slice(0, 200), issue.comment,
+              shot ? 'captured (in local export)' : 'none', issue.ua, '',
+            ]] }),
+          }
+        );
       } catch { /* offline / no access — local copy still saved */ }
     }
     setSaving(false);
