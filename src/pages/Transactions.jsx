@@ -277,11 +277,19 @@ export default function Transactions({ token }) {
     sortOrder === 'oldest' ? [...filteredRows].reverse() : filteredRows,
   [filteredRows, sortOrder]);
 
+  // Quote every field and neutralize formula injection so a cell like
+  // "=cmd|..." or "+1" cannot execute when the CSV is opened in Excel/Sheets.
+  function csvCell(v) {
+    let s = String(v ?? '');
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+
   function copyCSV() {
     const header = 'Date,Category,Amount,Description,Account,Status';
     const lines  = sortedRows.map(r => {
       const status = r[5] === 'TRUE' || r[5] === true ? 'Done' : 'Pending';
-      return [r[0], r[1], parseAmount(r[2]).toFixed(2), `"${String(r[3]||'').replace(/"/g,'""')}"`, r[4]||'', status].join(',');
+      return [r[0], r[1], parseAmount(r[2]).toFixed(2), r[3], r[4], status].map(csvCell).join(',');
     });
     navigator.clipboard.writeText([header, ...lines].join('\n')).then(() => {
       setCopied(true);
