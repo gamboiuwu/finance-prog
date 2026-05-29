@@ -26,11 +26,21 @@
     -webkit-tap-highlight-color: transparent;
     color-scheme: dark;
     background-color: #020617;
+    height: 100%;
+    overflow: hidden;
   }
   body {
     background-color: #020617; /* slate-950 */
     color: white;
     font-family: 'ZTNature', system-ui, -apple-system, sans-serif;
+    height: 100%;
+    overflow: hidden;
+  }
+  #root {
+    height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: none;
   }
   input, select, textarea, button {
     color-scheme: dark;
