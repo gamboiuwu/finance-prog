@@ -112,10 +112,19 @@ export default function DragonBot({ token }) {
 
   useEffect(scrollToEnd, [messages, streaming, toolLabel, scrollToEnd]);
 
+  // Derive avatar mood from current state
+  const [hasError, setHasError] = useState(false);
+  const avatarMood = hasError ? 'error'
+    : streaming ? 'talking'
+    : busy      ? 'thinking'
+    : messages.length === 0 ? 'idle'
+    : 'happy';
+
   async function send(text) {
     const trimmed = (text ?? input).trim();
     if (!trimmed || busy) return;
     setInput('');
+    setHasError(false);
     setMessages(m => [...m, { role: 'user', text: trimmed }]);
     setBusy(true);
     setStreaming('');
@@ -133,7 +142,9 @@ export default function DragonBot({ token }) {
       apiHistory.current = updated;
       setMessages(m => [...m, { role: 'dragon', text: acc || '…' }]);
     } catch (e) {
+      setHasError(true);
       setMessages(m => [...m, { role: 'dragon', text: dragonError(e), error: true }]);
+      setTimeout(() => setHasError(false), 2000);
     } finally {
       setStreaming('');
       setToolLabel(null);
@@ -162,7 +173,7 @@ export default function DragonBot({ token }) {
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-800">
         <div className="flex items-center gap-2.5">
-          <DragonAvatar mood={busy ? 'thinking' : 'idle'} size={36} />
+          <DragonAvatar mood={avatarMood} size={36} />
           <div>
             <p className="text-white font-bold font-broske leading-tight">Ledger</p>
             <p className="text-slate-500 text-[11px]">your treasure-hoarding budget dragon</p>
@@ -238,6 +249,11 @@ export default function DragonBot({ token }) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Desktop mascot — fixed bottom-left, hidden on mobile */}
+      <div className="fixed bottom-20 left-6 z-30 hidden md:flex flex-col items-center pointer-events-none select-none">
+        <DragonAvatar mood={avatarMood} size={260} />
       </div>
 
       {/* Input */}
