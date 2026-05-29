@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { streamDragon, dragonError } from '../lib/dragonBot';
 import { getDragonKey, setDragonKey, clearDragonKey, hasDragonKey } from '../lib/dragonKey';
+import DragonAvatar from '../components/DragonAvatar';
 
 const TOOL_LABELS = {
   get_monthly_summary:  'peering at your monthly hoard…',
@@ -40,7 +41,7 @@ function KeySetup({ onSaved, onCancel, hasExisting }) {
   return (
     <div className="px-4 py-6 max-w-md mx-auto space-y-5">
       <div className="text-center space-y-2">
-        <p className="text-5xl">🐉</p>
+        <div className="flex justify-center"><DragonAvatar mood="sleep" size={80} /></div>
         <h2 className="text-white font-bold text-xl font-broske">Wake the Dragon</h2>
         <p className="text-slate-400 text-sm leading-relaxed">
           Ledger runs on your own Anthropic API key. Paste it below — it's saved only on
@@ -161,7 +162,7 @@ export default function DragonBot({ token }) {
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-800">
         <div className="flex items-center gap-2.5">
-          <span className="text-2xl">🐉</span>
+          <DragonAvatar mood={busy ? 'thinking' : 'idle'} size={36} />
           <div>
             <p className="text-white font-bold font-broske leading-tight">Ledger</p>
             <p className="text-slate-500 text-[11px]">your treasure-hoarding budget dragon</p>
@@ -185,7 +186,7 @@ export default function DragonBot({ token }) {
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && !streaming && (
           <div className="text-center pt-8 space-y-4">
-            <p className="text-6xl">🐉</p>
+            <div className="flex justify-center"><DragonAvatar mood="wave" size={96} /></div>
             <div className="space-y-1">
               <p className="text-white font-semibold font-broske">Greetings, treasure-keeper.</p>
               <p className="text-slate-400 text-sm px-4">Ask me anything about your gold — I'll check your real numbers before I answer.</p>
@@ -233,7 +234,7 @@ export default function DragonBot({ token }) {
                 <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                 <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </span>
-              <span className="italic">🐉 {toolLabel || 'pondering…'}</span>
+              <span className="italic">{toolLabel || 'pondering…'}</span>
             </div>
           </div>
         )}
