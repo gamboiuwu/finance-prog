@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { readRange, appendRow, updateCell } from '../lib/sheets';
 import { SHEETS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
-const ACCOUNTS = ['Cash', 'Checking', 'Savings', 'Outside Payment', 'Business Tax', 'Subscription', 'Liabilities'];
+const ACCOUNTS  = ['Cash', 'Checking', 'Savings', 'Outside Payment', 'Business Tax', 'Subscription', 'Liabilities'];
 const CAT_COLORS = ['#3b82f6','#f43f5e','#f59e0b','#10b981','#8b5cf6','#06b6d4','#ec4899','#64748b'];
 
 function parseAmount(val) {
@@ -15,6 +15,24 @@ function parseAmount(val) {
   const n = parseFloat(clean);
   if (isNaN(n)) return 0;
   return isNeg ? -n : n;
+}
+
+function parseSheetDate(val) {
+  if (!val) return null;
+  const s = String(val).trim();
+  const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slash) return new Date(+slash[3], +slash[1] - 1, +slash[2]);
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3]);
+  const serial = parseFloat(s);
+  if (!isNaN(serial) && serial > 40000) return new Date((serial - 25569) * 86400000);
+  return null;
+}
+
+function monthKey(dateVal) {
+  const d = parseSheetDate(dateVal);
+  if (!d) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function AddModal({ categories, onSave, onClose }) {
@@ -85,8 +103,7 @@ function AddModal({ categories, onSave, onClose }) {
 function TxRow({ row, onToggle }) {
   const amount   = parseAmount(row[2]);
   const isCredit = amount > 0;
-  const status   = row[5];
-  const isDone   = status === 'TRUE' || status === true;
+  const isDone   = row[5] === 'TRUE' || row[5] === true;
   return (
     <div className="flex items-center gap-3 px-3 py-2.5 border-t border-slate-700/60">
       <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold
@@ -104,7 +121,7 @@ function TxRow({ row, onToggle }) {
           <span className="text-slate-600 text-xs">{row[0]}</span>
           {row[4] && <span className="text-xs px-1.5 py-0.5 bg-slate-700/70 text-slate-500 rounded">{row[4]}</span>}
           <button
-            onClick={() => onToggle(row[6], status)}
+            onClick={() => onToggle(row[6], row[5])}
             className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
               isDone
                 ? 'border-emerald-700/50 text-emerald-500 bg-emerald-900/20 hover:bg-emerald-900/40'
@@ -123,7 +140,6 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
   const [open, setOpen] = useState(true);
   const color       = CAT_COLORS[colorIdx % CAT_COLORS.length];
   const count       = groupRows.length;
-  // Use actual signed net so +income offsets -expenses correctly
   const netTotal    = groupRows.reduce((s, r) => s + parseAmount(r[2]), 0);
   const absSpending = groupRows.filter(r => parseAmount(r[2]) < 0).reduce((s, r) => s + Math.abs(parseAmount(r[2])), 0);
   const isNet       = netTotal >= 0;
@@ -133,7 +149,6 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
 
   return (
     <div className="bg-slate-800 rounded-2xl overflow-hidden">
-      {/* Header */}
       <button onClick={() => setOpen(o => !o)} className="w-full text-left px-4 py-3.5 flex items-center gap-3">
         <span className="w-3 h-3 rounded-full shrink-0" style={{ background: color }} />
         <div className="flex-1 min-w-0">
@@ -152,11 +167,10 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
         <span className={`text-slate-500 text-xs transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▼</span>
       </button>
 
-      {/* Stats bar — based on actual spending portion */}
       {absSpending > 0 && totalSpent > 0 && (
         <div className="px-4 pb-3 space-y-1">
           <div className="flex justify-between text-xs text-slate-500">
-            <span>{pctOfAll.toFixed(1)}% of total spending</span>
+            <span>{pctOfAll.toFixed(1)}% of spending</span>
             {dateRange && <span className="truncate max-w-[140px]">{dateRange}</span>}
           </div>
           <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
@@ -165,7 +179,6 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
         </div>
       )}
 
-      {/* Transaction list */}
       {open && (
         <div className="bg-slate-900/40">
           {groupRows.map((row, i) => <TxRow key={i} row={row} onToggle={onToggle} />)}
@@ -176,19 +189,29 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
 }
 
 export default function Transactions({ token }) {
-  const [rows, setRows]           = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [saving, setSaving]       = useState(false);
-  const [error, setError]         = useState(null);
-  const [showModal, setShowModal] = useState(false);
-  const [view, setView]           = useState('grouped'); // 'grouped' | 'list'
+  const [rows, setRows]               = useState([]);
+  const [categories, setCategories]   = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState(null);
+  const [showModal, setShowModal]     = useState(false);
+  const [view, setView]               = useState('grouped');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [monthFilter, setMonthFilter] = useState('current');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortOrder, setSortOrder]     = useState('newest');
+  const [copied, setCopied]           = useState(false);
+
+  const now       = new Date();
+  const curMK     = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const prevDate  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMK    = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
 
   function load() {
     setLoading(true);
     Promise.all([
-      readRange(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!A1:F200`),
-      readRange(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!C1:C200`, 'UNFORMATTED_VALUE'),
+      readRange(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!A1:F1000`),
+      readRange(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!C1:C1000`, 'UNFORMATTED_VALUE'),
     ])
       .then(([data, rawAmts]) => {
         if (!data.length) return;
@@ -197,7 +220,7 @@ export default function Transactions({ token }) {
         const patched = txRows.map((row, i) => {
           const r = [...row];
           r[2] = rawAmtRows[i]?.[0] ?? row[2];
-          r[6] = i + 2; // 1-indexed sheet row (row 1 = header)
+          r[6] = i + 2;
           return r;
         });
         setRows(patched.filter(r => r[0]).reverse());
@@ -224,55 +247,106 @@ export default function Transactions({ token }) {
 
   async function toggleStatus(sheetRow, currentStatus) {
     const isDone = currentStatus === 'TRUE' || currentStatus === true;
-    const next = !isDone;
-    // Optimistic update
+    const next   = !isDone;
     setRows(prev => prev.map(r => r[6] === sheetRow ? Object.assign([...r], { 5: next ? 'TRUE' : 'FALSE' }) : r));
     try {
       await updateCell(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!F${sheetRow}`, next);
     } catch (e) {
-      // Revert
       setRows(prev => prev.map(r => r[6] === sheetRow ? Object.assign([...r], { 5: isDone ? 'TRUE' : 'FALSE' }) : r));
     }
+  }
+
+  const filteredRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return rows.filter(row => {
+      const mk   = monthKey(row[0]);
+      if (monthFilter === 'current' && mk !== curMK)  return false;
+      if (monthFilter === 'last'    && mk !== prevMK) return false;
+      const done = row[5] === 'TRUE' || row[5] === true;
+      if (statusFilter === 'done'    && !done)  return false;
+      if (statusFilter === 'pending' &&  done)  return false;
+      if (!q) return true;
+      return [row[0], row[1], String(parseAmount(row[2])), row[3], row[4]]
+        .map(v => String(v || '').toLowerCase())
+        .join(' ')
+        .includes(q);
+    });
+  }, [rows, searchQuery, monthFilter, statusFilter, curMK, prevMK]);
+
+  const sortedRows = useMemo(() =>
+    sortOrder === 'oldest' ? [...filteredRows].reverse() : filteredRows,
+  [filteredRows, sortOrder]);
+
+  function copyCSV() {
+    const header = 'Date,Category,Amount,Description,Account,Status';
+    const lines  = sortedRows.map(r => {
+      const status = r[5] === 'TRUE' || r[5] === true ? 'Done' : 'Pending';
+      return [r[0], r[1], parseAmount(r[2]).toFixed(2), `"${String(r[3]||'').replace(/"/g,'""')}"`, r[4]||'', status].join(',');
+    });
+    navigator.clipboard.writeText([header, ...lines].join('\n')).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function clearFilters() {
+    setSearchQuery('');
+    setMonthFilter('all');
+    setStatusFilter('all');
   }
 
   if (loading) return <LoadingSpinner />;
   if (error)   return <div className="p-4 text-red-400">Error: {error}</div>;
 
-  const totalSpent    = rows.filter(r => parseAmount(r[2]) < 0).reduce((s, r) => s + Math.abs(parseAmount(r[2])), 0);
-  const totalReceived = rows.filter(r => parseAmount(r[2]) > 0).reduce((s, r) => s + parseAmount(r[2]), 0);
+  const totalSpent    = filteredRows.filter(r => parseAmount(r[2]) < 0).reduce((s, r) => s + Math.abs(parseAmount(r[2])), 0);
+  const totalReceived = filteredRows.filter(r => parseAmount(r[2]) > 0).reduce((s, r) => s + parseAmount(r[2]), 0);
   const net           = totalReceived - totalSpent;
+  const avgAmt        = filteredRows.length > 0
+    ? filteredRows.reduce((s, r) => s + Math.abs(parseAmount(r[2])), 0) / filteredRows.length
+    : 0;
 
-  // Build category groups sorted by total expense desc
+  // Groups built from sortedRows for the grouped view
   const catMap = {};
-  rows.forEach(r => {
+  sortedRows.forEach(r => {
     const cat = r[1] || 'Uncategorized';
     if (!catMap[cat]) catMap[cat] = [];
     catMap[cat].push(r);
   });
   const groups = Object.entries(catMap)
-    .map(([name, grpRows]) => {
-      const absSpending = grpRows.filter(r => parseAmount(r[2]) < 0).reduce((s, r) => s + Math.abs(parseAmount(r[2])), 0);
-      return { name, rows: grpRows, absSpending };
-    })
+    .map(([name, grpRows]) => ({
+      name, rows: grpRows,
+      absSpending: grpRows.filter(r => parseAmount(r[2]) < 0).reduce((s, r) => s + Math.abs(parseAmount(r[2])), 0),
+    }))
     .sort((a, b) => b.absSpending - a.absSpending);
 
-  // Charts data
-  const catChartData = groups
-    .filter(g => g.absSpending > 0)
-    .slice(0, 6)
-    .map(g => ({ name: g.name, value: g.absSpending }));
+  // All-time charts (unfiltered) — only shown in All Time mode
+  const allCatChartData = (() => {
+    const cm = {};
+    rows.forEach(r => {
+      const amt = parseAmount(r[2]);
+      if (amt >= 0) return;
+      const cat = r[1] || 'Uncategorized';
+      cm[cat] = (cm[cat] || 0) + Math.abs(amt);
+    });
+    return Object.entries(cm).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, value]) => ({ name, value }));
+  })();
 
   const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const monthMap = {};
-  rows.forEach(r => {
-    const amt = parseAmount(r[2]);
-    if (amt >= 0 || !r[0]) return;
-    const parts = String(r[0]).split('/');
-    if (parts.length < 2) return;
-    const label = MONTH_NAMES[(parseInt(parts[0], 10) - 1)] ?? parts[0];
-    monthMap[label] = (monthMap[label] || 0) + Math.abs(amt);
-  });
-  const monthData = Object.entries(monthMap).map(([month, spent]) => ({ month, spent }));
+  const monthMapData = (() => {
+    const mm = {};
+    rows.forEach(r => {
+      const amt = parseAmount(r[2]);
+      if (amt >= 0 || !r[0]) return;
+      const parts = String(r[0]).split('/');
+      if (parts.length < 2) return;
+      const label = MONTH_NAMES[(parseInt(parts[0], 10) - 1)] ?? parts[0];
+      mm[label] = (mm[label] || 0) + Math.abs(amt);
+    });
+    return Object.entries(mm).map(([month, spent]) => ({ month, spent }));
+  })();
+
+  const MONTH_LABELS = { current: 'This Month', last: 'Last Month', all: 'All Time' };
+  const hasActiveFilter = searchQuery || monthFilter !== 'all' || statusFilter !== 'all';
 
   return (
     <div className="stagger p-4 pb-24 space-y-4">
@@ -288,8 +362,53 @@ export default function Transactions({ token }) {
         </button>
       </div>
 
-      {/* Summary strip */}
-      {rows.length > 0 && (
+      {/* Search bar */}
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </span>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Search category, description, amount…"
+          className="w-full bg-slate-800 text-white rounded-xl pl-9 pr-9 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-500"
+        />
+        {searchQuery && (
+          <button onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-sm leading-none">✕</button>
+        )}
+      </div>
+
+      {/* Filter chips */}
+      <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-0.5">
+        {['current', 'last', 'all'].map(m => (
+          <button key={m} onClick={() => setMonthFilter(m)}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+              monthFilter === m
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'
+            }`}>
+            {MONTH_LABELS[m]}
+          </button>
+        ))}
+        <div className="w-px bg-slate-700/60 shrink-0 mx-1 self-stretch" />
+        {[['all','All'],['done','Done'],['pending','Pending']].map(([v, l]) => (
+          <button key={v} onClick={() => setStatusFilter(v)}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+              statusFilter === v
+                ? 'bg-slate-600 text-white border-slate-500'
+                : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'
+            }`}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {/* Summary strip (filtered) */}
+      {filteredRows.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-slate-800 rounded-xl p-3 text-center">
             <p className="text-slate-500 text-[10px] uppercase tracking-wider">Received</p>
@@ -308,22 +427,22 @@ export default function Transactions({ token }) {
         </div>
       )}
 
-      {/* Charts */}
-      {rows.length > 0 && (
+      {/* All-time charts — only shown in All Time mode */}
+      {monthFilter === 'all' && rows.length > 0 && (
         <>
-          {catChartData.length > 0 && (
+          {allCatChartData.length > 0 && (
             <div className="bg-slate-800 rounded-2xl p-4">
               <p className="text-slate-300 font-medium text-sm mb-3 font-broske">Spending by Category</p>
               <div className="flex gap-4 items-center">
                 <PieChart width={130} height={130}>
-                  <Pie data={catChartData} cx={65} cy={65} innerRadius={38} outerRadius={60} dataKey="value" stroke="none">
-                    {catChartData.map((_, i) => <Cell key={i} fill={CAT_COLORS[i % CAT_COLORS.length]} />)}
+                  <Pie data={allCatChartData} cx={65} cy={65} innerRadius={38} outerRadius={60} dataKey="value" stroke="none">
+                    {allCatChartData.map((_, i) => <Cell key={i} fill={CAT_COLORS[i % CAT_COLORS.length]} />)}
                   </Pie>
                   <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 12, fontFamily: "'ZTNature', system-ui, sans-serif" }}
-                    formatter={v => [`$${v.toFixed(2)}`]} />
+                    formatter={v => [`$${Number(v).toFixed(2)}`]} />
                 </PieChart>
                 <div className="flex-1 space-y-1.5">
-                  {catChartData.map((d, i) => (
+                  {allCatChartData.map((d, i) => (
                     <div key={i} className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CAT_COLORS[i % CAT_COLORS.length] }} />
@@ -336,15 +455,15 @@ export default function Transactions({ token }) {
               </div>
             </div>
           )}
-          {monthData.length > 1 && (
+          {monthMapData.length > 1 && (
             <div className="bg-slate-800 rounded-2xl p-4">
               <p className="text-slate-300 font-medium text-sm mb-3 font-broske">Monthly Spending</p>
               <ResponsiveContainer width="100%" height={140}>
-                <BarChart data={monthData} barCategoryGap="35%">
+                <BarChart data={monthMapData} barCategoryGap="35%">
                   <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
                   <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontFamily: "'ZTNature', system-ui, sans-serif" }}
-                    formatter={v => [`$${v.toFixed(2)}`, 'Spent']} />
+                    formatter={v => [`$${Number(v).toFixed(2)}`, 'Spent']} />
                   <Bar dataKey="spent" fill="#f43f5e" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -353,20 +472,50 @@ export default function Transactions({ token }) {
         </>
       )}
 
-      {/* View toggle */}
-      {rows.length > 0 && (
-        <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
-          {['grouped', 'list'].map(v => (
-            <button key={v} onClick={() => setView(v)}
-              className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${view === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
-              {v === 'grouped' ? 'By Category' : 'Chronological'}
-            </button>
-          ))}
+      {/* View / Sort / CSV controls */}
+      {(filteredRows.length > 0 || rows.length > 0) && (
+        <div className="flex items-center gap-2">
+          <div className="flex bg-slate-800 rounded-xl p-1 gap-1 flex-1">
+            {['grouped', 'list'].map(v => (
+              <button key={v} onClick={() => setView(v)}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${view === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+                {v === 'grouped' ? 'By Category' : 'Chronological'}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setSortOrder(s => s === 'newest' ? 'oldest' : 'newest')}
+            title="Toggle sort order"
+            className="bg-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 hover:text-white border border-slate-700 shrink-0 transition-colors">
+            {sortOrder === 'newest' ? '↓ New' : '↑ Old'}
+          </button>
+          <button onClick={copyCSV}
+            title="Copy as CSV"
+            className={`rounded-xl px-3 py-2 text-xs border shrink-0 transition-colors ${
+              copied ? 'bg-emerald-900/40 text-emerald-400 border-emerald-700/50' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+            }`}>
+            {copied ? '✓' : 'CSV'}
+          </button>
         </div>
       )}
 
+      {/* Empty state when no results */}
+      {filteredRows.length === 0 && rows.length > 0 && (
+        <div className="text-center py-12">
+          <p className="text-slate-400 text-sm">No transactions found</p>
+          {hasActiveFilter && (
+            <button onClick={clearFilters}
+              className="mt-2 text-blue-400 text-xs hover:underline">Clear filters</button>
+          )}
+        </div>
+      )}
+
+      {/* Empty state when no data at all */}
+      {rows.length === 0 && (
+        <p className="text-slate-500 text-center py-8 text-sm">No transactions yet</p>
+      )}
+
       {/* Grouped view */}
-      {view === 'grouped' && (
+      {filteredRows.length > 0 && view === 'grouped' && (
         <div className="space-y-3">
           {groups.map(({ name, rows: gr, absSpending }, i) => (
             <CategoryGroup
@@ -379,14 +528,13 @@ export default function Transactions({ token }) {
               onToggle={toggleStatus}
             />
           ))}
-          {groups.length === 0 && <p className="text-slate-500 text-center py-8">No transactions yet</p>}
         </div>
       )}
 
       {/* Chronological view */}
-      {view === 'list' && (
+      {filteredRows.length > 0 && view === 'list' && (
         <div className="space-y-2">
-          {rows.map((row, i) => {
+          {sortedRows.map((row, i) => {
             const amount   = parseAmount(row[2]);
             const isCredit = amount > 0;
             const status   = row[5];
@@ -422,7 +570,32 @@ export default function Transactions({ token }) {
               </div>
             );
           })}
-          {rows.length === 0 && <p className="text-slate-500 text-center py-8">No transactions yet</p>}
+        </div>
+      )}
+
+      {/* Running balance footer */}
+      {filteredRows.length > 0 && (
+        <div className="bg-slate-800/60 rounded-2xl p-4 border border-slate-700/40">
+          <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-3">
+            Summary · {filteredRows.length} entr{filteredRows.length === 1 ? 'y' : 'ies'}
+            {monthFilter !== 'all' ? ` · ${MONTH_LABELS[monthFilter]}` : ''}
+          </p>
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <p className="text-slate-500 text-xs">Net</p>
+              <p className={`font-bold font-mono text-sm mt-0.5 ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {net >= 0 ? '+' : '-'}${Math.abs(net).toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500 text-xs">Count</p>
+              <p className="text-white font-bold text-sm mt-0.5">{filteredRows.length}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 text-xs">Avg</p>
+              <p className="text-slate-300 font-bold font-mono text-sm mt-0.5">${avgAmt.toFixed(2)}</p>
+            </div>
+          </div>
         </div>
       )}
 

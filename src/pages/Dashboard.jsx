@@ -90,6 +90,86 @@ function ProgressBar({ pct, color }) {
   );
 }
 
+// Arc gauge SVG: 240° arc from 8-o'clock (150°) clockwise to 4-o'clock (30°), gap at bottom
+const GAUGE_CX = 60, GAUGE_CY = 60, GAUGE_R = 46;
+const GAUGE_START = 150, GAUGE_SWEEP = 240;
+function gaugePoint(deg) {
+  const r = deg * Math.PI / 180;
+  return { x: +(GAUGE_CX + GAUGE_R * Math.cos(r)).toFixed(2), y: +(GAUGE_CY + GAUGE_R * Math.sin(r)).toFixed(2) };
+}
+const GAUGE_BG_S = gaugePoint(GAUGE_START);
+const GAUGE_BG_E = gaugePoint(GAUGE_START + GAUGE_SWEEP); // 390° = 30°
+
+function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
+  const tier = score >= 80 ? { label: 'Excellent',       color: '#10b981', cls: 'border-emerald-700/50 bg-emerald-900/20' }
+             : score >= 60 ? { label: 'Good',             color: '#14b8a6', cls: 'border-teal-700/50 bg-teal-900/20'    }
+             : score >= 40 ? { label: 'Fair',             color: '#f59e0b', cls: 'border-amber-700/50 bg-amber-900/20'  }
+             :               { label: 'Needs Attention',  color: '#ef4444', cls: 'border-rose-700/50 bg-rose-900/20'    };
+
+  const sweep  = (score / 100) * GAUGE_SWEEP;
+  const fgPt   = gaugePoint(GAUGE_START + sweep);
+  const fgPath = sweep > 1 ? `M ${GAUGE_BG_S.x} ${GAUGE_BG_S.y} A ${GAUGE_R} ${GAUGE_R} 0 ${sweep > 180 ? 1 : 0} 1 ${fgPt.x} ${fgPt.y}` : null;
+  const bgPath = `M ${GAUGE_BG_S.x} ${GAUGE_BG_S.y} A ${GAUGE_R} ${GAUGE_R} 0 1 1 ${GAUGE_BG_E.x} ${GAUGE_BG_E.y}`;
+  const tgt    = gaugePoint(GAUGE_START + 0.8 * GAUGE_SWEEP); // target at 80
+
+  return (
+    <div className={`border rounded-2xl p-4 transition-colors ${tier.cls}`}>
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-center gap-3">
+          <svg width="112" height="88" viewBox="0 0 120 90" className="shrink-0">
+            <path d={bgPath} fill="none" stroke="#1e293b" strokeWidth="9" strokeLinecap="round" />
+            {fgPath && <path d={fgPath} fill="none" stroke={tier.color} strokeWidth="9" strokeLinecap="round" />}
+            {/* target marker at 80 */}
+            <circle cx={tgt.x} cy={tgt.y} r="4.5" fill="#f59e0b" />
+            <circle cx={tgt.x} cy={tgt.y} r="2"   fill="rgba(255,255,255,0.5)" />
+            <text x={GAUGE_CX} y={GAUGE_CY + 6}  textAnchor="middle" fill="white"   fontSize="20" fontWeight="bold" fontFamily="system-ui">{score}</text>
+            <text x={GAUGE_CX} y={GAUGE_CY + 19} textAnchor="middle" fill="#64748b" fontSize="9"  fontFamily="system-ui">/100</text>
+          </svg>
+          <div className="flex-1 min-w-0">
+            <p className="text-white font-bold text-sm">Financial Health</p>
+            <p className="text-xs font-semibold mt-0.5" style={{ color: tier.color }}>{tier.label}</p>
+            <p className="text-slate-500 text-xs mt-0.5">
+              Target: <span className="text-amber-400 font-medium">80</span>
+              {score < 80 ? ` · ${80 - score} pts to go` : ' · Goal reached!'}
+            </p>
+            {history.length > 1 && (
+              <div className="flex items-end gap-0.5 mt-2 h-4">
+                {history.slice(-6).map((h, i, arr) => {
+                  const ht = Math.max(3, Math.round((h.score / 100) * 16));
+                  const c  = h.score >= 80 ? '#10b981' : h.score >= 60 ? '#14b8a6' : h.score >= 40 ? '#f59e0b' : '#ef4444';
+                  return <div key={i} className="rounded-sm w-2.5" style={{ height: `${ht}px`, background: i === arr.length - 1 ? c : '#334155' }} />;
+                })}
+              </div>
+            )}
+          </div>
+          <span className="text-slate-500 text-lg shrink-0 leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-3">
+          {signals.map((s, i) => (
+            <div key={i}>
+              <div className="flex justify-between items-center text-xs mb-1">
+                <span className="text-slate-300">{s.label}</span>
+                <span className={`font-mono font-medium ${s.penalty && s.score < 0 ? 'text-rose-400' : 'text-slate-200'}`}>
+                  {s.penalty ? (s.score < 0 ? `${s.score}` : '0') : `+${s.score}`} / {s.penalty ? '0' : s.max} pts
+                </span>
+              </div>
+              {!s.penalty && (
+                <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                  <div className="h-1.5 rounded-full transition-all" style={{ width: `${Math.min(s.pct * 100, 100)}%`, background: tier.color }} />
+                </div>
+              )}
+            </div>
+          ))}
+          <p className="text-slate-600 text-[10px] text-right">🟡 = target 80 · sparkline = last 6 months</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -124,6 +204,8 @@ export default function Dashboard({ token }) {
   const [stmtError, setStmtError]       = useState(null);
   const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0 });
   const [allocTotals, setAllocTotals]   = useState({ income: 0, spent: 0 });
+  const [healthScore, setHealthScore]   = useState({ total: 0, signals: [], history: [], loaded: false });
+  const [healthExpanded, setHealthExpanded] = useState(false);
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -210,6 +292,57 @@ export default function Dashboard({ token }) {
             setBudgetAlerts({ overCount, needsCount });
             localStorage.setItem('_fin_budget_alert', JSON.stringify({ count: overCount, month: `${yr0}-${mo0}` }));
             window.dispatchEvent(new Event('_fin_budget_alert_update'));
+
+            // Financial Health Score — 4 weighted signals, no extra API calls
+            const p1Items = mainExp.filter(i => String(i['Priority']??'3')==='1' && pm(i['Monthly Allowance ($)'])>0);
+            const p1Done  = p1Items.filter(i => (abt[i['Type']||'']||0) >= pm(i['Monthly Allowance ($)']));
+            const s1Pct   = p1Items.length > 0 ? p1Done.length / p1Items.length : 1;
+            const s1      = s1Pct * 40;
+
+            const savExp   = expItems.filter(i => i['Expense'] === 'Savings');
+            const savAlloc = savExp.reduce((sum, e) => sum + (abt[e['Type']||'']||0), 0);
+            const s2Pct    = monthIncome > 0 ? Math.min(savAlloc / monthIncome, 1) : 0;
+            const s2       = s2Pct * 25;
+
+            const allBudg  = expItems.filter(i => pm(i['Monthly Allowance ($)'])>0);
+            const s3Pct    = allBudg.length > 0 ? allBudg.filter(i => (abt[i['Type']||'']||0) > 0).length / allBudg.length : 0;
+            const s3       = s3Pct * 20;
+
+            const s4    = -Math.min(overCount * 3, 15);
+            const total = Math.max(0, Math.min(100, Math.round(s1 + s2 + s3 + s4)));
+
+            let hist = [];
+            try { hist = JSON.parse(localStorage.getItem('_fin_health_history') || '[]'); } catch {}
+            const nowKey = `${yr0}-${mo0}`;
+            const hi = hist.findIndex(h => h.month === nowKey);
+            if (hi >= 0) hist[hi].score = total; else hist.push({ month: nowKey, score: total });
+            if (hist.length > 6) hist.splice(0, hist.length - 6);
+            try { localStorage.setItem('_fin_health_history', JSON.stringify(hist)); } catch {}
+
+            setHealthScore({
+              total, loaded: true, history: hist,
+              signals: [
+                { label: 'Essential Coverage',      score: +(s1.toFixed(1)), max: 40, pct: s1Pct },
+                { label: 'Savings Rate',            score: +(s2.toFixed(1)), max: 25, pct: s2Pct },
+                { label: 'Allocation Completeness', score: +(s3.toFixed(1)), max: 20, pct: s3Pct },
+                { label: 'Over-Budget Penalty',     score: s4,              max: 0,  pct: 0, penalty: true },
+              ],
+            });
+
+            // Browser push when score < 40 (once per day)
+            if (total < 40 && typeof Notification !== 'undefined' && Notification.permission !== 'denied') {
+              const today = new Date().toISOString().slice(0, 10);
+              if (localStorage.getItem('_fin_health_notified') !== today) {
+                const doNotify = () => {
+                  try {
+                    new Notification('Finance Health Alert ⚠', { body: `Health score ${total}/100 — review your budget`, tag: 'fin-health' });
+                    localStorage.setItem('_fin_health_notified', today);
+                  } catch {}
+                };
+                if (Notification.permission === 'granted') doNotify();
+                else Notification.requestPermission().then(p => { if (p === 'granted') doNotify(); });
+              }
+            }
           }
         }
 
@@ -586,6 +719,17 @@ ${stmtTxns.length ? `
           </div>
           <span className="text-amber-500 text-xs shrink-0 font-medium">View Budget →</span>
         </button>
+      )}
+
+      {/* ── Financial Health Score ─────────────────────────── */}
+      {healthScore.loaded && (
+        <HealthScoreCard
+          score={healthScore.total}
+          signals={healthScore.signals}
+          history={healthScore.history}
+          expanded={healthExpanded}
+          onToggle={() => setHealthExpanded(v => !v)}
+        />
       )}
 
       {/* ── Header ──────────────────────────────────────────── */}
