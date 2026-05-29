@@ -170,6 +170,65 @@ function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
   );
 }
 
+// Collapsible 6-month grouped bar chart: income (teal) vs expenses (rose)
+function TrendChartCard({ data, expanded, onToggle }) {
+  const last6    = data.slice(-6);
+  if (last6.length < 2) return null;
+  const last     = last6[last6.length - 1];
+  const prev     = last6[last6.length - 2];
+  const incDelta = last.income - prev.income;
+  const sptDelta = last.spent  - prev.spent;
+  const avgNet   = last6.reduce((s, m) => s + m.net, 0) / last6.length;
+  return (
+    <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-4">
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white font-bold text-sm">📈 6-Month Trend</p>
+            <p className="text-slate-400 text-xs mt-0.5">Income vs. Expenses</p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </button>
+      {expanded && (
+        <>
+          <div className="mt-3 h-44">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={last6} barCategoryGap="25%" barGap={2}>
+                <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis hide />
+                <Tooltip
+                  formatter={(v, name) => [`$${Number(v).toFixed(0)}`, name === 'income' ? 'Income' : 'Expenses']}
+                  contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8, color: '#f1f5f9', fontSize: 12 }}
+                />
+                <Bar dataKey="income" fill="#14b8a6" radius={[3, 3, 0, 0]} name="income" />
+                <Bar dataKey="spent"  fill="#f43f5e" radius={[3, 3, 0, 0]} name="spent"  />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex gap-4 mt-1 justify-center text-xs text-slate-400">
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-teal-500 inline-block" />Income</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block" />Expenses</span>
+          </div>
+          <div className="mt-3 pt-3 border-t border-slate-700 space-y-1 text-xs text-slate-400">
+            <div className="flex justify-between">
+              <span>Last mo vs prev</span>
+              <span className="flex gap-3">
+                <span>Income <span className={incDelta >= 0 ? 'text-teal-400' : 'text-rose-400'}>{incDelta >= 0 ? '▲' : '▼'}${Math.abs(incDelta).toFixed(0)}</span></span>
+                <span>Expenses <span className={sptDelta <= 0 ? 'text-teal-400' : 'text-rose-400'}>{sptDelta >= 0 ? '▲' : '▼'}${Math.abs(sptDelta).toFixed(0)}</span></span>
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>6-mo avg net</span>
+              <span className={avgNet >= 0 ? 'text-teal-400 font-medium' : 'text-rose-400 font-medium'}>{avgNet >= 0 ? '+' : ''}${avgNet.toFixed(0)}/mo</span>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -206,6 +265,7 @@ export default function Dashboard({ token }) {
   const [allocTotals, setAllocTotals]   = useState({ income: 0, spent: 0 });
   const [healthScore, setHealthScore]   = useState({ total: 0, signals: [], history: [], loaded: false });
   const [healthExpanded, setHealthExpanded] = useState(false);
+  const [trendExpanded, setTrendExpanded]   = useState(false);
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -735,6 +795,15 @@ ${stmtTxns.length ? `
           history={healthScore.history}
           expanded={healthExpanded}
           onToggle={() => setHealthExpanded(v => !v)}
+        />
+      )}
+
+      {/* ── 6-Month Income vs Expense Trend ─────────────────── */}
+      {chartData.length >= 2 && (
+        <TrendChartCard
+          data={chartData}
+          expanded={trendExpanded}
+          onToggle={() => setTrendExpanded(v => !v)}
         />
       )}
 
