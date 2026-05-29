@@ -504,6 +504,12 @@ export default function Dashboard({ token }) {
       if (n == null || isNaN(n)) return '—';
       return n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
     };
+    // Sheet-sourced strings (categories, descriptions, accounts) are untrusted
+    // when injected into the printable statement HTML — escape to prevent
+    // HTML/script injection via document.write.
+    const esc = v => String(v ?? '').replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
     const income = stmtTxns.reduce((s, t) => t.amount > 0 ? s + t.amount : s, 0) || pm(current?.['Total Processed Income']);
     const spent  = stmtTxns.reduce((s, t) => t.amount < 0 ? s + Math.abs(t.amount) : s, 0) || pm(current?.['Total Spent']);
     const goal   = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0) || pm(current?.['Allowance Goal']);
@@ -597,8 +603,8 @@ ${priGroups.length ? priGroups.map(g => `
         const sp   = pm(e['Actual Spend']);
         const rem  = allw - sp;
         return `<tr>
-          <td>${e['Type'] || '—'}</td>
-          <td style="color:#666">${e['Account'] || '—'}</td>
+          <td>${esc(e['Type'] || '—')}</td>
+          <td style="color:#666">${esc(e['Account'] || '—')}</td>
           <td class="amt">${fmtAmt(allw)}</td>
           <td class="amt ${sp > allw ? 'neg' : ''}">${fmtAmt(sp)}</td>
           <td class="amt ${rem < 0 ? 'neg' : ''}">${fmtAmt(rem)}</td>
@@ -621,10 +627,10 @@ ${stmtTxns.length ? `
   <tbody>
     ${stmtTxns.map(t => `
       <tr>
-        <td style="white-space:nowrap;color:#555">${t.date}</td>
-        <td>${t.type}</td>
-        <td style="color:#555;font-size:9.5pt">${t.desc}</td>
-        <td style="color:#666;font-size:9.5pt">${t.account}</td>
+        <td style="white-space:nowrap;color:#555">${esc(t.date)}</td>
+        <td>${esc(t.type)}</td>
+        <td style="color:#555;font-size:9.5pt">${esc(t.desc)}</td>
+        <td style="color:#666;font-size:9.5pt">${esc(t.account)}</td>
         <td class="amt ${t.amount < 0 ? 'neg' : 'pos'}">${fmtAmt(t.amount)}</td>
       </tr>
     `).join('')}
