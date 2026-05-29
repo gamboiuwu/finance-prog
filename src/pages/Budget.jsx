@@ -633,6 +633,11 @@ function CategoryView({ items, allocTx }) {
 
       {/* Summary bar */}
       <div className="bg-slate-900 rounded-2xl p-4">
+        {totalA === 0 && totalB > 0 && (
+          <p className="text-slate-500 text-xs mb-3">
+            No allocations logged yet this month. Process income from the Dashboard to populate these amounts.
+          </p>
+        )}
         <div className="grid grid-cols-3 gap-3 mb-3">
           <div>
             <p className="text-slate-500 text-[10px] uppercase tracking-wider">Budgeted</p>
@@ -936,8 +941,7 @@ function TrendsView({ allAllocTx, expenses }) {
 const TABS = [
   { key: 'budget',     label: 'Budget' },
   { key: 'categories', label: 'Categories' },
-  { key: 'entries',    label: 'Entries' },
-  { key: 'trends',     label: 'Trends' },
+  { key: 'entries',    label: 'Entries & Trends' },
 ];
 
 function TabBar({ active, onChange }) {
@@ -1180,14 +1184,12 @@ export default function Budget({ token }) {
           <CategoryView items={items} allocTx={allocTx} />
         )}
 
-        {/* ── All Entries tab ── */}
+        {/* ── Entries & Trends tab ── */}
         {activeTab === 'entries' && (
-          <AllEntriesView allocTx={allocTx} />
-        )}
-
-        {/* ── Trends tab ── */}
-        {activeTab === 'trends' && (
-          <TrendsView allAllocTx={allAllocTx} expenses={items} />
+          <>
+            <TrendsView allAllocTx={allAllocTx} expenses={items} />
+            <AllEntriesView allocTx={allocTx} />
+          </>
         )}
 
       </div>

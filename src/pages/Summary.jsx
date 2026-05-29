@@ -333,7 +333,9 @@ function renderTile(id, c, sv, ov, onEdit) {
       return <MetricTile
         label="Price / Gallon"
         value={fmt(c.gasPerGal, 3)}
-        sub={c.gasPriceSource === 'live' ? `NYC live · ${c.gasPricePeriod || 'EIA'}` : c.gasPriceSource === 'sheet' ? 'From sheet' : 'Default'}
+        sub={o && c.gasPriceSource === 'live'
+          ? `live avg: $${c.gasPerGal.toFixed(3)} · tap ✏ to clear`
+          : c.gasPriceSource === 'live' ? `NYC live · ${c.gasPricePeriod || 'EIA'}` : c.gasPriceSource === 'sheet' ? 'From sheet' : 'Default'}
         detail="Live weekly EIA price for NYC region — feeds gallons remaining, miles, and monthly reserve estimates."
         onEdit={e('Gas Price')}
         overrideVal={o}
