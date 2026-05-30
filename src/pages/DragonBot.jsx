@@ -8,10 +8,16 @@ const TOOL_LABELS = {
   get_budget_categories:'unrolling your budget scroll…',
   get_allocations:      'counting your gold coins…',
   get_subscriptions:    'sniffing out recurring tithes…',
+  get_plans:            'reviewing your treasure plans…',
+  analyze_affordability:'charting a path to your treasure…',
+  save_plan:            'etching your plan into stone…',
+  update_plan_progress: 'updating your quest log…',
+  delete_plan:          'retiring an old plan…',
+  apply_plan_to_budget: 'reforging your budget…',
 };
 
 const SUGGESTIONS = [
-  'How much did I spend last month? 🪙',
+  'Help me plan to afford something 🐉',
   'Am I on track for my savings goal?',
   'What are my subscriptions costing me?',
   'Where can I trim my spending?',
