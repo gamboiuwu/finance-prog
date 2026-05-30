@@ -4,6 +4,9 @@ import { SHEETS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ProcessIncome from '../components/ProcessIncome';
 import TimeClockView from '../components/TimeClockView';
+import OrderModal from '../components/OrderModal';
+import { OrderTemplateModal, ShippingSetupModal, TemplatesPickerModal } from '../components/OrderSettings';
+import BusinessSettings from '../components/BusinessSettings';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis,
@@ -505,8 +508,23 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
 
 // ── Process modal ──────────────────────────────────────────────────────────────
 
-const TRANS_SHEET = 'Business Transactions';
+const TRANS_SHEET = SHEETS.BUSINESS_TRANSACTIONS;
 const SPEND_SHEET = SHEETS.BUSINESS_ACCOUNT_SPENDING;
+
+// Derive an order's state for the sales-log badge + filter. Orders live in the
+// optional column I (JSON) of Business Transactions; no order = a plain sale.
+const ORDER_STATES = {
+  done:    { label: '✓ Done',     cls: 'bg-emerald-600/20 text-emerald-300 border-emerald-600/40' },
+  shipped: { label: '🚚 Shipped', cls: 'bg-cyan-600/20 text-cyan-300 border-cyan-600/40' },
+  toship:  { label: '◷ To ship',  cls: 'bg-amber-600/20 text-amber-300 border-amber-600/40' },
+};
+function orderState(t) {
+  const o = t.order;
+  if (!o) return 'none';
+  if (o.status === 'fulfilled') return 'done';
+  if (o.shipping?.tracking) return 'shipped';
+  return 'toship';
+}
 const BIZ_EXP_SHEET = SHEETS.BUSINESS_EXPENSES;
 const BIZ_EXP_HEADERS = ['Date', 'Vendor', 'Amount', 'Category', 'Product', 'Payment', 'Notes'];
 const EXP_PAYMENT_SOURCES = ['Checking', 'Cash', 'Business Card', 'PayPal', 'Other'];
@@ -533,9 +551,9 @@ function ProcessModal({ product, token, onClose, onSuccess }) {
     try {
       await ensureSheetTab(token, TRANS_SHEET);
       // Write header row if sheet is empty so SalesView can detect it
-      const existing = await readRange(token, `${TRANS_SHEET}!A1:H1`);
+      const existing = await readRange(token, `${TRANS_SHEET}!A1:I1`);
       if (!existing.length || !existing[0]?.length) {
-        await appendRow(token, `${TRANS_SHEET}!A:H`, ['Date', 'Client', 'Product', 'Quantity', 'Unit Price', 'Revenue', 'Margin %', 'Allocation']);
+        await appendRow(token, `${TRANS_SHEET}!A:I`, ['Date', 'Client', 'Product', 'Quantity', 'Unit Price', 'Revenue', 'Margin %', 'Allocation', 'Order']);
       }
       const now = localDateTimeStr();
       const allocJSON = JSON.stringify(
@@ -1045,6 +1063,11 @@ function SalesView({ token, products }) {
   const [expLoading,     setExpLoading]     = useState(false);
   const [expandedTx,     setExpandedTx]     = useState(null);
   const [editingTx,      setEditingTx]      = useState(null);
+  const [orderingTx,     setOrderingTx]     = useState(null);   // sale being turned into / edited as an order
+  const [orderFilter,    setOrderFilter]    = useState('all');  // all | toship | shipped | done
+  const [tplPicker,      setTplPicker]      = useState(false);  // pick a product to edit its template
+  const [tplProduct,     setTplProduct]     = useState(null);   // product whose template is open
+  const [shipSetup,      setShipSetup]      = useState(false);  // EasyPost + ship-from setup
   const [reportCopied,   setReportCopied]   = useState(false);
   const [refreshCount,   setRefreshCount]   = useState(0);
   const [rawRowCount,    setRawRowCount]    = useState(0);
@@ -1057,7 +1080,7 @@ function SalesView({ token, products }) {
       setLoading(true);
       setError(null);
       try {
-        let rows = await readRange(token, `${TRANS_SHEET}!A:H`, 'UNFORMATTED_VALUE');
+        let rows = await readRange(token, `${TRANS_SHEET}!A:I`, 'UNFORMATTED_VALUE');
         if (cancelled) return;
 
         // One-time migration from v1 (no Client col) → v2 (with Client col B).
@@ -1082,7 +1105,7 @@ function SalesView({ token, products }) {
             }
           });
           if (updates.length) await batchUpdateCells(token, updates);
-          rows = await readRange(token, `${TRANS_SHEET}!A:H`, 'UNFORMATTED_VALUE');
+          rows = await readRange(token, `${TRANS_SHEET}!A:I`, 'UNFORMATTED_VALUE');
           if (cancelled) return;
         }
 
@@ -1097,6 +1120,8 @@ function SalesView({ token, products }) {
             if (!hasAny) return null;
             let allocs = {};
             try { allocs = JSON.parse(r[7] || '{}'); } catch { allocs = {}; }
+            let order = null;
+            try { order = r[8] ? JSON.parse(r[8]) : null; } catch { order = null; }
             const { date, time } = serialToDateTime(r[0]);
             return {
               id:        idx,
@@ -1110,6 +1135,7 @@ function SalesView({ token, products }) {
               revenue:   parseFloat(r[5]) || 0,
               margin:    (typeof r[6] === 'string' && r[6].startsWith('#')) ? '' : (r[6] || ''),
               allocs,
+              order,
             };
           })
           .filter(Boolean);
@@ -1142,12 +1168,22 @@ function SalesView({ token, products }) {
 
   const now = new Date();
   const filtered = useMemo(() => {
-    if (period === 'all') return transactions;
-    const prefix = period === 'month'
-      ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-      : `${now.getFullYear()}`;
-    return transactions.filter(t => (t.date || '').startsWith(prefix));
-  }, [transactions, period]);
+    let list = transactions;
+    if (period !== 'all') {
+      const prefix = period === 'month'
+        ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+        : `${now.getFullYear()}`;
+      list = list.filter(t => (t.date || '').startsWith(prefix));
+    }
+    if (orderFilter !== 'all') list = list.filter(t => orderState(t) === orderFilter);
+    return list;
+  }, [transactions, period, orderFilter]);
+
+  const orderCounts = useMemo(() => {
+    const c = { toship: 0, shipped: 0, done: 0 };
+    transactions.forEach(t => { const s = orderState(t); if (s in c) c[s] += 1; });
+    return c;
+  }, [transactions]);
 
   const { totalRevenue, categories, totalProfit, profitByCategory } = useMemo(() => {
     const totalRevenue = filtered.reduce((s, t) => s + t.revenue, 0);
@@ -1226,7 +1262,7 @@ function SalesView({ token, products }) {
   }
 
   async function handleDeleteTx(tx) {
-    await clearRow(token, `${TRANS_SHEET}!A${tx.rowNum}:H${tx.rowNum}`);
+    await clearRow(token, `${TRANS_SHEET}!A${tx.rowNum}:I${tx.rowNum}`);
     setRefreshCount(c => c + 1);
   }
 
@@ -1395,6 +1431,33 @@ function SalesView({ token, products }) {
             {expLoading ? 'Loading budget…' : netProfit <= 0 ? (totalProfit > 0 ? 'Already processed' : 'No profit to process') : `Process $${netProfit.toFixed(2)} as Income →`}
           </button>
 
+          {/* ── Orders & shipping toolbar ── */}
+          <div className="bg-slate-800/40 rounded-2xl p-3 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske">📦 Orders &amp; Shipping</p>
+              <div className="flex gap-1.5">
+                <button onClick={() => setTplPicker(true)}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-[11px] font-medium transition-colors">🏷 Templates</button>
+                <button onClick={() => setShipSetup(true)}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-[11px] font-medium transition-colors">🚚 Setup</button>
+              </div>
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1">
+              {[
+                ['all',     `All`,        transactions.length],
+                ['toship',  `◷ To ship`,  orderCounts.toship],
+                ['shipped', `🚚 Shipped`, orderCounts.shipped],
+                ['done',    `✓ Done`,     orderCounts.done],
+              ].map(([k, label, count]) => (
+                <button key={k} onClick={() => setOrderFilter(k)}
+                  className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    orderFilter === k ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
+                  {label}{count ? ` · ${count}` : ''}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* ── Transaction list ── */}
           <div className="space-y-2">
             <p className="text-slate-500 text-[10px] uppercase tracking-wider px-1">Transaction History — tap to expand</p>
@@ -1411,8 +1474,16 @@ function SalesView({ token, products }) {
                     >
                       <div className="flex justify-between items-start gap-2">
                         <div className="min-w-0">
-                          <p className="text-white text-sm font-medium truncate">{t.product}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-white text-sm font-medium truncate">{t.product}</p>
+                            {t.order && ORDER_STATES[orderState(t)] && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium shrink-0 ${ORDER_STATES[orderState(t)].cls}`}>
+                                {ORDER_STATES[orderState(t)].label}
+                              </span>
+                            )}
+                          </div>
                           <p className="text-slate-500 text-xs mt-0.5">
+                            {t.order?.orderNo ? <span className="text-slate-400 font-mono">{t.order.orderNo} · </span> : null}
                             {t.client ? <span className="text-slate-400">{t.client} · </span> : null}
                             {fmtDateTime(t.date, t.time)}
                             {t.qty ? ` · ×${t.qty}` : ''}
@@ -1459,14 +1530,34 @@ function SalesView({ token, products }) {
                             );
                           })}
                         </div>
+                        {/* Order summary if this sale is tracked as an order */}
+                        {t.order && (
+                          <div className="border-t border-slate-700 pt-2 text-xs text-slate-400 space-y-0.5">
+                            {t.order.to?.name && <p>Ship to: <span className="text-slate-200">{t.order.to.name}{t.order.to.city ? `, ${t.order.to.city} ${t.order.to.state}` : ''}</span></p>}
+                            {t.order.shipping?.tracking && (
+                              <p>Tracking: <span className="text-slate-200 font-mono break-all">{t.order.shipping.tracking}</span>
+                                {t.order.shipping.trackingUrl && <a href={t.order.shipping.trackingUrl} target="_blank" rel="noreferrer" className="text-cyan-400 underline ml-2">track</a>}
+                                {t.order.shipping.labelUrl && <a href={t.order.shipping.labelUrl} target="_blank" rel="noreferrer" className="text-cyan-400 underline ml-2">label</a>}
+                              </p>
+                            )}
+                          </div>
+                        )}
                         <div className="border-t border-slate-700 pt-2 flex items-center justify-between gap-2">
                           <span className="text-slate-500 text-xs">Total: <span className="text-green-400 font-bold font-mono">${t.revenue.toFixed(2)}</span></span>
-                          <button
-                            onClick={e => { e.stopPropagation(); setEditingTx(t); setExpandedTx(null); }}
-                            className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-medium transition-colors"
-                          >
-                            Edit / Revise
-                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={e => { e.stopPropagation(); setOrderingTx(t); setExpandedTx(null); }}
+                              className="px-3 py-1.5 rounded-lg bg-cyan-700/60 hover:bg-cyan-600 text-cyan-100 text-xs font-medium transition-colors"
+                            >
+                              {t.order ? '📦 Order' : '📦 Make order'}
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); setEditingTx(t); setExpandedTx(null); }}
+                              className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-medium transition-colors"
+                            >
+                              Edit / Revise
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -1497,6 +1588,32 @@ function SalesView({ token, products }) {
           onDelete={handleDeleteTx}
           onClose={() => setEditingTx(null)}
         />
+      )}
+
+      {orderingTx && (
+        <OrderModal
+          tx={orderingTx}
+          product={products.find(p => p.name === orderingTx.product) || null}
+          token={token}
+          onClose={() => setOrderingTx(null)}
+          onSaved={() => setRefreshCount(c => c + 1)}
+        />
+      )}
+
+      {tplPicker && (
+        <TemplatesPickerModal
+          products={products}
+          onPick={(p) => { setTplProduct(p); setTplPicker(false); }}
+          onClose={() => setTplPicker(false)}
+        />
+      )}
+
+      {tplProduct && (
+        <OrderTemplateModal product={tplProduct} onClose={() => setTplProduct(null)} />
+      )}
+
+      {shipSetup && (
+        <ShippingSetupModal onClose={() => setShipSetup(false)} />
       )}
     </div>
   );
@@ -2602,6 +2719,7 @@ export default function BusinessExpenses({ token }) {
   const [editing,          setEditing]          = useState(null);
   const [processing,       setProcessing]       = useState(null);
   const [viewMode,         setViewMode]         = useState('products'); // products | sales | accounts | expenses | insights | timeclock
+  const [showSettings,     setShowSettings]     = useState(false);
   const [productView,      setProductView]      = useState('cards');    // cards | compare (within Products)
   const [salesRefreshKey,  setSalesRefreshKey]  = useState(0);
 
@@ -2691,13 +2809,26 @@ export default function BusinessExpenses({ token }) {
           <h1 className="text-xl font-bold text-white">Business Expenses</h1>
           <p className="text-slate-500 text-xs mt-0.5">Product revenue allocation · synced to Sheets</p>
         </div>
-        <button
-          onClick={() => setEditing({ name: '', startPrice: 0, formula: [] })}
-          className="bg-green-600 hover:bg-green-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
-        >
-          + Add
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowSettings(true)}
+            title="Business settings"
+            className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm px-2.5 py-1.5 rounded-lg transition-colors"
+          >
+            ⚙️
+          </button>
+          <button
+            onClick={() => setEditing({ name: '', startPrice: 0, formula: [] })}
+            className="bg-green-600 hover:bg-green-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+          >
+            + Add
+          </button>
+        </div>
       </div>
+
+      {showSettings && (
+        <BusinessSettings products={products} onClose={() => setShowSettings(false)} />
+      )}
 
       <div className="stagger px-4 space-y-4">
         {error && (
