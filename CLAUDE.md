@@ -105,7 +105,7 @@ src/
 ## Task Tracking
 Maintained in Google Drive doc "Finance Tracker – Updates & Task Plans" (auto-updated by Claude).
 Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTzptqo`
-**Current task doc ID**: `1valNf_bPUvhQyPsePqTliJwXWPiCiyUYn0IW7qx6mWI` (updated 2026-05-29)
+**Current task doc ID**: `1nMkiBoABfQrIiPd7lXaKjlD91ZG_gqecUBEGmdCeHJk` (updated 2026-05-30)
 
 ### Task Status
 | # | Task | Status |
@@ -117,7 +117,7 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 | 5 | Month-over-Month Spending Trends (4th Budget tab) | ✅ COMPLETED + VERIFIED (2026-05-28) |
 | 6 | Budget Over-Budget Alerts & Nav Badge | ✅ COMPLETED + VERIFIED (2026-05-28) |
 | 7 | Transaction Log: Search, Filter & Running Balance | ✅ COMPLETED + VERIFIED (2026-05-29) |
-| 8 | Quick Income Templates (saved amounts) | ⏳ Plan written, awaiting Execute Y/N |
+| 8 | Quick Income Templates (saved amounts) | ✅ COMPLETED + VERIFIED (2026-05-30) |
 | 9 | Savings Goals with Milestone Tracking | ⏳ Plan written, awaiting Execute Y/N |
 | 10 | Dashboard Financial Health Score | ✅ COMPLETED + VERIFIED (2026-05-29) |
 | 11 | Year-to-Date Budget Summary | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
@@ -132,11 +132,14 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 | 20 | Payday Tracker & Days-Until-Paycheck | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
 | 21 | Budget Category Notes & Annotations | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
 | 22 | Subscription Renewal Push Notifications | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
+| 23 | Bill Due-Date Alerts (Funding Reminders) | ⏳ Plan written 2026-05-30, awaiting Execute Y/N |
+| 24 | Spending Calendar Heatmap | ⏳ Plan written 2026-05-30, awaiting Execute Y/N |
+| 25 | Budget Category Reorder & Pinning | ⏳ Plan written 2026-05-30, awaiting Execute Y/N |
 
 ### Task Plans Summary (for quick reference)
 - **Task 6**: ✅ VERIFIED. Nav badge on Budget item + amber alert banner on Dashboard + "Not yet funded" chip row in CategoryView. Uses localStorage (_fin_budget_alert) + custom event for same-tab sync.
 - **Task 7**: ✅ VERIFIED (2026-05-29). Search bar (realtime, matches category/description/amount/account), filter chips (This Month default/Last Month/All Time + Done/Pending status), sort toggle (newest/oldest), CSV copy to clipboard, running balance footer (Net/Count/Avg). Charts only shown in All Time mode. Row limit raised to 1000. `parseSheetDate()` + `monthKey()` helpers added locally.
-- **Task 8**: Income template chips in ProcessIncome modal — tap to pre-fill amount. Stored in localStorage. Q: Global or account-specific? Include processing mode? Max 5 or 8?
+- **Task 8**: ✅ VERIFIED (2026-05-30). Quick-fill template chips in ProcessIncome modal. localStorage key `income_templates` (max 8). State: `templates`, `showManageTpl`, `newTplName`. Chips row above amount input — tap to pre-fill income field. Manage mode toggles to show ✕ delete buttons + "Save [amount] as template" row with optional name field. "+ Add quick-fill templates" placeholder shown when none exist.
 - **Task 9**: Savings Goals sheet tab + 5th Budget tab with progress bars and milestone toasts. Q: 5th Budget tab or standalone page? Track start date? Show projected completion?
 - **Task 10**: ✅ VERIFIED (2026-05-29). Arc gauge on Dashboard (prominent, above month header). 4 signals: Essential Coverage 40pts, Savings Rate 25pts, Allocation Completeness 20pts, Over-Budget Penalty -15pts max. Target 80 marked in amber. Expandable breakdown. 6-month history sparkline (localStorage). Browser push notification when score < 40 (once/day). Code verified: signals compute correctly at Dashboard.jsx:297-330; gauge renders correctly (240° arc, GAUGE_START=150, gap at bottom); health card at line 725.
 - **Task 11**: YTD Budget Summary — new tab in Summary page. Shows total income vs goal, per-category YTD actuals vs budget, best/worst month cards.
@@ -145,12 +148,15 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 - **Task 14**: Net Worth Snapshot — track assets/liabilities in a new sheet tab; shows net worth number + monthly delta + trend chart.
 - **Task 15**: Tax Prep Summary — year-end income/expense summary organized by tax category (W2, 1099, COGS, deductions).
 - **Task 16**: Recurring Income Forecast — next-3-month cash flow prediction based on historical averages + fixed subscriptions.
-- **Task 17**: ✅ VERIFIED (2026-05-29). TrendChartCard component in Dashboard.jsx (before `export default`). Collapsed by default; tap ▼ to expand. Grouped bar chart (teal=income, rose=expenses), last 6 months from `chartData.slice(-6)`. Delta summary: last-mo vs prev income/expense delta + 6-mo avg net. Zero new API calls — uses `chartData` (Monthly Summary already loaded). State: `trendExpanded` in Dashboard. Chart uses existing Recharts BarChart import.
+- **Task 17**: ✅ VERIFIED (2026-05-29) + DOUBLE-CHECKED (2026-05-30). TrendChartCard component in Dashboard.jsx (before `export default`). Collapsed by default; tap ▼ to expand. Grouped bar chart (teal=income, rose=expenses), last 6 months from `chartData.slice(-6)`. Delta summary: last-mo vs prev income/expense delta + 6-mo avg net. Zero new API calls — uses `chartData` (Monthly Summary already loaded). State: `trendExpanded` in Dashboard. Chart uses existing Recharts BarChart import. Code re-verified 2026-05-30: `incDelta`, `sptDelta`, `avgNet` computations confirmed correct; guard `if (last6.length < 2) return null` confirmed present.
 - **Task 18**: Monthly Journal/Memo — attach a short text note to any month (stored localStorage or Sheets). Q: Dashboard or Summary page? localStorage or Sheets sync?
 - **Task 19**: Split Transaction Entry — log one payment across multiple categories in one flow. Q: Max 3 or 5 splits? Visual link indicator? Fixed total or per-row amounts?
 - **Task 20**: Payday Tracker — "Days until paycheck" chip + spending-pace warning. localStorage only. Q: pay schedule type? which pages to show on? payday push notification?
 - **Task 21**: Budget Category Notes — per-category sticky notes in Budget Categories tab. localStorage (_fin_cat_notes). Q: tied to item or expense group? persist month-to-month?
 - **Task 22**: Subscription Renewal Push Notifications — notify N days before renewal using existing Notification API. localStorage (_fin_sub_notif_config, _fin_sub_notif_sent). Q: lead time global or per-sub? opt-out per sub?
+- **Task 23**: Bill Due-Date Alerts — localStorage `_fin_due_dates = { "CategoryName": 15 }`. Due-date chips on Budget→Categories cards. Dashboard alert when bill due within 3 days + category underfunded. "Due soon 🔴" badge on ProcessIncome rows. Q: day-of-month only or vary by month? Alerts on Categories tab too? "Past due" warning?
+- **Task 24**: Spending Calendar Heatmap — monthly heatmap grid (7-col week layout) colored by daily transaction intensity (pale→deep rose). Tap day = micro-tooltip with category breakdown. Reuses existing Allocation Transactions data. Collapsible Dashboard card or Budget→Entries sub-view. Q: Dashboard vs Budget Entries? Show income days differently? Month navigation?
+- **Task 25**: Budget Category Reorder & Pinning — 📌 pin per category card floats it to top of its priority group. Drag-or-arrows reorder within tiers. localStorage `_fin_cat_order = { "TypeName": sortIndex }`. Reset to default button. Q: drag-and-drop vs up/down arrows? Visual pin indicator? Order persists across months?
 
 ## Git Workflow
 1. Source changes → feature branch (e.g. `claude/zealous-euler-p8sWK`) based on `main`
