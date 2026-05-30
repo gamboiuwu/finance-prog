@@ -54,19 +54,28 @@ export async function fetchGasPrices(apiKey = 'DEMO_KEY') {
   const json = await res.json();
   const rows = json.response?.data || [];
 
-  // Build: regionCode → productCode → { label, value, period }
+  // Build: regionCode → { products: {code → {label,value,period}}, history: [{period,value}] }
+  // history = up to 8 most-recent weekly Regular (EPMR) readings, oldest→newest for charting.
   const byRegion = {};
-  REGIONS.forEach(r => { byRegion[r.code] = { ...r, products: {} }; });
+  REGIONS.forEach(r => { byRegion[r.code] = { ...r, products: {}, history: [] }; });
 
   rows.forEach(row => {
     const r = byRegion[row.duoarea];
-    if (!r || r.products[row.product]) return; // keep first = most recent
-    r.products[row.product] = {
-      label: PRODUCTS.find(p => p.code === row.product)?.label || row.product,
-      value: parseFloat(row.value),
-      period: row.period,
-    };
+    if (!r) return;
+    if (!r.products[row.product]) {
+      r.products[row.product] = {
+        label: PRODUCTS.find(p => p.code === row.product)?.label || row.product,
+        value: parseFloat(row.value),
+        period: row.period,
+      };
+    }
+    if (row.product === 'EPMR' && r.history.length < 8) {
+      r.history.push({ period: row.period, value: parseFloat(row.value) });
+    }
   });
+
+  // Reverse each history array so it reads oldest→newest for charting
+  REGIONS.forEach(r => { byRegion[r.code].history.reverse(); });
 
   const period = rows[0]?.period || '';
   const result = { byRegion, period };

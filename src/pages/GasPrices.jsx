@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchGasPrices, clearGasCache, REGIONS, PRODUCTS } from '../lib/gasPrice';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const PRODUCT_COLORS = {
   EPMR: { label: 'Regular',   color: 'text-emerald-400', bg: 'bg-emerald-900/30', bar: '#10b981' },
@@ -179,6 +180,32 @@ export default function GasPrices() {
           </div>
         );
       })}
+
+      {/* Regular price history — NYC (best proxy for LI) */}
+      {(() => {
+        const hist = data.byRegion['Y35NY']?.history || [];
+        if (hist.length < 2) return null;
+        const chartData = hist.map(h => ({
+          week: h.period.slice(5).replace('-', '/'),
+          price: h.value,
+        }));
+        return (
+          <div className="bg-slate-800 rounded-2xl p-4">
+            <p className="text-slate-300 text-sm font-medium mb-3 font-broske">NYC Regular — Price History</p>
+            <ResponsiveContainer width="100%" height={100}>
+              <BarChart data={chartData} barCategoryGap="20%">
+                <XAxis dataKey="week" tick={{ fontSize: 9, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                <YAxis domain={['auto', 'auto']} tick={{ fontSize: 9, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v.toFixed(2)}`} width={38} />
+                <Tooltip
+                  contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }}
+                  formatter={v => [`$${Number(v).toFixed(3)}`, 'Regular']}
+                />
+                <Bar dataKey="price" fill="#10b981" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        );
+      })()}
 
       {/* Long Island note */}
       <div className="bg-amber-900/20 border border-amber-800/40 rounded-xl p-4 text-xs text-amber-300 space-y-1">

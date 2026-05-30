@@ -4,13 +4,13 @@ import { useState, useEffect } from 'react';
 const tabs = [
   { to: '/',             label: 'Home',    icon: '⌂'  },
   { to: '/budget',       label: 'Budget',  icon: '◉'  },
-  { to: '/summary',      label: 'Summary', icon: '📈' },
+  { to: '/summary',      label: 'Summary', icon: '↗'  },
   { to: '/transactions', label: 'Log',     icon: '⇅'  },
   { to: '/commissions',  label: 'Art',     icon: '✦'  },
-  { to: '/business',     label: 'Biz',     icon: '💼' },
+  { to: '/business',     label: 'Biz',     icon: '▦'  },
   { to: '/dragon',       label: 'Ledger',  icon: '🐉' },
-  { to: '/goals',        label: 'Goals',   icon: '🎯' },
-  { to: '/actions',     label: 'History', icon: '↺'  },
+  { to: '/goals',        label: 'Goals',   icon: '◎'  },
+  { to: '/actions',      label: 'History', icon: '↺'  },
 ];
 
 function readBudgetBadge() {
@@ -56,7 +56,7 @@ export default function Nav() {
             to={to}
             end={to === '/'}
             className={({ isActive }) =>
-              `flex-1 flex flex-col items-center py-2.5 gap-0.5 text-xs transition-colors ${
+              `flex-1 flex flex-col items-center py-2 gap-0 text-xs transition-all duration-150 ${
                 isActive ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'
               }`
             }

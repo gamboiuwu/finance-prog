@@ -126,6 +126,22 @@ export async function updateBudgetAllowance(token, { type, monthlyAllowance }) {
   return rows[rowIdx][typeCol];
 }
 
+export async function updateBudgetPriority(token, { type, priority }) {
+  const { headers, rows } = await load(token, `${SHEETS.MONTHLY_EXPENSES}!A:Z`);
+  const typeCol = findCol(headers, 'type') >= 0 ? findCol(headers, 'type') : 0;
+  const priCol = findCol(headers, 'priority');
+  if (priCol < 0) throw new Error('Could not find a "Priority" column in Monthly Expenses.');
+
+  let rowIdx = -1;
+  for (let r = 1; r < rows.length; r++) {
+    if (norm(rows[r][typeCol]) === norm(type)) { rowIdx = r; break; }
+  }
+  if (rowIdx < 0) throw new Error(`No budget category named "${type}" found.`);
+  const sheetRow = rowIdx + 1;
+  await batchUpdateCells(token, [{ range: `${SHEETS.MONTHLY_EXPENSES}!${colLetter(priCol)}${sheetRow}`, value: priority }]);
+  return rows[rowIdx][typeCol];
+}
+
 // ── Allocation rows ─────────────────────────────────────────────────────────
 // Locate one allocation row by month + category + account. requireBlank limits
 // the match to rows whose Amount is empty (the broken rows we're repairing).
