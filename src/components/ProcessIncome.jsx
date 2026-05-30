@@ -97,6 +97,11 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   const [alreadyByType, setAlreadyByType] = useState({});
   const [alreadyRows,   setAlreadyRows]  = useState([]);
   const [histLoading,   setHistLoading]  = useState(true);
+  const [dueDates] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch { return {}; }
+  });
+  const todayDay = useMemo(() => new Date().getDate(), []);
+
   // balance type map: type name → 'monthly' | 'running'
   const [balTypes,      setBalTypes]     = useState({});
   const [showBreakdown, setShowBreakdown] = useState(false);
@@ -644,6 +649,12 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                           </span>
                           <span className="text-slate-600 text-[10px]">·</span>
                           <span className="text-slate-500 text-[10px]">goal {fmt(d.allowance)}</span>
+                          {dueDates[d.type] != null && d.stillNeeds > 0 && (() => {
+                            const diff = dueDates[d.type] - todayDay;
+                            if (diff < 0) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium">⚠ Past due</span>;
+                            if (diff <= 3) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/60 text-amber-300 font-medium">⏰ {diff === 0 ? 'Due today' : `Due in ${diff}d`}</span>;
+                            return null;
+                          })()}
                         </div>
                         {/* Already-contributed bar */}
                         {(() => {

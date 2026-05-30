@@ -262,7 +262,7 @@ export default function Dashboard({ token }) {
   const [stmtLoading, setStmtLoading]   = useState(false);
   const [stmtTxns, setStmtTxns]         = useState([]);
   const [stmtError, setStmtError]       = useState(null);
-  const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0 });
+  const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0, dueAlerts: [] });
   const [allocTotals, setAllocTotals]   = useState({ income: 0, spent: 0 });
   const [healthScore, setHealthScore]   = useState({ total: 0, signals: [], history: [], loaded: false });
   const [healthExpanded, setHealthExpanded] = useState(false);
@@ -350,7 +350,21 @@ export default function Dashboard({ token }) {
               pm(i['Monthly Allowance ($)']) > 0 &&
               !(abt[i['Type'] || ''] > 0)
             ).length;
-            setBudgetAlerts({ overCount, needsCount });
+            let dueDateMap = {};
+            try { dueDateMap = JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch {}
+            const todayDay = new Date().getDate();
+            const dueAlerts = mainExp
+              .filter(i => {
+                const dd = dueDateMap[i['Type'] || ''];
+                if (dd == null) return false;
+                const alloc = abt[i['Type'] || ''] || 0;
+                const goal  = pm(i['Monthly Allowance ($)']);
+                if (goal <= 0 || alloc >= goal) return false;
+                const diff = dd - todayDay;
+                return diff >= 0 && diff <= 3;
+              })
+              .map(i => ({ type: i['Type'], daysUntil: dueDateMap[i['Type']] - todayDay }));
+            setBudgetAlerts({ overCount, needsCount, dueAlerts });
             localStorage.setItem('_fin_budget_alert', JSON.stringify({ count: overCount, month: `${yr0}-${mo0}` }));
             window.dispatchEvent(new Event('_fin_budget_alert_update'));
 
@@ -764,7 +778,7 @@ ${stmtTxns.length ? `
       })()}
 
       {/* ── Budget Alert Banner ─────────────────────────────── */}
-      {(budgetAlerts.overCount > 0 || budgetAlerts.needsCount > 0) && (
+      {(budgetAlerts.overCount > 0 || budgetAlerts.needsCount > 0 || budgetAlerts.dueAlerts?.length > 0) && (
         <button
           onClick={() => navigate('/budget')}
           className="w-full bg-amber-900/40 border border-amber-700/60 rounded-2xl p-3 flex items-center justify-between gap-3 active:opacity-80 text-left"
@@ -782,6 +796,11 @@ ${stmtTxns.length ? `
                   {budgetAlerts.needsCount} essential{budgetAlerts.needsCount !== 1 ? 's' : ''} not yet funded
                 </p>
               )}
+              {budgetAlerts.dueAlerts?.map(a => (
+                <p key={a.type} className="text-amber-300/80 text-xs mt-0.5">
+                  ⏰ {a.type} due {a.daysUntil === 0 ? 'today' : `in ${a.daysUntil} day${a.daysUntil === 1 ? '' : 's'}`} — not yet funded
+                </p>
+              ))}
             </div>
           </div>
           <span className="text-amber-500 text-xs shrink-0 font-medium">View Budget →</span>

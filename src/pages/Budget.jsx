@@ -43,6 +43,16 @@ function pm(val) {
 }
 function fmt(val) { return `$${pm(val).toFixed(2)}`; }
 
+function dayLabel(d) {
+  if (d === 1 || d === 21 || d === 31) return `${d}st`;
+  if (d === 2 || d === 22) return `${d}nd`;
+  if (d === 3 || d === 23) return `${d}rd`;
+  return `${d}th`;
+}
+function getDueDates() {
+  try { return JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch { return {}; }
+}
+
 // Parses a Sheets date cell (serial number or M/D/YYYY or YYYY-MM-DD string)
 function parseSheetDate(val) {
   if (val == null || val === '') return null;
@@ -463,22 +473,80 @@ function PrioritySection({ priority, items, onEdit, onAdd }) {
 // ── Category tab: individual item card ────────────────────────────────────────
 
 function CategoryItemCard({ item, allocated, budgeted }) {
+  const type  = item['Type'] || '';
+  const [dueDay, setDueDayState] = useState(() => getDueDates()[type] ?? null);
+  const [editingDue, setEditingDue] = useState(false);
+
+  function saveDueDay(val) {
+    const all = getDueDates();
+    if (val == null) delete all[type]; else all[type] = Number(val);
+    localStorage.setItem('_fin_due_dates', JSON.stringify(all));
+    setDueDayState(val == null ? null : Number(val));
+    setEditingDue(false);
+  }
+
+  const todayDay  = new Date().getDate();
+  const daysUntil = dueDay != null ? dueDay - todayDay : null;
+  const unfunded  = budgeted > 0 && allocated < budgeted;
+  const pastDue   = dueDay != null && daysUntil < 0 && unfunded;
+  const dueSoon   = dueDay != null && daysUntil != null && daysUntil >= 0 && daysUntil <= 3 && unfunded;
+
   const over  = allocated > budgeted && budgeted > 0;
   const pct   = budgeted > 0 ? Math.min((allocated / budgeted) * 100, 100) : (allocated > 0 ? 100 : 0);
   const cat   = item['Expense'] || 'Other';
   const color = CAT_COLORS[cat] || '#64748b';
+  const leftBorder = pastDue ? '#ef4444' : dueSoon ? '#f59e0b' : over ? '#ef4444' : color;
 
   return (
     <div
       className="bg-slate-900 rounded-xl p-3.5 border border-slate-800/60"
-      style={{ borderLeft: `3px solid ${over ? '#ef4444' : color}` }}
+      style={{ borderLeft: `3px solid ${leftBorder}` }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <p className="text-white text-sm font-medium truncate">{item['Type'] || '—'}</p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="text-white text-sm font-medium">{type || '—'}</p>
+            {pastDue && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium shrink-0">⚠ Past due</span>
+            )}
+            {dueSoon && !pastDue && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/60 text-amber-300 font-medium shrink-0">
+                ⏰ {daysUntil === 0 ? 'Due today' : `Due in ${daysUntil}d`}
+              </span>
+            )}
+          </div>
           {item['Account'] && (
             <p className="text-slate-500 text-[10px] mt-0.5">{item['Account']}</p>
           )}
+          <div className="mt-1">
+            {editingDue ? (
+              <div className="flex items-center gap-1.5">
+                <select
+                  className="text-[10px] bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-white"
+                  value={dueDay ?? ''}
+                  onChange={e => saveDueDay(e.target.value === '' ? null : e.target.value)}
+                  autoFocus
+                  onBlur={() => setEditingDue(false)}
+                >
+                  <option value="">No date</option>
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                    <option key={d} value={d}>the {dayLabel(d)}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <button
+                onClick={() => setEditingDue(true)}
+                className={`text-[10px] px-1.5 py-0.5 rounded-full transition-colors ${
+                  dueDay != null
+                    ? pastDue ? 'bg-rose-900/40 text-rose-400' : dueSoon ? 'bg-amber-900/40 text-amber-400' : 'bg-slate-800 text-slate-400 hover:text-slate-300'
+                    : 'text-slate-600 hover:text-slate-400'
+                }`}
+              >
+                {dueDay != null ? `📅 Due ${dayLabel(dueDay)}` : '+ set due date'}
+              </button>
+            )}
+          </div>
         </div>
         <div className="text-right shrink-0">
           <p className={`text-sm font-bold font-mono ${over ? 'text-rose-400' : 'text-white'}`}>
