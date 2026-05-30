@@ -131,6 +131,9 @@ export function analyzeAffordability({
   monthlyOutflow = 0,
   discretionary = [],
   scope = 'personal',
+  paychecksPerMonth = 2,      // pay-schedule preference (per-paycheck figure)
+  payLabel = 'biweekly',
+  paceFraction = 0.5,         // default pace when no deadline/contribution given
 } = {}) {
   const goal      = Math.max(0, round2(goalAmount));
   const saved     = Math.max(0, round2(alreadySaved));
@@ -160,19 +163,20 @@ export function analyzeAffordability({
     horizon        = Math.ceil(remaining / perMonth);
     projectedLabel = addMonthsLabel(horizon);
   } else {
-    // No deadline, no target contribution → pace at half of free cash flow.
-    const rec      = freeCash > 0 ? round2(freeCash * 0.5) : 0;
+    // No deadline, no target contribution → pace at the user's preferred fraction
+    // of free cash flow (conservative/balanced/aggressive).
+    const rec      = freeCash > 0 ? round2(freeCash * paceFraction) : 0;
     perMonth       = rec;
     horizon        = rec > 0 ? Math.ceil(remaining / rec) : null;
     projectedLabel = rec > 0 ? addMonthsLabel(horizon) : null;
     result.recommendedPace = true;
   }
 
-  result.perMonth            = perMonth;
-  result.perPaycheckBiweekly = perMonth ? round2(perMonth / 2) : null;
-  result.perWeek             = perMonth ? round2(perMonth / 4.345) : null;
-  result.monthsNeeded        = horizon;
-  result.projectedDate       = projectedLabel;
+  result.perMonth      = perMonth;
+  result.perPaycheck   = perMonth ? round2(perMonth / (paychecksPerMonth || 2)) : null;
+  result.payLabel      = payLabel;
+  result.monthsNeeded  = horizon;
+  result.projectedDate = projectedLabel;
 
   // ── Feasibility vs. free cash flow ──────────────────────────────────────
   const shortfall = perMonth != null ? round2(Math.max(0, perMonth - freeCash)) : 0;
