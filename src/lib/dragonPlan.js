@@ -27,6 +27,87 @@ export function addMonthsLabel(n) {
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
+const fmtMoney = (n) => {
+  const v = Math.abs(round2(n));
+  return (n < 0 ? '-' : '') + '$' + (v >= 100 ? Math.round(v).toLocaleString('en-US') : v.toFixed(2));
+};
+
+// Assess a SAVED goal against the user's current cash flow — the "is this
+// reachable, and what should I change?" analysis the Goals page shows per goal.
+//
+// goal: { target, saved, perMonth, targetDate, scope, status }
+// cash: { monthlyIncome, monthlyOutflow, freeCashFlow }
+// Returns { verdict, headline, projectedDate, requiredPerMonth, suggestions[] }.
+export function assessGoal(goal, cash) {
+  const target    = Math.max(0, round2(goal.target));
+  const saved     = Math.max(0, round2(goal.saved));
+  const remaining = Math.max(0, round2(target - saved));
+  const perMonth  = round2(goal.perMonth || 0);
+  const freeCash  = round2(cash?.freeCashFlow ?? ((cash?.monthlyIncome || 0) - (cash?.monthlyOutflow || 0)));
+  const suggestions = [];
+
+  if (goal.status === 'done' || (target > 0 && saved >= target)) {
+    return { verdict: 'reached', headline: 'Funded — this goal is reached. Enjoy the spoils. 🐉', projectedDate: null, requiredPerMonth: 0, suggestions: [] };
+  }
+  if (goal.status === 'paused') {
+    return { verdict: 'stalled', headline: 'Paused — no progress until you resume contributions.', projectedDate: null, requiredPerMonth: perMonth, suggestions: ['Set it back to active and resume the monthly set-aside when you’re ready.'] };
+  }
+
+  const targetMonths        = goal.targetDate ? monthsUntil(goal.targetDate) : null;
+  const monthsByContribution = perMonth > 0 ? Math.ceil(remaining / perMonth) : null;
+  const projectedDate       = monthsByContribution != null ? addMonthsLabel(monthsByContribution) : null;
+  const requiredPerMonth    = (targetMonths && targetMonths > 0) ? ceil2(remaining / targetMonths) : null;
+
+  let verdict = 'on_track';
+  let headline = '';
+
+  if (perMonth <= 0) {
+    verdict = 'stalled';
+    headline = 'No monthly contribution set, so this goal isn’t moving yet.';
+    if (freeCash > 0) suggestions.push(`You have about ${fmtMoney(freeCash)}/mo free — even ${fmtMoney(round2(freeCash * 0.3))}/mo would start the climb.`);
+    else suggestions.push('Free up some monthly cash flow first (trim a discretionary bucket), then set a contribution.');
+  } else {
+    const overFree = perMonth > freeCash;
+    if (targetMonths != null) {
+      if (monthsByContribution <= targetMonths) {
+        verdict = overFree ? 'at_risk' : 'on_track';
+        headline = overFree
+          ? `On pace for ${goal.targetDate}, but ${fmtMoney(perMonth)}/mo is above your ${fmtMoney(freeCash)}/mo of free cash flow — sustaining it will be the hard part.`
+          : `On track — at ${fmtMoney(perMonth)}/mo you’ll reach it by ${projectedDate}, comfortably inside your ${goal.targetDate} target.`;
+        if (overFree) {
+          suggestions.push(`Trim about ${fmtMoney(round2(perMonth - freeCash))}/mo from discretionary spending so the pace is sustainable.`);
+        } else if (freeCash - perMonth > perMonth * 0.5) {
+          const faster = round2(Math.min(freeCash, perMonth * 1.5));
+          suggestions.push(`You’ve got headroom — ${fmtMoney(faster)}/mo would finish it around ${addMonthsLabel(Math.ceil(remaining / faster))}.`);
+        }
+      } else {
+        verdict = 'behind';
+        headline = `Behind schedule — ${fmtMoney(perMonth)}/mo lands it around ${projectedDate}, past your ${goal.targetDate} target.`;
+        if (requiredPerMonth != null) {
+          if (requiredPerMonth > freeCash) {
+            suggestions.push(`Hitting ${goal.targetDate} needs ${fmtMoney(requiredPerMonth)}/mo — more than your ${fmtMoney(freeCash)}/mo free cash flow, so either trim spending to free it up or move the date to ${projectedDate}.`);
+          } else {
+            suggestions.push(`Raise the contribution to ${fmtMoney(requiredPerMonth)}/mo to hit ${goal.targetDate}, or keep ${fmtMoney(perMonth)}/mo and move the target to ${projectedDate}.`);
+          }
+        }
+      }
+    } else {
+      verdict = overFree ? 'at_risk' : 'on_track';
+      headline = overFree
+        ? `${fmtMoney(perMonth)}/mo is above your ${fmtMoney(freeCash)}/mo of free cash flow — reachable by ${projectedDate} only if you can keep that pace up.`
+        : `On track — ${fmtMoney(perMonth)}/mo reaches the goal around ${projectedDate}.`;
+      if (overFree) {
+        const sustainable = Math.max(1, freeCash);
+        suggestions.push(`Drop to about ${fmtMoney(freeCash)}/mo (finishing ${addMonthsLabel(Math.ceil(remaining / sustainable))}) or trim discretionary spending to support the faster pace.`);
+      } else {
+        suggestions.push('Add a target date to lock in a finish line — you have room to push faster if you want it sooner.');
+      }
+    }
+  }
+
+  return { verdict, headline, projectedDate, requiredPerMonth, suggestions };
+}
+
 // Build a savings/affordability plan.
 //
 // Inputs (all optional except goalAmount):

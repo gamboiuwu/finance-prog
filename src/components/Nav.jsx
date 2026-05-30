@@ -9,6 +9,7 @@ const tabs = [
   { to: '/commissions',  label: 'Art',     icon: '✦'  },
   { to: '/business',     label: 'Biz',     icon: '💼' },
   { to: '/dragon',       label: 'Ledger',  icon: '🐉' },
+  { to: '/goals',        label: 'Goals',   icon: '🎯' },
   { to: '/actions',     label: 'History', icon: '↺'  },
 ];
 
