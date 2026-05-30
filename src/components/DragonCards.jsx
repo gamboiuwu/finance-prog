@@ -227,7 +227,7 @@ function PlanCard({ data }) {
       {/* Schedule */}
       <div className="flex gap-2">
         <Tile label="Set aside / mo" value={fmt(d.perMonth)} tone="text-emerald-400" />
-        {d.perPaycheckBiweekly != null && <Tile label="Per paycheck" value={fmt(d.perPaycheckBiweekly)} tone="text-teal-300" sub="biweekly" />}
+        {d.perPaycheck != null && <Tile label="Per paycheck" value={fmt(d.perPaycheck)} tone="text-teal-300" sub={d.payLabel || 'biweekly'} />}
         <Tile label="Done by" value={d.projectedDate || '—'} tone="text-white" sub={d.monthsNeeded ? `~${d.monthsNeeded} mo` : undefined} />
       </div>
 

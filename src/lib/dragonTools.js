@@ -15,6 +15,7 @@ import {
   monthKey, derivePersonalCashflow, deriveBusinessCashflow,
   computeOverview, overviewSummary,
 } from './dragonOverview';
+import { PAY_SCHEDULES, PACES } from './dragonPrefs';
 
 const SUBSCRIPTIONS_SHEET = 'Subscriptions';
 
@@ -251,7 +252,7 @@ export const TOOLS = [
 
 // Execute one tool call. Always resolves to a string; on failure returns an
 // "ERROR:" string so Claude can tell the user plainly instead of inventing data.
-export async function runTool(name, input, token) {
+export async function runTool(name, input, token, prefs = {}) {
   try {
     switch (name) {
       case 'get_monthly_summary': {
@@ -323,6 +324,8 @@ export async function runTool(name, input, token) {
           const m = monthsUntil(input.target_date);
           if (m != null) months = m;
         }
+        const sched = PAY_SCHEDULES[prefs.paySchedule] || PAY_SCHEDULES.biweekly;
+        const pace  = PACES[prefs.pace] || PACES.balanced;
         const plan = analyzeAffordability({
           goalAmount:          input.goal_amount,
           alreadySaved:        input.already_saved ?? 0,
@@ -332,6 +335,9 @@ export async function runTool(name, input, token) {
           monthlyOutflow:      ctx.monthlyOutflow,
           discretionary:       ctx.discretionary,
           scope,
+          paychecksPerMonth:   sched.perMonth,
+          payLabel:            sched.label.toLowerCase(),
+          paceFraction:        pace.fraction,
         });
         plan.goalName = input.goal_name || null;
         return { content: JSON.stringify(plan), card: { type: 'plan', data: plan } };

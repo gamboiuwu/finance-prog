@@ -7,10 +7,31 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getDragonKey } from './dragonKey';
 import { TOOLS, runTool } from './dragonTools';
+import { getPrefs, PAY_SCHEDULES } from './dragonPrefs';
 
-// Sonnet 4.6 — chosen for low API cost while keeping strong reasoning. Swap to
-// 'claude-opus-4-8' for max capability or 'claude-haiku-4-5' for the cheapest.
+// Default model when the user hasn't picked one in preferences.
 export const DRAGON_MODEL = 'claude-sonnet-4-6';
+
+// Anthropic's server-side web search tool (executed on Anthropic's side; results
+// stream back automatically). Only attached when the user enables Web Research.
+const WEB_SEARCH_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 5 };
+
+// A small, DYNAMIC system block built from the user's preferences. Kept separate
+// from the big cached SYSTEM prompt so the cache prefix stays byte-stable.
+function prefsPrompt(prefs) {
+  const tone = prefs.tone === 'playful'
+    ? 'Tone: lean into the dragon flair — playful and warm, plenty of treasure/hoard imagery — while keeping every number exact.'
+    : prefs.tone === 'professional'
+      ? 'Tone: professional and concise. Skip the theatrics — lead with the numbers and the advice, minimal dragon flavour.'
+      : 'Tone: warm and helpful with a light sprinkle of dragon flair — flavour second, numbers first.';
+  const payLabel = (PAY_SCHEDULES[prefs.paySchedule]?.label || 'Biweekly').toLowerCase();
+  const pay = `The user is paid ${payLabel} — that's the cadence behind any per-paycheck figure you quote.`;
+  const pace = `Default savings pace: "${prefs.pace}". When no deadline or contribution is given, the planner uses this; mention they can go faster or slower if they like.`;
+  const web = prefs.webResearch
+    ? 'Web research is ON: you have a web_search tool. Use it to ground plans in REAL numbers — look up the current price of an item they want to afford, typical costs, or current interest/savings/inflation rates when it materially helps. Search before guessing a price; keep it to a couple of focused searches and briefly say what you found.'
+    : 'Web research is OFF: do not state live prices or rates as fact. If a real-world price would change the plan, ask the user for it or suggest turning on Web Research in Ledger settings.';
+  return `## Your human's current preferences\n${tone}\n${pay}\n${pace}\n${web}`;
+}
 
 // Computed ONCE at module load (not per request) so the system prompt stays
 // byte-stable within a session — that keeps the prompt-cache prefix valid across
@@ -110,21 +131,34 @@ function makeClient() {
 // userText: the new user message
 export async function streamDragon({ token, history, userText, onText, onToolUse, onToolResult }) {
   const client = makeClient();
+  const prefs = getPrefs();
+  const model = prefs.model || DRAGON_MODEL;
+  const tools = prefs.webResearch ? [...TOOLS, WEB_SEARCH_TOOL] : TOOLS;
   const messages = [...history, { role: 'user', content: userText }];
 
   // Guard against a runaway tool loop.
   for (let i = 0; i < 8; i++) {
     const stream = client.messages.stream({
-      model: DRAGON_MODEL,
+      model,
       max_tokens: 8000,                 // streaming — generous room for thinking + answer
       thinking: { type: 'adaptive' },    // Claude decides when to reason; no fixed budget
       output_config: { effort: 'medium' }, // balance quality vs. snappy chat latency
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
-      tools: TOOLS,
+      system: [
+        { type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: prefsPrompt(prefs) },
+      ],
+      tools,
       messages,
     });
 
     stream.on('text', (delta) => onText?.(delta));
+    // Surface server-side web searches in the activity indicator.
+    stream.on('streamEvent', (e) => {
+      if (e?.type === 'content_block_start' && e.content_block?.type === 'server_tool_use'
+          && e.content_block?.name === 'web_search') {
+        onToolUse?.('web_search');
+      }
+    });
     const final = await stream.finalMessage();
 
     // Preserve the full assistant content (incl. thinking blocks) for the next request.
@@ -136,7 +170,7 @@ export async function streamDragon({ token, history, userText, onText, onToolUse
     for (const block of final.content) {
       if (block.type === 'tool_use') {
         onToolUse?.(block.name);
-        const out = await runTool(block.name, block.input, token);
+        const out = await runTool(block.name, block.input, token, prefs);
         // Tools may return a plain string (for the model) or { content, card }
         // where `card` is a structured payload the chat renders as a visual window.
         const content = typeof out === 'string' ? out : out.content;
