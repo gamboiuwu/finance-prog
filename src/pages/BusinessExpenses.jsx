@@ -6,6 +6,7 @@ import ProcessIncome from '../components/ProcessIncome';
 import TimeClockView from '../components/TimeClockView';
 import OrderModal from '../components/OrderModal';
 import { OrderTemplateModal, ShippingSetupModal, TemplatesPickerModal } from '../components/OrderSettings';
+import BusinessSettings from '../components/BusinessSettings';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis,
@@ -2718,6 +2719,7 @@ export default function BusinessExpenses({ token }) {
   const [editing,          setEditing]          = useState(null);
   const [processing,       setProcessing]       = useState(null);
   const [viewMode,         setViewMode]         = useState('products'); // products | sales | accounts | expenses | insights | timeclock
+  const [showSettings,     setShowSettings]     = useState(false);
   const [productView,      setProductView]      = useState('cards');    // cards | compare (within Products)
   const [salesRefreshKey,  setSalesRefreshKey]  = useState(0);
 
@@ -2807,13 +2809,26 @@ export default function BusinessExpenses({ token }) {
           <h1 className="text-xl font-bold text-white">Business Expenses</h1>
           <p className="text-slate-500 text-xs mt-0.5">Product revenue allocation · synced to Sheets</p>
         </div>
-        <button
-          onClick={() => setEditing({ name: '', startPrice: 0, formula: [] })}
-          className="bg-green-600 hover:bg-green-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
-        >
-          + Add
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowSettings(true)}
+            title="Business settings"
+            className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm px-2.5 py-1.5 rounded-lg transition-colors"
+          >
+            ⚙️
+          </button>
+          <button
+            onClick={() => setEditing({ name: '', startPrice: 0, formula: [] })}
+            className="bg-green-600 hover:bg-green-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+          >
+            + Add
+          </button>
+        </div>
       </div>
+
+      {showSettings && (
+        <BusinessSettings products={products} onClose={() => setShowSettings(false)} />
+      )}
 
       <div className="stagger px-4 space-y-4">
         {error && (
