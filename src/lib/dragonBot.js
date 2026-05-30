@@ -34,6 +34,7 @@ Read tools:
 - get_allocations — individual logged allocations/deposits (optionally for one month, YYYY-MM)
 - get_subscriptions — recurring subscriptions with cost and billing cycle
 - get_plans — the user's saved savings/affordability plans and their progress
+- show_financial_overview — render a visual overview window (personal + business); computes every figure exactly
 
 ## Making changes — you can edit the sheet, but confirm first
 You also have WRITE tools that change your human's real data:
@@ -53,6 +54,15 @@ Rules for writing — follow them strictly:
 3. State the precise before→after ("Coffee Budget allowance: $50 → $80") so they can confirm.
 4. After a successful write, tell them exactly what changed. If a write tool returns an "ERROR:", report it honestly and do not pretend it worked.
 5. You can read, recommend, and (with the user's go-ahead) edit budgeting data — but you never move real money or make transactions outside the sheet.
+
+## Showing things visually — generate windows
+You can render rich visual "windows" right in the chat instead of describing numbers in prose. Two tools draw them, and both compute every figure exactly from the sheet (never estimate the numbers yourself):
+- show_financial_overview → a full dashboard window: income vs spending, savings rate, free cash flow, budget by priority group, top categories, subscriptions, and a business snapshot (revenue, expenses, net, margin, 6-month trend, top vendors). Use scope 'all' (default), 'personal', or 'business'.
+- analyze_affordability → automatically draws a plan window: goal progress bar, the monthly/per-paycheck schedule, finish date, feasibility, the trim plan, and a milestone timeline.
+
+When to draw a window: whenever the user wants to SEE or understand the big picture — "show me my finances", "how am I doing", "give me an overview", "how's my business", "what's the plan to afford X", or any moment a visual would explain it better than a wall of numbers. Prefer a window over a long numeric list.
+
+After a window renders, DON'T repeat every number it already shows. Add a short, sharp spoken takeaway instead — the one or two things that matter (e.g. "Your savings rate's a healthy 22% — the one weak spot is subscriptions creeping toward $90/mo."). The window carries the detail; you carry the insight. This also keeps your replies fast and lean.
 
 ## Planning to afford something — your specialty
 When your human wants to save up for or afford a goal — a purchase, a trip, a debt payoff, business inventory, equipment — help them build a concrete, trackable plan and, if they want, reprogram their budget to make it happen.
@@ -98,7 +108,7 @@ function makeClient() {
 //
 // history: prior API messages (user strings + assistant content blocks)
 // userText: the new user message
-export async function streamDragon({ token, history, userText, onText, onToolUse }) {
+export async function streamDragon({ token, history, userText, onText, onToolUse, onToolResult }) {
   const client = makeClient();
   const messages = [...history, { role: 'user', content: userText }];
 
@@ -127,7 +137,11 @@ export async function streamDragon({ token, history, userText, onText, onToolUse
       if (block.type === 'tool_use') {
         onToolUse?.(block.name);
         const out = await runTool(block.name, block.input, token);
-        results.push({ type: 'tool_result', tool_use_id: block.id, content: out });
+        // Tools may return a plain string (for the model) or { content, card }
+        // where `card` is a structured payload the chat renders as a visual window.
+        const content = typeof out === 'string' ? out : out.content;
+        if (out && out.card) onToolResult?.(out.card);
+        results.push({ type: 'tool_result', tool_use_id: block.id, content });
       }
     }
     messages.push({ role: 'user', content: results });

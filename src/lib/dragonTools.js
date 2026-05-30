@@ -11,88 +11,12 @@ import {
   readPlans, savePlan, updatePlanProgress, deletePlan, applyPlanToBudget,
 } from './sheetWrite';
 import { analyzeAffordability, monthsUntil } from './dragonPlan';
+import {
+  monthKey, derivePersonalCashflow, deriveBusinessCashflow,
+  computeOverview, overviewSummary,
+} from './dragonOverview';
 
 const SUBSCRIPTIONS_SHEET = 'Subscriptions';
-const BUSINESS_TRANSACTIONS_SHEET = 'Business Transactions';
-
-const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-const toNum  = (v) => parseFloat(String(v ?? '').replace(/[$,]/g, '')) || 0;
-
-// Find a column index whose header contains any needle (lowercased). -1 if none.
-function colIdx(headers, ...needles) {
-  const lower = (headers || []).map(h => String(h ?? '').toLowerCase());
-  for (const n of needles) {
-    const i = lower.findIndex(h => h.includes(n));
-    if (i >= 0) return i;
-  }
-  return -1;
-}
-
-// Derive personal cash flow: average recent income, total committed allowances,
-// and the discretionary buckets that can be trimmed to fund a goal.
-async function derivePersonalCashflow(token) {
-  let monthlyIncome = 0;
-  const sum = await readRange(token, `${SHEETS.MONTHLY_SUMMARY}!A:Z`, 'UNFORMATTED_VALUE').catch(() => []);
-  if (sum.length > 1) {
-    const ic = colIdx(sum[0], 'income');
-    const vals = sum.slice(1).map(r => toNum(r[ic >= 0 ? ic : 1])).filter(v => v > 0).slice(-6);
-    if (vals.length) monthlyIncome = vals.reduce((a, b) => a + b, 0) / vals.length;
-  }
-
-  let monthlyOutflow = 0;
-  const discretionary = [];
-  const bud = await readRange(token, `${SHEETS.MONTHLY_EXPENSES}!A:Z`, 'UNFORMATTED_VALUE').catch(() => []);
-  if (bud.length > 1) {
-    const tc = colIdx(bud[0], 'type');
-    const ac = colIdx(bud[0], 'allowance', 'monthly');
-    const gc = colIdx(bud[0], 'expense', 'group', 'category');
-    for (const r of bud.slice(1)) {
-      const allow = toNum(r[ac >= 0 ? ac : 0]);
-      if (!allow) continue;
-      monthlyOutflow += allow;
-      if (String(r[gc] ?? '').toLowerCase().includes('discretion')) {
-        discretionary.push({ category: String(r[tc >= 0 ? tc : 0] || '').trim(), allowance: allow });
-      }
-    }
-  }
-  return { monthlyIncome: round2(monthlyIncome), monthlyOutflow: round2(monthlyOutflow), discretionary };
-}
-
-// Derive business cash flow: average monthly revenue (Business Transactions) vs
-// average monthly spend (Business Expenses).
-async function deriveBusinessCashflow(token) {
-  const byMonth = (rows, dateCol, amtCol) => {
-    const m = {};
-    for (const r of rows.slice(1)) {
-      const k = monthKey(r[dateCol]);
-      if (!k) continue;
-      m[k] = (m[k] || 0) + toNum(r[amtCol]);
-    }
-    const v = Object.values(m);
-    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0;
-  };
-
-  const tx = await readRange(token, `${BUSINESS_TRANSACTIONS_SHEET}!A:H`, 'UNFORMATTED_VALUE').catch(() => []);
-  const ex = await readRange(token, `${SHEETS.BUSINESS_EXPENSES}!A:G`, 'UNFORMATTED_VALUE').catch(() => []);
-  const monthlyIncome  = tx.length > 1 ? byMonth(tx, 0, 5) : 0; // Revenue = col F
-  const monthlyOutflow = ex.length > 1 ? byMonth(ex, 0, 2) : 0; // Amount = col C
-  return { monthlyIncome: round2(monthlyIncome), monthlyOutflow: round2(monthlyOutflow), discretionary: [] };
-}
-
-// Normalise a sheet date cell (serial number / YYYY-MM-DD / M/D/YYYY) to YYYY-MM.
-// Mirrors the monthKey helper used elsewhere in the app so month filters line up.
-function monthKey(v) {
-  if (v == null || v === '') return '';
-  const s = String(v).trim();
-  const n = Number(v);
-  if (!isNaN(n) && n > 1000 && !s.includes('-') && !s.includes('/')) {
-    const d = new Date(Math.round((Math.floor(n) - 25569) * 86400000));
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-  }
-  if (s.includes('-')) return s.slice(0, 7);                 // YYYY-MM-DD
-  if (s.includes('/')) { const p = s.split('/'); return `${p[2]}-${String(p[0]).padStart(2, '0')}`; } // M/D/YYYY
-  return '';
-}
 
 // Compact {columns, rows} payload — far fewer tokens than an array of objects.
 function pack(rows, limit) {
@@ -207,6 +131,19 @@ export const TOOLS = [
     },
   },
 
+  // ── Visual tools — render rich "windows" in the chat (see "Showing things") ──
+  {
+    name: 'show_financial_overview',
+    description: "Render a rich visual financial overview WINDOW in the chat — income vs spending, savings rate, free cash flow, budget by priority group, top categories, subscriptions, and a business snapshot (revenue, expenses, net, margin, 6-month trend, top vendors). It computes every number exactly from the sheets. Use this whenever the user wants to SEE their finances, a dashboard, a full picture, 'how am I doing', or how their business is doing. After it renders, add a short spoken takeaway — do not re-list every number, the window already shows them.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        focus: { type: 'string', description: "'all' (default), 'personal', or 'business'." },
+      },
+      additionalProperties: false,
+    },
+  },
+
   // ── Planning tools — affording a goal (see "Planning" in the system prompt) ──
   {
     name: 'analyze_affordability',
@@ -215,6 +152,7 @@ export const TOOLS = [
       type: 'object',
       properties: {
         goal_amount:         { type: 'number', description: 'Total cost of the thing to afford.' },
+        goal_name:           { type: 'string', description: 'Short name of the goal (e.g. "New Laptop") — shown as the plan window title.' },
         already_saved:       { type: 'number', description: 'Amount already set aside toward it (default 0).' },
         months:              { type: 'number', description: 'Whole months until the deadline. Use this OR monthly_contribution.' },
         target_date:         { type: 'string', description: 'Deadline as YYYY-MM-DD (converted to months). Alternative to `months`.' },
@@ -361,6 +299,13 @@ export async function runTool(name, input, token) {
         return `OK: deleted the ${input.category}/${input.account} allocation (row ${row}).`;
       }
 
+      // ── Visual tools ──
+      case 'show_financial_overview': {
+        const focus = ['personal', 'business'].includes(input.focus) ? input.focus : 'all';
+        const ov = await computeOverview(token, focus);
+        return { content: overviewSummary(ov), card: { type: 'overview', data: ov } };
+      }
+
       // ── Planning tools ──
       case 'analyze_affordability': {
         const scope = input.scope === 'business' ? 'business' : 'personal';
@@ -388,7 +333,8 @@ export async function runTool(name, input, token) {
           discretionary:       ctx.discretionary,
           scope,
         });
-        return JSON.stringify(plan);
+        plan.goalName = input.goal_name || null;
+        return { content: JSON.stringify(plan), card: { type: 'plan', data: plan } };
       }
       case 'get_plans': {
         const rows = await readPlans(token);

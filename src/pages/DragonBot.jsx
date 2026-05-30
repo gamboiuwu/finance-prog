@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { streamDragon, dragonError } from '../lib/dragonBot';
 import { getDragonKey, setDragonKey, clearDragonKey, hasDragonKey } from '../lib/dragonKey';
 import DragonAvatar from '../components/DragonAvatar';
+import DragonCard from '../components/DragonCards';
 
 const TOOL_LABELS = {
   get_monthly_summary:  'peering at your monthly hoard…',
@@ -17,9 +18,9 @@ const TOOL_LABELS = {
 };
 
 const SUGGESTIONS = [
+  'Show me my full financial overview 📊',
   'Help me plan to afford something 🐉',
-  'Am I on track for my savings goal?',
-  'What are my subscriptions costing me?',
+  'How is my business doing? 💼',
   'Where can I trim my spending?',
 ];
 
@@ -137,6 +138,7 @@ export default function DragonBot({ token }) {
     setToolLabel(null);
 
     let acc = '';
+    const cards = [];   // visual windows the dragon generates this turn
     try {
       const updated = await streamDragon({
         token,
@@ -144,9 +146,10 @@ export default function DragonBot({ token }) {
         userText: trimmed,
         onText: (delta) => { acc += delta; setStreaming(acc); setToolLabel(null); },
         onToolUse: (name) => setToolLabel(TOOL_LABELS[name] || 'consulting the ancient ledgers…'),
+        onToolResult: (card) => cards.push(card),
       });
       apiHistory.current = updated;
-      setMessages(m => [...m, { role: 'dragon', text: acc || '…' }]);
+      setMessages(m => [...m, { role: 'dragon', text: acc || '…', cards }]);
     } catch (e) {
       setHasError(true);
       setMessages(m => [...m, { role: 'dragon', text: dragonError(e), error: true }]);
@@ -220,7 +223,7 @@ export default function DragonBot({ token }) {
         )}
 
         {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
               m.role === 'user'
                 ? 'bg-emerald-600 text-white rounded-br-md'
@@ -230,6 +233,12 @@ export default function DragonBot({ token }) {
             }`}>
               {m.role === 'dragon' ? <div className="space-y-0.5">{renderRich(m.text)}</div> : m.text}
             </div>
+            {/* Visual windows the dragon generated for this turn */}
+            {m.role === 'dragon' && m.cards?.length > 0 && (
+              <div className="mt-2 w-full space-y-2">
+                {m.cards.map((c, ci) => <DragonCard key={ci} card={c} />)}
+              </div>
+            )}
           </div>
         ))}
 
