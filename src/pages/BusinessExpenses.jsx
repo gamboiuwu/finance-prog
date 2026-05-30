@@ -559,7 +559,7 @@ function ProcessModal({ product, token, onClose, onSuccess }) {
       const allocJSON = JSON.stringify(
         steps.reduce((obj, st) => { obj[blockLabel(st)] = st.allocated.toFixed(4); return obj; }, {})
       );
-      await appendRow(token, `${TRANS_SHEET}!A:H`, [
+      await appendRow(token, `${TRANS_SHEET}!A:I`, [
         now,
         clientName.trim(),
         product.name,
@@ -568,10 +568,13 @@ function ProcessModal({ product, token, onClose, onSuccess }) {
         revenue.toFixed(2),
         margin !== null ? (margin.toFixed(2) + '%') : '',
         allocJSON,
+        '',   // Order column — left blank; filled later via "📦 Make order"
       ]);
       setDone(true);
-      onSuccess?.();           // notify parent so SalesView refreshes
-      setTimeout(onClose, 1400);
+      setTimeout(() => {
+        onClose();
+        onSuccess?.();   // switch tabs + refresh AFTER modal closes, not during
+      }, 1400);
     } catch (e) {
       setProcessError(e.message);
       setSubmitting(false);
