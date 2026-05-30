@@ -43,6 +43,16 @@ function pm(val) {
 }
 function fmt(val) { return `$${pm(val).toFixed(2)}`; }
 
+function dayLabel(d) {
+  if (d === 1 || d === 21 || d === 31) return `${d}st`;
+  if (d === 2 || d === 22) return `${d}nd`;
+  if (d === 3 || d === 23) return `${d}rd`;
+  return `${d}th`;
+}
+function getDueDates() {
+  try { return JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch { return {}; }
+}
+
 // Parses a Sheets date cell (serial number or M/D/YYYY or YYYY-MM-DD string)
 function parseSheetDate(val) {
   if (val == null || val === '') return null;
@@ -173,6 +183,7 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
     Account:                 item['Account']                 || 'Checking',
     Priority:                String(item['Priority']         || '2'),
     'Monthly Allowance ($)': String(item['Monthly Allowance ($)'] || '0'),
+    'Actual Spend':          String(item['Actual Spend']     || '0'),
   });
   const [balanceType, setBalanceType] = useState(() => {
     try {
@@ -227,6 +238,21 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
               />
             </div>
           </div>
+
+          {!isNew && (
+            <div>
+              <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Actual Spend This Month</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-lg">$</span>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={fields['Actual Spend']}
+                  onChange={e => set('Actual Spend', e.target.value)}
+                  className="w-full bg-slate-800 text-white text-xl font-bold rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 font-mono tabular-nums"
+                />
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Priority</label>
@@ -447,22 +473,80 @@ function PrioritySection({ priority, items, onEdit, onAdd }) {
 // ── Category tab: individual item card ────────────────────────────────────────
 
 function CategoryItemCard({ item, allocated, budgeted }) {
+  const type  = item['Type'] || '';
+  const [dueDay, setDueDayState] = useState(() => getDueDates()[type] ?? null);
+  const [editingDue, setEditingDue] = useState(false);
+
+  function saveDueDay(val) {
+    const all = getDueDates();
+    if (val == null) delete all[type]; else all[type] = Number(val);
+    localStorage.setItem('_fin_due_dates', JSON.stringify(all));
+    setDueDayState(val == null ? null : Number(val));
+    setEditingDue(false);
+  }
+
+  const todayDay  = new Date().getDate();
+  const daysUntil = dueDay != null ? dueDay - todayDay : null;
+  const unfunded  = budgeted > 0 && allocated < budgeted;
+  const pastDue   = dueDay != null && daysUntil < 0 && unfunded;
+  const dueSoon   = dueDay != null && daysUntil != null && daysUntil >= 0 && daysUntil <= 3 && unfunded;
+
   const over  = allocated > budgeted && budgeted > 0;
   const pct   = budgeted > 0 ? Math.min((allocated / budgeted) * 100, 100) : (allocated > 0 ? 100 : 0);
   const cat   = item['Expense'] || 'Other';
   const color = CAT_COLORS[cat] || '#64748b';
+  const leftBorder = pastDue ? '#ef4444' : dueSoon ? '#f59e0b' : over ? '#ef4444' : color;
 
   return (
     <div
       className="bg-slate-900 rounded-xl p-3.5 border border-slate-800/60"
-      style={{ borderLeft: `3px solid ${over ? '#ef4444' : color}` }}
+      style={{ borderLeft: `3px solid ${leftBorder}` }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <p className="text-white text-sm font-medium truncate">{item['Type'] || '—'}</p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="text-white text-sm font-medium">{type || '—'}</p>
+            {pastDue && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium shrink-0">⚠ Past due</span>
+            )}
+            {dueSoon && !pastDue && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/60 text-amber-300 font-medium shrink-0">
+                ⏰ {daysUntil === 0 ? 'Due today' : `Due in ${daysUntil}d`}
+              </span>
+            )}
+          </div>
           {item['Account'] && (
             <p className="text-slate-500 text-[10px] mt-0.5">{item['Account']}</p>
           )}
+          <div className="mt-1">
+            {editingDue ? (
+              <div className="flex items-center gap-1.5">
+                <select
+                  className="text-[10px] bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-white"
+                  value={dueDay ?? ''}
+                  onChange={e => saveDueDay(e.target.value === '' ? null : e.target.value)}
+                  autoFocus
+                  onBlur={() => setEditingDue(false)}
+                >
+                  <option value="">No date</option>
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                    <option key={d} value={d}>the {dayLabel(d)}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <button
+                onClick={() => setEditingDue(true)}
+                className={`text-[10px] px-1.5 py-0.5 rounded-full transition-colors ${
+                  dueDay != null
+                    ? pastDue ? 'bg-rose-900/40 text-rose-400' : dueSoon ? 'bg-amber-900/40 text-amber-400' : 'bg-slate-800 text-slate-400 hover:text-slate-300'
+                    : 'text-slate-600 hover:text-slate-400'
+                }`}
+              >
+                {dueDay != null ? `📅 Due ${dayLabel(dueDay)}` : '+ set due date'}
+              </button>
+            )}
+          </div>
         </div>
         <div className="text-right shrink-0">
           <p className={`text-sm font-bold font-mono ${over ? 'text-rose-400' : 'text-white'}`}>
@@ -617,6 +701,11 @@ function CategoryView({ items, allocTx }) {
 
       {/* Summary bar */}
       <div className="bg-slate-900 rounded-2xl p-4">
+        {totalA === 0 && totalB > 0 && (
+          <p className="text-slate-500 text-xs mb-3">
+            No allocations logged yet this month. Process income from the Dashboard to populate these amounts.
+          </p>
+        )}
         <div className="grid grid-cols-3 gap-3 mb-3">
           <div>
             <p className="text-slate-500 text-[10px] uppercase tracking-wider">Budgeted</p>
@@ -920,8 +1009,7 @@ function TrendsView({ allAllocTx, expenses }) {
 const TABS = [
   { key: 'budget',     label: 'Budget' },
   { key: 'categories', label: 'Categories' },
-  { key: 'entries',    label: 'Entries' },
-  { key: 'trends',     label: 'Trends' },
+  { key: 'entries',    label: 'Entries & Trends' },
 ];
 
 function TabBar({ active, onChange }) {
@@ -1164,14 +1252,12 @@ export default function Budget({ token }) {
           <CategoryView items={items} allocTx={allocTx} />
         )}
 
-        {/* ── All Entries tab ── */}
+        {/* ── Entries & Trends tab ── */}
         {activeTab === 'entries' && (
-          <AllEntriesView allocTx={allocTx} />
-        )}
-
-        {/* ── Trends tab ── */}
-        {activeTab === 'trends' && (
-          <TrendsView allAllocTx={allAllocTx} expenses={items} />
+          <>
+            <TrendsView allAllocTx={allAllocTx} expenses={items} />
+            <AllEntriesView allocTx={allocTx} />
+          </>
         )}
 
       </div>

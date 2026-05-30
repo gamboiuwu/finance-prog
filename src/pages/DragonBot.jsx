@@ -1,18 +1,29 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { streamDragon, dragonError } from '../lib/dragonBot';
 import { getDragonKey, setDragonKey, clearDragonKey, hasDragonKey } from '../lib/dragonKey';
+import DragonAvatar from '../components/DragonAvatar';
+import DragonCard from '../components/DragonCards';
+import { getPrefs, setPrefs, MODELS, PAY_SCHEDULES, PACES, TONES } from '../lib/dragonPrefs';
 
 const TOOL_LABELS = {
   get_monthly_summary:  'peering at your monthly hoard…',
   get_budget_categories:'unrolling your budget scroll…',
   get_allocations:      'counting your gold coins…',
   get_subscriptions:    'sniffing out recurring tithes…',
+  get_plans:            'reviewing your treasure plans…',
+  analyze_affordability:'charting a path to your treasure…',
+  save_plan:            'etching your plan into stone…',
+  update_plan_progress: 'updating your quest log…',
+  delete_plan:          'retiring an old plan…',
+  apply_plan_to_budget: 'reforging your budget…',
+  show_financial_overview: 'painting your treasure map…',
+  web_search:           'scouring the web for current prices…',
 };
 
 const SUGGESTIONS = [
-  'How much did I spend last month? 🪙',
-  'Am I on track for my savings goal?',
-  'What are my subscriptions costing me?',
+  'Show me my full financial overview 📊',
+  'Help me plan to afford something 🐉',
+  'How is my business doing? 💼',
   'Where can I trim my spending?',
 ];
 
@@ -34,13 +45,94 @@ function renderRich(text) {
   });
 }
 
+// ── Preferences controls ─────────────────────────────────────────────────────
+function Field({ label, desc, children }) {
+  return (
+    <div className="space-y-1.5">
+      <div>
+        <p className="text-slate-200 text-sm font-medium">{label}</p>
+        {desc && <p className="text-slate-500 text-[11px] leading-snug">{desc}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Segmented({ value, onChange, options, cols = 3 }) {
+  return (
+    <div className={`grid gap-1.5`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      {options.map(o => (
+        <button
+          key={o.key}
+          onClick={() => onChange(o.key)}
+          className={`rounded-lg px-2 py-2 text-center transition-colors ${
+            value === o.key ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-300 hover:bg-slate-700'
+          }`}
+        >
+          <span className="block text-xs font-semibold leading-tight">{o.label}</span>
+          {o.hint && <span className="block text-[9px] opacity-70 mt-0.5 leading-tight">{o.hint}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Toggle({ on, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-12 h-7 rounded-full p-0.5 transition-colors shrink-0 ${on ? 'bg-emerald-600' : 'bg-slate-700'}`}
+      role="switch"
+      aria-checked={on}
+    >
+      <span className={`block w-6 h-6 rounded-full bg-white transition-transform ${on ? 'translate-x-5' : ''}`} />
+    </button>
+  );
+}
+
+const opts = (map) => Object.entries(map).map(([key, v]) => ({ key, label: v.label, hint: v.hint }));
+
+function PrefsPanel() {
+  const [p, setP] = useState(getPrefs);
+  const update = (patch) => setP(setPrefs(patch));
+  return (
+    <div className="bg-slate-800 rounded-2xl p-4 space-y-5">
+      <p className="text-white font-bold text-sm font-broske">⚙ Ledger Preferences</p>
+
+      <Field label="🧠 Brain" desc="Smarter models cost more per message.">
+        <Segmented cols={3} value={p.model} onChange={m => update({ model: m })} options={opts(MODELS)} />
+      </Field>
+
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-slate-200 text-sm font-medium">🌐 Web research</p>
+          <p className="text-slate-500 text-[11px] leading-snug">Let Ledger search the internet for live prices &amp; rates when planning. Uses extra credits.</p>
+        </div>
+        <Toggle on={p.webResearch} onClick={() => update({ webResearch: !p.webResearch })} />
+      </div>
+
+      <Field label="🎭 Tone" desc="How much dragon flair in replies.">
+        <Segmented cols={3} value={p.tone} onChange={t => update({ tone: t })} options={opts(TONES)} />
+      </Field>
+
+      <Field label="📅 Pay schedule" desc="Used for the per-paycheck planning figure.">
+        <Segmented cols={4} value={p.paySchedule} onChange={s => update({ paySchedule: s })} options={opts(PAY_SCHEDULES)} />
+      </Field>
+
+      <Field label="🔥 Savings pace" desc="How hard to save when a goal has no deadline.">
+        <Segmented cols={3} value={p.pace} onChange={s => update({ pace: s })} options={opts(PACES)} />
+      </Field>
+    </div>
+  );
+}
+
 // ── API-key setup / settings screen ─────────────────────────────────────────
-function KeySetup({ onSaved, onCancel, hasExisting }) {
+function KeySetup({ onSaved, onCancel, hasExisting, showPrefs }) {
   const [val, setVal] = useState('');
   return (
     <div className="px-4 py-6 max-w-md mx-auto space-y-5">
       <div className="text-center space-y-2">
-        <p className="text-5xl">🐉</p>
+        <div className="flex justify-center"><DragonAvatar mood="sleep" size={80} /></div>
         <h2 className="text-white font-bold text-xl font-broske">Wake the Dragon</h2>
         <p className="text-slate-400 text-sm leading-relaxed">
           Ledger runs on your own Anthropic API key. Paste it below — it's saved only on
@@ -81,6 +173,8 @@ function KeySetup({ onSaved, onCancel, hasExisting }) {
         )}
       </div>
 
+      {showPrefs && <PrefsPanel />}
+
       <div className="bg-amber-900/20 border border-amber-800/40 rounded-xl p-3 text-amber-300/90 text-xs leading-relaxed">
         <p className="font-semibold mb-1">🔑 Where do I get a key?</p>
         <p>Create one at <span className="text-amber-200">console.anthropic.com</span> → API Keys.
@@ -111,16 +205,26 @@ export default function DragonBot({ token }) {
 
   useEffect(scrollToEnd, [messages, streaming, toolLabel, scrollToEnd]);
 
+  // Derive avatar mood from current state
+  const [hasError, setHasError] = useState(false);
+  const avatarMood = hasError ? 'error'
+    : streaming ? 'talking'
+    : busy      ? 'thinking'
+    : messages.length === 0 ? 'idle'
+    : 'happy';
+
   async function send(text) {
     const trimmed = (text ?? input).trim();
     if (!trimmed || busy) return;
     setInput('');
+    setHasError(false);
     setMessages(m => [...m, { role: 'user', text: trimmed }]);
     setBusy(true);
     setStreaming('');
     setToolLabel(null);
 
     let acc = '';
+    const cards = [];   // visual windows the dragon generates this turn
     try {
       const updated = await streamDragon({
         token,
@@ -128,11 +232,14 @@ export default function DragonBot({ token }) {
         userText: trimmed,
         onText: (delta) => { acc += delta; setStreaming(acc); setToolLabel(null); },
         onToolUse: (name) => setToolLabel(TOOL_LABELS[name] || 'consulting the ancient ledgers…'),
+        onToolResult: (card) => cards.push(card),
       });
       apiHistory.current = updated;
-      setMessages(m => [...m, { role: 'dragon', text: acc || '…' }]);
+      setMessages(m => [...m, { role: 'dragon', text: acc || '…', cards }]);
     } catch (e) {
+      setHasError(true);
       setMessages(m => [...m, { role: 'dragon', text: dragonError(e), error: true }]);
+      setTimeout(() => setHasError(false), 2000);
     } finally {
       setStreaming('');
       setToolLabel(null);
@@ -150,21 +257,26 @@ export default function DragonBot({ token }) {
     return (
       <KeySetup
         hasExisting={hasDragonKey()}
+        showPrefs={keyReady}
         onCancel={showSettings ? () => setShowSettings(false) : null}
         onSaved={() => { setKeyReady(hasDragonKey()); setShowSettings(false); }}
       />
     );
   }
 
+  const prefs = getPrefs();
+
   return (
     <div className="flex flex-col h-[calc(100dvh-120px)] max-w-lg mx-auto">
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-800">
         <div className="flex items-center gap-2.5">
-          <span className="text-2xl">🐉</span>
+          <DragonAvatar mood={avatarMood} size={36} />
           <div>
             <p className="text-white font-bold font-broske leading-tight">Ledger</p>
-            <p className="text-slate-500 text-[11px]">your treasure-hoarding budget dragon</p>
+            <p className="text-slate-500 text-[11px]">
+              {MODELS[prefs.model]?.label || 'Sonnet'}{prefs.webResearch && ' · 🌐 research'}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -185,7 +297,7 @@ export default function DragonBot({ token }) {
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && !streaming && (
           <div className="text-center pt-8 space-y-4">
-            <p className="text-6xl">🐉</p>
+            <div className="flex justify-center"><DragonAvatar mood="wave" size={96} /></div>
             <div className="space-y-1">
               <p className="text-white font-semibold font-broske">Greetings, treasure-keeper.</p>
               <p className="text-slate-400 text-sm px-4">Ask me anything about your gold — I'll check your real numbers before I answer.</p>
@@ -202,7 +314,7 @@ export default function DragonBot({ token }) {
         )}
 
         {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
               m.role === 'user'
                 ? 'bg-emerald-600 text-white rounded-br-md'
@@ -212,6 +324,12 @@ export default function DragonBot({ token }) {
             }`}>
               {m.role === 'dragon' ? <div className="space-y-0.5">{renderRich(m.text)}</div> : m.text}
             </div>
+            {/* Visual windows the dragon generated for this turn */}
+            {m.role === 'dragon' && m.cards?.length > 0 && (
+              <div className="mt-2 w-full space-y-2">
+                {m.cards.map((c, ci) => <DragonCard key={ci} card={c} />)}
+              </div>
+            )}
           </div>
         ))}
 
@@ -233,10 +351,15 @@ export default function DragonBot({ token }) {
                 <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                 <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </span>
-              <span className="italic">🐉 {toolLabel || 'pondering…'}</span>
+              <span className="italic">{toolLabel || 'pondering…'}</span>
             </div>
           </div>
         )}
+      </div>
+
+      {/* Desktop mascot — fixed bottom-left, hidden on mobile */}
+      <div className="fixed bottom-20 left-6 z-30 hidden md:flex flex-col items-center pointer-events-none select-none">
+        <DragonAvatar mood={avatarMood} size={260} />
       </div>
 
       {/* Input */}

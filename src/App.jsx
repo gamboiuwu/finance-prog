@@ -14,7 +14,9 @@ import GasPrices from './pages/GasPrices';
 import BusinessExpenses from './pages/BusinessExpenses';
 import Actions from './pages/Actions';
 import DragonBot from './pages/DragonBot';
+import Goals from './pages/Goals';
 import DataRepair from './components/DataRepair';
+import IssueReporter from './components/IssueReporter';
 import Nav from './components/Nav';
 
 function AnimatedRoutes({ token }) {
@@ -31,6 +33,7 @@ function AnimatedRoutes({ token }) {
         <Route path="/business"              element={<BusinessExpenses token={token} />} />
         <Route path="/actions"              element={<Actions           token={token} />} />
         <Route path="/dragon"                element={<DragonBot         token={token} />} />
+        <Route path="/goals"                 element={<Goals            token={token} />} />
         <Route path="/month/:sheetId/:month" element={<MonthlyDetail    token={token} />} />
       </Routes>
     </main>
@@ -145,6 +148,8 @@ export default function App() {
         <AnimatedRoutes token={token} />
 
         <DataRepair token={token} />
+
+        <IssueReporter token={token} />
 
         <Nav />
       </div>

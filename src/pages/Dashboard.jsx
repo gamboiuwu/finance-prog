@@ -170,6 +170,65 @@ function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
   );
 }
 
+// Collapsible 6-month grouped bar chart: income (teal) vs expenses (rose)
+function TrendChartCard({ data, expanded, onToggle }) {
+  const last6    = data.slice(-6);
+  if (last6.length < 2) return null;
+  const last     = last6[last6.length - 1];
+  const prev     = last6[last6.length - 2];
+  const incDelta = last.income - prev.income;
+  const sptDelta = last.spent  - prev.spent;
+  const avgNet   = last6.reduce((s, m) => s + m.net, 0) / last6.length;
+  return (
+    <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-4">
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white font-bold text-sm">📈 6-Month Trend</p>
+            <p className="text-slate-400 text-xs mt-0.5">Income vs. Expenses</p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </button>
+      {expanded && (
+        <>
+          <div className="mt-3 h-44">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={last6} barCategoryGap="25%" barGap={2}>
+                <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis hide />
+                <Tooltip
+                  formatter={(v, name) => [`$${Number(v).toFixed(0)}`, name === 'income' ? 'Income' : 'Expenses']}
+                  contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8, color: '#f1f5f9', fontSize: 12 }}
+                />
+                <Bar dataKey="income" fill="#14b8a6" radius={[3, 3, 0, 0]} name="income" />
+                <Bar dataKey="spent"  fill="#f43f5e" radius={[3, 3, 0, 0]} name="spent"  />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex gap-4 mt-1 justify-center text-xs text-slate-400">
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-teal-500 inline-block" />Income</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block" />Expenses</span>
+          </div>
+          <div className="mt-3 pt-3 border-t border-slate-700 space-y-1 text-xs text-slate-400">
+            <div className="flex justify-between">
+              <span>Last mo vs prev</span>
+              <span className="flex gap-3">
+                <span>Income <span className={incDelta >= 0 ? 'text-teal-400' : 'text-rose-400'}>{incDelta >= 0 ? '▲' : '▼'}${Math.abs(incDelta).toFixed(0)}</span></span>
+                <span>Expenses <span className={sptDelta <= 0 ? 'text-teal-400' : 'text-rose-400'}>{sptDelta >= 0 ? '▲' : '▼'}${Math.abs(sptDelta).toFixed(0)}</span></span>
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>6-mo avg net</span>
+              <span className={avgNet >= 0 ? 'text-teal-400 font-medium' : 'text-rose-400 font-medium'}>{avgNet >= 0 ? '+' : ''}${avgNet.toFixed(0)}/mo</span>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -199,13 +258,15 @@ export default function Dashboard({ token }) {
   const [subscriptions, setSubscriptions]   = useState([]);
   const [showSubs, setShowSubs]             = useState(false);
   const [calMonth, setCalMonth]             = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const [selectedCalDay, setSelectedCalDay] = useState(null);
   const [stmtLoading, setStmtLoading]   = useState(false);
   const [stmtTxns, setStmtTxns]         = useState([]);
   const [stmtError, setStmtError]       = useState(null);
-  const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0 });
+  const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0, dueAlerts: [] });
   const [allocTotals, setAllocTotals]   = useState({ income: 0, spent: 0 });
   const [healthScore, setHealthScore]   = useState({ total: 0, signals: [], history: [], loaded: false });
   const [healthExpanded, setHealthExpanded] = useState(false);
+  const [trendExpanded, setTrendExpanded]   = useState(false);
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -289,7 +350,21 @@ export default function Dashboard({ token }) {
               pm(i['Monthly Allowance ($)']) > 0 &&
               !(abt[i['Type'] || ''] > 0)
             ).length;
-            setBudgetAlerts({ overCount, needsCount });
+            let dueDateMap = {};
+            try { dueDateMap = JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch {}
+            const todayDay = new Date().getDate();
+            const dueAlerts = mainExp
+              .filter(i => {
+                const dd = dueDateMap[i['Type'] || ''];
+                if (dd == null) return false;
+                const alloc = abt[i['Type'] || ''] || 0;
+                const goal  = pm(i['Monthly Allowance ($)']);
+                if (goal <= 0 || alloc >= goal) return false;
+                const diff = dd - todayDay;
+                return diff >= 0 && diff <= 3;
+              })
+              .map(i => ({ type: i['Type'], daysUntil: dueDateMap[i['Type']] - todayDay }));
+            setBudgetAlerts({ overCount, needsCount, dueAlerts });
             localStorage.setItem('_fin_budget_alert', JSON.stringify({ count: overCount, month: `${yr0}-${mo0}` }));
             window.dispatchEvent(new Event('_fin_budget_alert_update'));
 
@@ -504,6 +579,12 @@ export default function Dashboard({ token }) {
       if (n == null || isNaN(n)) return '—';
       return n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
     };
+    // Sheet-sourced strings (categories, descriptions, accounts) are untrusted
+    // when injected into the printable statement HTML — escape to prevent
+    // HTML/script injection via document.write.
+    const esc = v => String(v ?? '').replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
     const income = stmtTxns.reduce((s, t) => t.amount > 0 ? s + t.amount : s, 0) || pm(current?.['Total Processed Income']);
     const spent  = stmtTxns.reduce((s, t) => t.amount < 0 ? s + Math.abs(t.amount) : s, 0) || pm(current?.['Total Spent']);
     const goal   = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0) || pm(current?.['Allowance Goal']);
@@ -597,8 +678,8 @@ ${priGroups.length ? priGroups.map(g => `
         const sp   = pm(e['Actual Spend']);
         const rem  = allw - sp;
         return `<tr>
-          <td>${e['Type'] || '—'}</td>
-          <td style="color:#666">${e['Account'] || '—'}</td>
+          <td>${esc(e['Type'] || '—')}</td>
+          <td style="color:#666">${esc(e['Account'] || '—')}</td>
           <td class="amt">${fmtAmt(allw)}</td>
           <td class="amt ${sp > allw ? 'neg' : ''}">${fmtAmt(sp)}</td>
           <td class="amt ${rem < 0 ? 'neg' : ''}">${fmtAmt(rem)}</td>
@@ -621,10 +702,10 @@ ${stmtTxns.length ? `
   <tbody>
     ${stmtTxns.map(t => `
       <tr>
-        <td style="white-space:nowrap;color:#555">${t.date}</td>
-        <td>${t.type}</td>
-        <td style="color:#555;font-size:9.5pt">${t.desc}</td>
-        <td style="color:#666;font-size:9.5pt">${t.account}</td>
+        <td style="white-space:nowrap;color:#555">${esc(t.date)}</td>
+        <td>${esc(t.type)}</td>
+        <td style="color:#555;font-size:9.5pt">${esc(t.desc)}</td>
+        <td style="color:#666;font-size:9.5pt">${esc(t.account)}</td>
         <td class="amt ${t.amount < 0 ? 'neg' : 'pos'}">${fmtAmt(t.amount)}</td>
       </tr>
     `).join('')}
@@ -697,7 +778,7 @@ ${stmtTxns.length ? `
       })()}
 
       {/* ── Budget Alert Banner ─────────────────────────────── */}
-      {(budgetAlerts.overCount > 0 || budgetAlerts.needsCount > 0) && (
+      {(budgetAlerts.overCount > 0 || budgetAlerts.needsCount > 0 || budgetAlerts.dueAlerts?.length > 0) && (
         <button
           onClick={() => navigate('/budget')}
           className="w-full bg-amber-900/40 border border-amber-700/60 rounded-2xl p-3 flex items-center justify-between gap-3 active:opacity-80 text-left"
@@ -715,6 +796,11 @@ ${stmtTxns.length ? `
                   {budgetAlerts.needsCount} essential{budgetAlerts.needsCount !== 1 ? 's' : ''} not yet funded
                 </p>
               )}
+              {budgetAlerts.dueAlerts?.map(a => (
+                <p key={a.type} className="text-amber-300/80 text-xs mt-0.5">
+                  ⏰ {a.type} due {a.daysUntil === 0 ? 'today' : `in ${a.daysUntil} day${a.daysUntil === 1 ? '' : 's'}`} — not yet funded
+                </p>
+              ))}
             </div>
           </div>
           <span className="text-amber-500 text-xs shrink-0 font-medium">View Budget →</span>
@@ -729,6 +815,15 @@ ${stmtTxns.length ? `
           history={healthScore.history}
           expanded={healthExpanded}
           onToggle={() => setHealthExpanded(v => !v)}
+        />
+      )}
+
+      {/* ── 6-Month Income vs Expense Trend ─────────────────── */}
+      {chartData.length >= 2 && (
+        <TrendChartCard
+          data={chartData}
+          expanded={trendExpanded}
+          onToggle={() => setTrendExpanded(v => !v)}
         />
       )}
 
@@ -961,11 +1056,16 @@ ${stmtTxns.length ? `
               ))}
               {cells.map((d, i) => {
                 if (!d) return <div key={`e-${i}`} />;
-                const isToday = d === todayD;
-                const events  = dueDays[d] || [];
+                const isToday    = d === todayD;
+                const events     = dueDays[d] || [];
+                const isSelected = selectedCalDay === d;
                 return (
-                  <div key={d} className={`rounded-lg p-0.5 flex flex-col items-center gap-0.5 ${isToday ? 'bg-slate-600' : events.length ? 'bg-teal-900/30' : ''}`}>
-                    <span className={`text-[11px] font-medium leading-none pt-0.5 ${isToday ? 'text-white font-bold' : 'text-slate-400'}`}>{d}</span>
+                  <div
+                    key={d}
+                    onClick={() => events.length ? setSelectedCalDay(isSelected ? null : d) : null}
+                    className={`rounded-lg p-0.5 flex flex-col items-center gap-0.5 ${events.length ? 'cursor-pointer' : ''} ${isSelected ? 'bg-teal-700/60 ring-1 ring-teal-400' : isToday ? 'bg-slate-600' : events.length ? 'bg-teal-900/30' : ''}`}
+                  >
+                    <span className={`text-[11px] font-medium leading-none pt-0.5 ${isToday && !isSelected ? 'text-white font-bold' : isSelected ? 'text-teal-200 font-bold' : 'text-slate-400'}`}>{d}</span>
                     {events.length > 0 && (
                       <div className="flex gap-0.5 flex-wrap justify-center">
                         {events.slice(0, 3).map((_, ei) => (
@@ -978,8 +1078,33 @@ ${stmtTxns.length ? `
               })}
             </div>
 
+            {/* Selected day subscriptions */}
+            {selectedCalDay && (dueDays[selectedCalDay] || []).length > 0 && (
+              <div className="border-t border-teal-800/60 pt-2 space-y-1">
+                <p className="text-teal-400 text-[10px] uppercase tracking-wider">
+                  Due on {MONTH_NAMES[m]} {selectedCalDay}
+                </p>
+                {(dueDays[selectedCalDay] || []).map((name, i) => {
+                  const sub = subscriptions.find(s => s['Name'] === name);
+                  return (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0" />
+                        <span className="text-slate-200 truncate">{name}</span>
+                      </div>
+                      {sub?.['Amount'] && (
+                        <span className="text-slate-400 font-mono shrink-0">
+                          ${parseFloat(sub['Amount'] || 0).toFixed(2)}{cycleAmountLabel(sub['Cycle'])}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Upcoming list */}
-            {upcoming.length > 0 ? (
+            {!selectedCalDay && upcoming.length > 0 ? (
               <div className="space-y-1 border-t border-slate-700 pt-2">
                 <p className="text-slate-500 text-[10px] uppercase tracking-wider">Due next 14 days</p>
                 {upcoming.map((s, i) => (
@@ -999,7 +1124,7 @@ ${stmtTxns.length ? `
                   </div>
                 ))}
               </div>
-            ) : subscriptions.length === 0 ? (
+            ) : !selectedCalDay && subscriptions.length === 0 ? (
               <p className="text-slate-600 text-xs text-center border-t border-slate-700 pt-2">Add subscriptions to see due dates</p>
             ) : null}
           </div>

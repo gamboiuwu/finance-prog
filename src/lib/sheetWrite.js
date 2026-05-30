@@ -4,10 +4,12 @@
 // runtime, rather than trusting fixed positions — so a reordered or renamed sheet
 // fails loudly (throws) instead of silently writing into the wrong column. Shared
 // by the one-time Data Repair tool and by Ledger's write tools.
-import { readRange, batchUpdateCells, clearRow } from './sheets';
+import { readRange, batchUpdateCells, clearRow, appendRow, ensureSheetTab } from './sheets';
 import { SHEETS } from '../config';
 
 const SUBSCRIPTIONS_SHEET = 'Subscriptions';
+
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 // 0-based column index → A1 letter(s) (supports >26 columns).
 export function colLetter(i) {
@@ -156,4 +158,104 @@ export async function deleteAllocation(token, { month, category, account, requir
   const { sheetRow } = await findAllocationRow(token, { month, category, account, requireBlank });
   await clearRow(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!A${sheetRow}:F${sheetRow}`);
   return sheetRow;
+}
+
+// ── Savings / affordability plans ───────────────────────────────────────────
+// Plans live in their own "Plans" tab so Ledger can save a goal once and check
+// progress later with a single cheap read — no need to re-derive it every turn.
+const PLANS_SHEET = 'Plans';
+const PLAN_HEADER = ['ID', 'Name', 'Scope', 'Target', 'Saved', 'Per Month', 'Target Date', 'Funding', 'Status', 'Created', 'Notes'];
+
+// Create the Plans tab + header row on first use; idempotent thereafter.
+export async function ensurePlansSheet(token) {
+  await ensureSheetTab(token, PLANS_SHEET);
+  const head = await readRange(token, `${PLANS_SHEET}!A1:K1`, 'UNFORMATTED_VALUE').catch(() => []);
+  const hasHeader = head.length && norm(head[0]?.[0]) === 'id';
+  if (!hasHeader) await appendRow(token, `${PLANS_SHEET}!A1`, PLAN_HEADER);
+  return PLANS_SHEET;
+}
+
+export async function readPlans(token) {
+  await ensurePlansSheet(token);
+  return readRange(token, `${PLANS_SHEET}!A:K`, 'UNFORMATTED_VALUE');
+}
+
+// Locate a plan row by exact ID or by a name substring (so the user can say
+// "my laptop plan" without quoting the generated ID).
+function findPlanRow(rows, idOrName) {
+  const key = norm(idOrName);
+  for (let r = 1; r < rows.length; r++) {
+    if (norm(rows[r][0]) === key || (key && norm(rows[r][1]).includes(key))) return r;
+  }
+  return -1;
+}
+
+// Create a new plan or update an existing one (matched by id). Returns the id.
+export async function savePlan(token, p) {
+  const rows = await readPlans(token);
+  const id = p.id || `plan_${Date.now()}`;
+  const record = [
+    id,
+    p.name || 'Goal',
+    p.scope || 'personal',
+    p.target ?? '',
+    p.saved ?? 0,
+    p.perMonth ?? '',
+    p.targetDate || '',
+    p.funding ? JSON.stringify(p.funding) : '',
+    p.status || 'active',
+    p.created || new Date().toISOString().slice(0, 10),
+    p.notes || '',
+  ];
+
+  const rowIdx = p.id ? findPlanRow(rows, id) : -1;
+  if (rowIdx >= 0) {
+    const sheetRow = rowIdx + 1;
+    await batchUpdateCells(token, record.map((value, i) => ({
+      range: `${PLANS_SHEET}!${colLetter(i)}${sheetRow}`, value,
+    })));
+  } else {
+    await appendRow(token, `${PLANS_SHEET}!A:K`, record);
+  }
+  return id;
+}
+
+// Log a contribution (addAmount), set an absolute saved figure, and/or change
+// status (active / paused / done). Returns the plan's new saved total.
+export async function updatePlanProgress(token, { id, addAmount, setSaved, status }) {
+  const rows = await readPlans(token);
+  const rowIdx = findPlanRow(rows, id);
+  if (rowIdx < 0) throw new Error(`No plan matching "${id}".`);
+  const sheetRow = rowIdx + 1;
+  const current = parseFloat(rows[rowIdx][4]) || 0;
+
+  const newSaved = setSaved != null ? round2(setSaved)
+    : addAmount != null ? round2(current + addAmount)
+    : null;
+
+  const updates = [];
+  if (newSaved != null) updates.push({ range: `${PLANS_SHEET}!E${sheetRow}`, value: newSaved });
+  if (status)           updates.push({ range: `${PLANS_SHEET}!I${sheetRow}`, value: status });
+  if (!updates.length) throw new Error('Nothing to update on the plan (pass addAmount, setSaved, or status).');
+  await batchUpdateCells(token, updates);
+  return { name: rows[rowIdx][1], saved: newSaved != null ? newSaved : current };
+}
+
+export async function deletePlan(token, { id }) {
+  const rows = await readPlans(token);
+  const rowIdx = findPlanRow(rows, id);
+  if (rowIdx < 0) throw new Error(`No plan matching "${id}".`);
+  await clearRow(token, `${PLANS_SHEET}!A${rowIdx + 1}:K${rowIdx + 1}`);
+  return rows[rowIdx][1];
+}
+
+// Reprogram the budget by setting several category allowances at once. Each
+// change reuses updateBudgetAllowance, so a renamed/missing category fails loudly.
+export async function applyPlanToBudget(token, changes) {
+  const applied = [];
+  for (const c of changes) {
+    const matched = await updateBudgetAllowance(token, { type: c.type, monthlyAllowance: c.monthly_allowance });
+    applied.push(`${matched} → ${c.monthly_allowance}`);
+  }
+  return applied;
 }

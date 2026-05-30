@@ -97,13 +97,28 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   const [alreadyByType, setAlreadyByType] = useState({});
   const [alreadyRows,   setAlreadyRows]  = useState([]);
   const [histLoading,   setHistLoading]  = useState(true);
+  const [dueDates] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch { return {}; }
+  });
+  const todayDay = useMemo(() => new Date().getDate(), []);
+
   // balance type map: type name → 'monthly' | 'running'
   const [balTypes,      setBalTypes]     = useState({});
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [templates,     setTemplates]     = useState(() => {
+    try { return JSON.parse(localStorage.getItem('income_templates') || '[]'); }
+    catch { return []; }
+  });
+  const [showManageTpl, setShowManageTpl] = useState(false);
+  const [newTplName,    setNewTplName]    = useState('');
   const [surplusItems,  setSurplusItems]  = useState(() => {
     try { return JSON.parse(localStorage.getItem('processIncome_surplusItems') || '[]'); }
     catch { return []; }
   });
+
+  useEffect(() => {
+    localStorage.setItem('income_templates', JSON.stringify(templates));
+  }, [templates]);
 
   // Persist surplus contribution config
   useEffect(() => {
@@ -205,6 +220,17 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     const deposit = surplusTotalWeight > 0 && surplus > 0 ? (weight / surplusTotalWeight) * surplus : 0;
     return { ...it, deposit };
   });
+
+  function addTemplate() {
+    const amt = parseFloat(income);
+    if (!amt || amt <= 0 || templates.length >= 8) return;
+    const name = newTplName.trim() || fmt(amt);
+    setTemplates(prev => [...prev, { id: Date.now().toString(36), name, amount: amt }]);
+    setNewTplName('');
+  }
+  function deleteTemplate(id) {
+    setTemplates(prev => prev.filter(t => t.id !== id));
+  }
 
   function addSurplusItem() {
     setSurplusItems(prev => [...prev, {
@@ -415,6 +441,66 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
 
         {/* Inputs */}
         <div className="p-5 border-b border-slate-700 shrink-0 space-y-3 pt-3">
+
+          {/* ── Quick-fill templates ── */}
+          {(templates.length > 0 || showManageTpl) ? (
+            <div className="space-y-2">
+              <div className="flex items-center">
+                <p className="text-slate-500 text-[10px] uppercase tracking-wider flex-1">Quick Fill</p>
+                <button onClick={() => setShowManageTpl(v => !v)} className="text-slate-600 text-[10px] hover:text-slate-400 transition-colors">
+                  {showManageTpl ? 'Done' : '⚙ Manage'}
+                </button>
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-0.5">
+                {templates.map(t => (
+                  showManageTpl ? (
+                    <div key={t.id} className="shrink-0 flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-full pl-3 pr-1 py-1">
+                      <span className="text-slate-300 text-xs whitespace-nowrap">{t.name} · {fmt(t.amount)}</span>
+                      <button onClick={() => deleteTemplate(t.id)} className="w-4 h-4 rounded-full bg-slate-700 hover:bg-rose-900/50 text-slate-500 hover:text-rose-400 text-[10px] flex items-center justify-center transition-colors">✕</button>
+                    </div>
+                  ) : (
+                    <button
+                      key={t.id}
+                      onClick={() => setIncome(String(t.amount.toFixed(2)))}
+                      className="shrink-0 px-3 py-1.5 rounded-full bg-blue-900/40 border border-blue-800/50 text-blue-300 text-xs font-medium hover:bg-blue-800/60 active:scale-95 transition-all whitespace-nowrap"
+                    >
+                      {t.name} · {fmt(t.amount)}
+                    </button>
+                  )
+                ))}
+                {!showManageTpl && templates.length < 8 && (
+                  <button onClick={() => setShowManageTpl(true)} className="shrink-0 px-2.5 py-1.5 rounded-full bg-slate-700/60 border border-slate-700 text-slate-500 text-xs hover:text-slate-300 transition-colors">+</button>
+                )}
+              </div>
+              {showManageTpl && (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newTplName}
+                    onChange={e => setNewTplName(e.target.value)}
+                    placeholder="Name (optional)"
+                    className="flex-1 bg-slate-700/60 text-slate-300 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-600"
+                    onKeyDown={e => e.key === 'Enter' && addTemplate()}
+                  />
+                  <button
+                    onClick={addTemplate}
+                    disabled={!income || parseFloat(income) <= 0 || templates.length >= 8}
+                    className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white text-xs font-medium transition-colors whitespace-nowrap"
+                  >
+                    Save {income && parseFloat(income) > 0 ? fmt(parseFloat(income)) : 'amount'}
+                  </button>
+                </div>
+              )}
+              {showManageTpl && templates.length === 0 && (
+                <p className="text-slate-600 text-xs text-center py-1">Enter an amount below, then save it as a template</p>
+              )}
+            </div>
+          ) : (
+            <button onClick={() => setShowManageTpl(true)} className="text-slate-600 text-xs hover:text-slate-400 transition-colors">
+              + Add quick-fill templates
+            </button>
+          )}
+
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-2">Net Amount Received</label>
             <div className="relative">
@@ -563,6 +649,12 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                           </span>
                           <span className="text-slate-600 text-[10px]">·</span>
                           <span className="text-slate-500 text-[10px]">goal {fmt(d.allowance)}</span>
+                          {dueDates[d.type] != null && d.stillNeeds > 0 && (() => {
+                            const diff = dueDates[d.type] - todayDay;
+                            if (diff < 0) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium">⚠ Past due</span>;
+                            if (diff <= 3) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/60 text-amber-300 font-medium">⏰ {diff === 0 ? 'Due today' : `Due in ${diff}d`}</span>;
+                            return null;
+                          })()}
                         </div>
                         {/* Already-contributed bar */}
                         {(() => {

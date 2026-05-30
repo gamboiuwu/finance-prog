@@ -333,7 +333,9 @@ function renderTile(id, c, sv, ov, onEdit) {
       return <MetricTile
         label="Price / Gallon"
         value={fmt(c.gasPerGal, 3)}
-        sub={c.gasPriceSource === 'live' ? `NYC live · ${c.gasPricePeriod || 'EIA'}` : c.gasPriceSource === 'sheet' ? 'From sheet' : 'Default'}
+        sub={o && c.gasPriceSource === 'live'
+          ? `live avg: $${c.gasPerGal.toFixed(3)} · tap ✏ to clear`
+          : c.gasPriceSource === 'live' ? `NYC live · ${c.gasPricePeriod || 'EIA'}` : c.gasPriceSource === 'sheet' ? 'From sheet' : 'Default'}
         detail="Live weekly EIA price for NYC region — feeds gallons remaining, miles, and monthly reserve estimates."
         onEdit={e('Gas Price')}
         overrideVal={o}
@@ -465,6 +467,18 @@ export default function Summary({ token }) {
     const id = setInterval(load, 60 * 60 * 1000); // hourly
     return () => { cancelled = true; clearInterval(id); };
   }, []);
+
+  // When a fresh live price arrives, clear any stale manual override so the live value shows.
+  useEffect(() => {
+    if (!livePrice) return;
+    setOverrides(prev => {
+      if (!prev['gasPrice']) return prev;
+      const updated = { ...prev };
+      delete updated['gasPrice'];
+      localStorage.setItem('summary_overrides', JSON.stringify(updated));
+      return updated;
+    });
+  }, [livePrice]);
 
   const sv = useMemo(() => extractSV(svRows), [svRows]);
   const expenses = useMemo(() => {
