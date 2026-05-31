@@ -4,6 +4,22 @@ import { readRangeFrom } from '../lib/sheets';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function getMonthNote(monthName) {
+  const idx = MONTH_NAMES.indexOf(monthName);
+  if (idx < 0) return '';
+  try {
+    const all = JSON.parse(localStorage.getItem('_fin_month_notes') || '{}');
+    const now = new Date();
+    for (const yr of [now.getFullYear(), now.getFullYear() - 1]) {
+      const note = all[`${yr}-${idx+1}`];
+      if (note) return note;
+    }
+  } catch {}
+  return '';
+}
+
 const CATEGORY_COLORS = {
   Payroll:    '#3b82f6',
   Stickers:   '#a855f7',
@@ -132,6 +148,14 @@ export default function MonthlyDetail({ token }) {
           <p className="text-slate-400 text-sm">Income breakdown</p>
         </div>
       </div>
+
+      {/* Month note callout */}
+      {getMonthNote(month) && (
+        <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl px-4 py-3 flex items-start gap-2">
+          <span className="text-slate-400 text-sm shrink-0">✎</span>
+          <p className="text-slate-300 text-sm italic">"{getMonthNote(month)}"</p>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3">

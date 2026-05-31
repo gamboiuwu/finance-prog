@@ -266,6 +266,15 @@ export default function Dashboard({ token }) {
   const [healthScore, setHealthScore]   = useState({ total: 0, signals: [], history: [], loaded: false });
   const [healthExpanded, setHealthExpanded] = useState(false);
   const [trendExpanded, setTrendExpanded]   = useState(false);
+  const [monthNote, setMonthNote] = useState(() => {
+    try {
+      const d = new Date();
+      const k = `${d.getFullYear()}-${d.getMonth()+1}`;
+      return JSON.parse(localStorage.getItem('_fin_month_notes') || '{}')[k] || '';
+    } catch { return ''; }
+  });
+  const [showNoteDrawer, setShowNoteDrawer] = useState(false);
+  const [noteInput, setNoteInput]           = useState('');
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -559,6 +568,16 @@ export default function Dashboard({ token }) {
     }
   }
 
+  function saveMonthNote(text) {
+    const k = `${now.getFullYear()}-${now.getMonth()+1}`;
+    try {
+      const all = JSON.parse(localStorage.getItem('_fin_month_notes') || '{}');
+      if (text.trim()) all[k] = text.trim(); else delete all[k];
+      localStorage.setItem('_fin_month_notes', JSON.stringify(all));
+      setMonthNote(text.trim());
+    } catch {}
+  }
+
   function printStatement(current, stmtTxns, expenses, currentMonth, currentYear) {
     const fmtAmt = n => {
       if (n == null || isNaN(n)) return '—';
@@ -810,8 +829,22 @@ ${stmtTxns.length ? `
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex justify-between items-start">
         <div>
-          <h1 className="text-2xl font-bold text-white">{currentMonth} {currentYear}</h1>
-          <p className="text-slate-400 text-sm">Monthly Overview</p>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-2xl font-bold text-white">{currentMonth} {currentYear}</h1>
+            <button
+              onClick={() => { setNoteInput(monthNote); setShowNoteDrawer(true); }}
+              className="text-slate-500 hover:text-slate-300 text-sm transition-colors pb-0.5"
+              title="Add month note"
+            >✎</button>
+          </div>
+          {monthNote ? (
+            <p className="text-slate-400 text-xs italic mt-0.5 cursor-pointer hover:text-slate-300 truncate max-w-[200px]"
+              onClick={() => { setNoteInput(monthNote); setShowNoteDrawer(true); }}>
+              "{monthNote}"
+            </p>
+          ) : (
+            <p className="text-slate-400 text-sm">Monthly Overview</p>
+          )}
         </div>
         {reportLinks[currentMonth] && (
           <button
@@ -2496,6 +2529,36 @@ ${stmtTxns.length ? `
                   </>
                 );
               })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Month Note Drawer ────────────────────────────────── */}
+      {showNoteDrawer && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50" onClick={() => setShowNoteDrawer(false)}>
+          <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-white font-semibold">{currentMonth} {currentYear} — Note</h2>
+              <button onClick={() => setShowNoteDrawer(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
+            </div>
+            <textarea
+              autoFocus
+              value={noteInput}
+              onChange={e => setNoteInput(e.target.value.slice(0, 200))}
+              placeholder="Add a note about this month…"
+              className="w-full bg-slate-800 text-white rounded-xl px-4 py-3 text-sm resize-none h-28 outline-none placeholder:text-slate-500 focus:ring-1 focus:ring-blue-500"
+            />
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500 text-xs">{noteInput.length}/200 chars</span>
+              <div className="flex gap-2">
+                {monthNote && (
+                  <button onClick={() => { saveMonthNote(''); setShowNoteDrawer(false); }}
+                    className="text-rose-400 hover:text-rose-300 text-sm px-3 py-1.5">Clear</button>
+                )}
+                <button onClick={() => { saveMonthNote(noteInput); setShowNoteDrawer(false); }}
+                  className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-1.5 rounded-lg font-medium">Save</button>
+              </div>
             </div>
           </div>
         </div>
