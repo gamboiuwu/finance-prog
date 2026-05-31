@@ -151,7 +151,15 @@ function buildInsights(c) {
   else watch.push(`Projected ${(c.projectedEnd * 100).toFixed(0)}% by end of month`);
   if (c.claimableGas >= 30) good.push(`${fmt(c.claimableGas)} in gas budget available`);
   else if (c.claimableGas < 15) watch.push('Gas budget running low');
-  if (c.daysLeft <= 5 && c.ar > 0) watch.push(`Only ${c.daysLeft} days left — still need ${fmt(c.ar)}`);
+  if (c.daysLeft <= 5 && c.ar > 0) {
+    if (c.daysLeft === 0) {
+      const endOfDay = new Date(c.now.getFullYear(), c.now.getMonth(), c.now.getDate() + 1);
+      const hrs = Math.max(0, Math.ceil((endOfDay - c.now) / 3600000));
+      watch.push(`Only ${hrs} hour${hrs !== 1 ? 's' : ''} left today — still need ${fmt(c.ar)}`);
+    } else {
+      watch.push(`Only ${c.daysLeft} days left — still need ${fmt(c.ar)}`);
+    }
+  }
   if (c.shiftsNeeded <= 3 && c.shiftsNeeded > 0) good.push(`${c.shiftsNeeded} shift${c.shiftsNeeded > 1 ? 's' : ''} needed to meet goal`);
   else if (c.shiftsNeeded >= 6) watch.push(`${c.shiftsNeeded} shifts still needed this month`);
   return { good, watch };
@@ -357,12 +365,12 @@ function renderTile(id, c, sv, ov, onEdit) {
     case 'budgetFor2QC':
       return <MetricTile label="Budget for 2 QC/day (full month)" value={fmt(c.budgetFor2QC)} color={c.budgetFor2QC > 0 ? 'text-amber-400' : 'text-emerald-400'} detail="(56.6 mi/day × days × $/gal ÷ mpg) − claimable gas. Positive = shortfall." wide onEdit={e('Budget 2QC/day')} overrideVal={o} />;
 
-    case 'acctChecking':       return <MetricTile label="🏧 Checking" value={fmt(c.deposits['Checking'])} detail="(Checking allowances ÷ Total) × CI" verify={close(c.deposits['Checking'], sv['dep_Checking'])} onEdit={e('Checking')} overrideVal={o} />;
-    case 'acctOutsidePayment': return <MetricTile label="💸 Outside Payment" value={fmt(c.deposits['Outside Payment'])} detail="(Outside Payment allowances ÷ Total) × CI" verify={close(c.deposits['Outside Payment'], sv['dep_Outside Payment'])} onEdit={e('Outside Payment')} overrideVal={o} />;
-    case 'acctSavings':        return <MetricTile label="🐷 Savings" value={fmt(c.deposits['Savings'])} detail="(Savings allowances ÷ Total) × CI" verify={close(c.deposits['Savings'], sv['dep_Savings'])} onEdit={e('Savings')} overrideVal={o} />;
-    case 'acctCash':           return <MetricTile label="💵 Cash" value={fmt(c.deposits['Cash'])} detail="(Cash allowances ÷ Total) × CI" verify={close(c.deposits['Cash'], sv['dep_Cash'])} onEdit={e('Cash')} overrideVal={o} />;
-    case 'acctBusinessTax':    return <MetricTile label="🧾 Business Tax" value={fmt(c.deposits['Business Tax'])} detail="(Business Tax allowances ÷ Total) × CI" verify={close(c.deposits['Business Tax'], sv['dep_Business Tax'])} onEdit={e('Business Tax')} overrideVal={o} />;
-    case 'acctSubscription':   return <MetricTile label="📱 Subscription" value={fmt(c.deposits['Subscription'])} detail="(Subscription allowances ÷ Total) × CI" verify={close(c.deposits['Subscription'], sv['dep_Subscription'])} onEdit={e('Subscription')} overrideVal={o} />;
+    case 'acctChecking': { const cv = c.deposits['Checking']; const sv2 = pm(sv['dep_Checking']); const show = c.ci > 0 ? cv : (sv2 ?? 0); return <MetricTile label="🏧 Checking" value={fmt(show)} detail="(Checking allowances ÷ Total) × CI" verify={c.ci > 0 ? close(cv, sv['dep_Checking']) : undefined} onEdit={e('Checking')} overrideVal={o} />; }
+    case 'acctOutsidePayment': { const cv = c.deposits['Outside Payment']; const sv2 = pm(sv['dep_Outside Payment']); const show = c.ci > 0 ? cv : (sv2 ?? 0); return <MetricTile label="💸 Outside Payment" value={fmt(show)} detail="(Outside Payment allowances ÷ Total) × CI" verify={c.ci > 0 ? close(cv, sv['dep_Outside Payment']) : undefined} onEdit={e('Outside Payment')} overrideVal={o} />; }
+    case 'acctSavings': { const cv = c.deposits['Savings']; const sv2 = pm(sv['dep_Savings']); const show = c.ci > 0 ? cv : (sv2 ?? 0); return <MetricTile label="🐷 Savings" value={fmt(show)} detail="(Savings allowances ÷ Total) × CI" verify={c.ci > 0 ? close(cv, sv['dep_Savings']) : undefined} onEdit={e('Savings')} overrideVal={o} />; }
+    case 'acctCash': { const cv = c.deposits['Cash']; const sv2 = pm(sv['dep_Cash']); const show = c.ci > 0 ? cv : (sv2 ?? 0); return <MetricTile label="💵 Cash" value={fmt(show)} detail="(Cash allowances ÷ Total) × CI" verify={c.ci > 0 ? close(cv, sv['dep_Cash']) : undefined} onEdit={e('Cash')} overrideVal={o} />; }
+    case 'acctBusinessTax': { const cv = c.deposits['Business Tax']; const sv2 = pm(sv['dep_Business Tax']); const show = c.ci > 0 ? cv : (sv2 ?? 0); return <MetricTile label="🧾 Business Tax" value={fmt(show)} detail="(Business Tax allowances ÷ Total) × CI" verify={c.ci > 0 ? close(cv, sv['dep_Business Tax']) : undefined} onEdit={e('Business Tax')} overrideVal={o} />; }
+    case 'acctSubscription': { const cv = c.deposits['Subscription']; const sv2 = pm(sv['dep_Subscription']); const show = c.ci > 0 ? cv : (sv2 ?? 0); return <MetricTile label="📱 Subscription" value={fmt(show)} detail="(Subscription allowances ÷ Total) × CI" verify={c.ci > 0 ? close(cv, sv['dep_Subscription']) : undefined} onEdit={e('Subscription')} overrideVal={o} />; }
     case 'ciDays':             return <MetricTile label="CI Days Applicable" value={`${c.ciDays} days`} detail="Number of days CI is spread across" wide onEdit={e('CI Days')} overrideVal={o} />;
 
     case 'p1':

@@ -27,6 +27,14 @@ export function addMonthsLabel(n) {
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
+// Format a YYYY-MM-DD target date as "Month YYYY" for display in headlines.
+function fmtTargetDate(dateStr) {
+  if (!dateStr) return dateStr;
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 const fmtMoney = (n) => {
   const v = Math.abs(round2(n));
   return (n < 0 ? '-' : '') + '$' + (v >= 100 ? Math.round(v).toLocaleString('en-US') : v.toFixed(2));
@@ -72,8 +80,8 @@ export function assessGoal(goal, cash) {
       if (monthsByContribution <= targetMonths) {
         verdict = overFree ? 'at_risk' : 'on_track';
         headline = overFree
-          ? `On pace for ${goal.targetDate}, but ${fmtMoney(perMonth)}/mo is above your ${fmtMoney(freeCash)}/mo of free cash flow — sustaining it will be the hard part.`
-          : `On track — at ${fmtMoney(perMonth)}/mo you’ll reach it by ${projectedDate}, comfortably inside your ${goal.targetDate} target.`;
+          ? `On pace for ${fmtTargetDate(goal.targetDate)}, but ${fmtMoney(perMonth)}/mo is above your ${fmtMoney(freeCash)}/mo of free cash flow — sustaining it will be the hard part.`
+          : `On track — at ${fmtMoney(perMonth)}/mo you’ll reach it by ${projectedDate}, comfortably inside your ${fmtTargetDate(goal.targetDate)} target.`;
         if (overFree) {
           suggestions.push(`Trim about ${fmtMoney(round2(perMonth - freeCash))}/mo from discretionary spending so the pace is sustainable.`);
         } else if (freeCash - perMonth > perMonth * 0.5) {
@@ -82,12 +90,12 @@ export function assessGoal(goal, cash) {
         }
       } else {
         verdict = 'behind';
-        headline = `Behind schedule — ${fmtMoney(perMonth)}/mo lands it around ${projectedDate}, past your ${goal.targetDate} target.`;
+        headline = `Behind schedule — ${fmtMoney(perMonth)}/mo lands it around ${projectedDate}, past your ${fmtTargetDate(goal.targetDate)} target.`;
         if (requiredPerMonth != null) {
           if (requiredPerMonth > freeCash) {
-            suggestions.push(`Hitting ${goal.targetDate} needs ${fmtMoney(requiredPerMonth)}/mo — more than your ${fmtMoney(freeCash)}/mo free cash flow, so either trim spending to free it up or move the date to ${projectedDate}.`);
+            suggestions.push(`Hitting ${fmtTargetDate(goal.targetDate)} needs ${fmtMoney(requiredPerMonth)}/mo — more than your ${fmtMoney(freeCash)}/mo free cash flow, so either trim spending to free it up or move the date to ${projectedDate}.`);
           } else {
-            suggestions.push(`Raise the contribution to ${fmtMoney(requiredPerMonth)}/mo to hit ${goal.targetDate}, or keep ${fmtMoney(perMonth)}/mo and move the target to ${projectedDate}.`);
+            suggestions.push(`Raise the contribution to ${fmtMoney(requiredPerMonth)}/mo to hit ${fmtTargetDate(goal.targetDate)}, or keep ${fmtMoney(perMonth)}/mo and move the target to ${projectedDate}.`);
           }
         }
       }

@@ -222,6 +222,15 @@ function TrendChartCard({ data, expanded, onToggle }) {
               <span>6-mo avg net</span>
               <span className={avgNet >= 0 ? 'text-teal-400 font-medium' : 'text-rose-400 font-medium'}>{avgNet >= 0 ? '+' : ''}${avgNet.toFixed(0)}/mo</span>
             </div>
+            <p className={`text-[11px] pt-1 italic ${incDelta >= 0 || sptDelta <= 0 ? 'text-teal-400/70' : 'text-amber-400/70'}`}>
+              {incDelta >= 0 && sptDelta <= 0
+                ? 'Income up, spending down — you\'re trending in exactly the right direction.'
+                : incDelta >= 0
+                ? 'Income is climbing — keep the momentum going.'
+                : sptDelta <= 0
+                ? 'Good control on spending — that discipline adds up.'
+                : 'A down month is just a setup for a comeback — refocus and make the next one count.'}
+            </p>
           </div>
         </>
       )}
