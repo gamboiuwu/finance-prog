@@ -257,6 +257,10 @@ export default function Dashboard({ token }) {
   const [showStatement, setShowStatement]   = useState(false);
   const [subscriptions, setSubscriptions]   = useState([]);
   const [showSubs, setShowSubs]             = useState(false);
+  const [subNotifLead, setSubNotifLead]     = useState(() => {
+    const v = parseInt(localStorage.getItem('_fin_sub_notif_lead') || '3', 10);
+    return [1, 3, 7].includes(v) ? v : 3;
+  });
   const [calMonth, setCalMonth]             = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
   const [selectedCalDay, setSelectedCalDay] = useState(null);
   const [stmtLoading, setStmtLoading]   = useState(false);
@@ -432,15 +436,53 @@ export default function Dashboard({ token }) {
 
         if (subRows.length > 1) {
           const [hdr, ...data] = subRows;
-          setSubscriptions(
-            data
-              .map((r, idx) => ({ row: r, rowNum: idx + 2 }))
-              .filter(({ row }) => row[0])
-              .map(({ row, rowNum }) => ({
-                ...hdr.reduce((o, h, i) => { o[h] = row[i] ?? ''; return o; }, {}),
-                _rowNum: rowNum,
-              }))
-          );
+          const parsedSubs = data
+            .map((r, idx) => ({ row: r, rowNum: idx + 2 }))
+            .filter(({ row }) => row[0])
+            .map(({ row, rowNum }) => ({
+              ...hdr.reduce((o, h, i) => { o[h] = row[i] ?? ''; return o; }, {}),
+              _rowNum: rowNum,
+            }));
+          setSubscriptions(parsedSubs);
+
+          // Subscription renewal push notifications (Task 22)
+          const lead = parseInt(localStorage.getItem('_fin_sub_notif_lead') || '3', 10);
+          const todayStr = new Date().toISOString().slice(0, 10);
+          let sent = {};
+          try { sent = JSON.parse(localStorage.getItem('_fin_sub_notif_sent') || '{}'); } catch {}
+          const alreadySent = sent[todayStr] || [];
+          const upcoming = parsedSubs.filter(s => {
+            if (alreadySent.includes(s.Name)) return false;
+            const d = nextRenewal(s['Start Date'], (s.Cycle || 'monthly').toLowerCase());
+            const diff = daysUntil(d);
+            return diff !== null && diff >= 0 && diff <= lead;
+          });
+          if (upcoming.length > 0 && typeof Notification !== 'undefined' && Notification.permission !== 'denied') {
+            const doSubNotify = () => {
+              try {
+                if (upcoming.length === 1) {
+                  const s = upcoming[0];
+                  const d = nextRenewal(s['Start Date'], (s.Cycle || 'monthly').toLowerCase());
+                  const diff = daysUntil(d);
+                  new Notification(`🔁 ${s.Name} renews ${diff === 0 ? 'today' : `in ${diff} day${diff !== 1 ? 's' : ''}`}`, {
+                    body: `$${parseFloat(s.Amount || 0).toFixed(2)}${cycleAmountLabel(s.Cycle)}`,
+                    tag: 'fin-sub-renewal',
+                  });
+                } else {
+                  const lines = upcoming.map(s => {
+                    const d = nextRenewal(s['Start Date'], (s.Cycle || 'monthly').toLowerCase());
+                    const diff = daysUntil(d);
+                    return `${s.Name} (${diff === 0 ? 'today' : `in ${diff}d`}) — $${parseFloat(s.Amount || 0).toFixed(2)}`;
+                  }).join('\n');
+                  new Notification(`🔁 ${upcoming.length} subscriptions renewing soon`, { body: lines, tag: 'fin-sub-renewal' });
+                }
+                sent[todayStr] = [...alreadySent, ...upcoming.map(s => s.Name)];
+                localStorage.setItem('_fin_sub_notif_sent', JSON.stringify(sent));
+              } catch {}
+            };
+            if (Notification.permission === 'granted') doSubNotify();
+            else Notification.requestPermission().then(p => { if (p === 'granted') doSubNotify(); });
+          }
         }
       })
       .catch(e => setError(e.message))
@@ -1494,8 +1536,10 @@ ${stmtTxns.length ? `
           const [saving, setSaving]   = useState(false);
           const [err, setErr]         = useState(null);
           const [form, setForm]       = useState({ Name: '', 'Start Date': '', Cycle: 'monthly', Amount: '', Notes: '' });
-          const [editingSub, setEditingSub] = useState(null);   // the sub being edited (with _rowNum)
-          const [editForm, setEditForm]     = useState({ Name: '', 'Start Date': '', Cycle: 'monthly', Amount: '', Notes: '' });
+          const [editingSub, setEditingSub]         = useState(null);
+          const [editForm, setEditForm]             = useState({ Name: '', 'Start Date': '', Cycle: 'monthly', Amount: '', Notes: '' });
+          const [showNotifPicker, setShowNotifPicker] = useState(false);
+          const [leadVal, setLeadVal]               = useState(subNotifLead);
 
           async function reloadSubs() {
             const subRows = await readRange(token, 'Subscriptions!A:E').catch(() => []);
@@ -1634,10 +1678,41 @@ ${stmtTxns.length ? `
                     {view === 'import' ? 'Import from Monthly Expenses' : view === 'add' ? 'New subscription' : 'Recurring bills & renewal tracking'}
                   </p>
                 </div>
-                <button onClick={() => view === 'list' ? setShowSubs(false) : setView('list')}
-                  className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">
-                  {view === 'list' ? '✕' : '‹'}
-                </button>
+                <div className="flex items-center gap-2">
+                  {view === 'list' && (
+                    <div className="relative">
+                      <button onClick={() => setShowNotifPicker(p => !p)}
+                        title="Renewal notification settings"
+                        className="w-9 h-9 rounded-full bg-slate-800 text-slate-400 hover:text-teal-300 flex items-center justify-center text-base transition-colors">
+                        ⚙
+                      </button>
+                      {showNotifPicker && (
+                        <div className="absolute right-0 top-11 bg-slate-800 border border-slate-700 rounded-2xl p-3 z-10 w-52 shadow-xl">
+                          <p className="text-white text-xs font-semibold mb-2">🔔 Notify me before renewal:</p>
+                          <div className="flex gap-2">
+                            {[1, 3, 7].map(d => (
+                              <button key={d} onClick={() => {
+                                setLeadVal(d);
+                                setSubNotifLead(d);
+                                localStorage.setItem('_fin_sub_notif_lead', String(d));
+                                setShowNotifPicker(false);
+                              }} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                                leadVal === d ? 'bg-teal-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                              }`}>
+                                {d}d
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-slate-500 text-xs mt-2">Currently: {leadVal} day{leadVal !== 1 ? 's' : ''} ahead</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <button onClick={() => { setShowNotifPicker(false); view === 'list' ? setShowSubs(false) : setView('list'); }}
+                    className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">
+                    {view === 'list' ? '✕' : '‹'}
+                  </button>
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 pb-28">
