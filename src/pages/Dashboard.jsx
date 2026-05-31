@@ -258,10 +258,11 @@ export default function Dashboard({ token }) {
   const [subscriptions, setSubscriptions]   = useState([]);
   const [showSubs, setShowSubs]             = useState(false);
   const [calMonth, setCalMonth]             = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const [selectedCalDay, setSelectedCalDay] = useState(null);
   const [stmtLoading, setStmtLoading]   = useState(false);
   const [stmtTxns, setStmtTxns]         = useState([]);
   const [stmtError, setStmtError]       = useState(null);
-  const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0 });
+  const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0, dueAlerts: [] });
   const [allocTotals, setAllocTotals]   = useState({ income: 0, spent: 0 });
   const [healthScore, setHealthScore]   = useState({ total: 0, signals: [], history: [], loaded: false });
   const [healthExpanded, setHealthExpanded] = useState(false);
@@ -358,7 +359,21 @@ export default function Dashboard({ token }) {
               pm(i['Monthly Allowance ($)']) > 0 &&
               !(abt[i['Type'] || ''] > 0)
             ).length;
-            setBudgetAlerts({ overCount, needsCount });
+            let dueDateMap = {};
+            try { dueDateMap = JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch {}
+            const todayDay = new Date().getDate();
+            const dueAlerts = mainExp
+              .filter(i => {
+                const dd = dueDateMap[i['Type'] || ''];
+                if (dd == null) return false;
+                const alloc = abt[i['Type'] || ''] || 0;
+                const goal  = pm(i['Monthly Allowance ($)']);
+                if (goal <= 0 || alloc >= goal) return false;
+                const diff = dd - todayDay;
+                return diff >= 0 && diff <= 3;
+              })
+              .map(i => ({ type: i['Type'], daysUntil: dueDateMap[i['Type']] - todayDay }));
+            setBudgetAlerts({ overCount, needsCount, dueAlerts });
             localStorage.setItem('_fin_budget_alert', JSON.stringify({ count: overCount, month: `${yr0}-${mo0}` }));
             window.dispatchEvent(new Event('_fin_budget_alert_update'));
 
@@ -782,7 +797,7 @@ ${stmtTxns.length ? `
       })()}
 
       {/* ── Budget Alert Banner ─────────────────────────────── */}
-      {(budgetAlerts.overCount > 0 || budgetAlerts.needsCount > 0) && (
+      {(budgetAlerts.overCount > 0 || budgetAlerts.needsCount > 0 || budgetAlerts.dueAlerts?.length > 0) && (
         <button
           onClick={() => navigate('/budget')}
           className="w-full bg-amber-900/40 border border-amber-700/60 rounded-2xl p-3 flex items-center justify-between gap-3 active:opacity-80 text-left"
@@ -800,6 +815,11 @@ ${stmtTxns.length ? `
                   {budgetAlerts.needsCount} essential{budgetAlerts.needsCount !== 1 ? 's' : ''} not yet funded
                 </p>
               )}
+              {budgetAlerts.dueAlerts?.map(a => (
+                <p key={a.type} className="text-amber-300/80 text-xs mt-0.5">
+                  ⏰ {a.type} due {a.daysUntil === 0 ? 'today' : `in ${a.daysUntil} day${a.daysUntil === 1 ? '' : 's'}`} — not yet funded
+                </p>
+              ))}
             </div>
           </div>
           <span className="text-amber-500 text-xs shrink-0 font-medium">View Budget →</span>
@@ -1069,11 +1089,16 @@ ${stmtTxns.length ? `
               ))}
               {cells.map((d, i) => {
                 if (!d) return <div key={`e-${i}`} />;
-                const isToday = d === todayD;
-                const events  = dueDays[d] || [];
+                const isToday    = d === todayD;
+                const events     = dueDays[d] || [];
+                const isSelected = selectedCalDay === d;
                 return (
-                  <div key={d} className={`rounded-lg p-0.5 flex flex-col items-center gap-0.5 ${isToday ? 'bg-slate-600' : events.length ? 'bg-teal-900/30' : ''}`}>
-                    <span className={`text-[11px] font-medium leading-none pt-0.5 ${isToday ? 'text-white font-bold' : 'text-slate-400'}`}>{d}</span>
+                  <div
+                    key={d}
+                    onClick={() => events.length ? setSelectedCalDay(isSelected ? null : d) : null}
+                    className={`rounded-lg p-0.5 flex flex-col items-center gap-0.5 ${events.length ? 'cursor-pointer' : ''} ${isSelected ? 'bg-teal-700/60 ring-1 ring-teal-400' : isToday ? 'bg-slate-600' : events.length ? 'bg-teal-900/30' : ''}`}
+                  >
+                    <span className={`text-[11px] font-medium leading-none pt-0.5 ${isToday && !isSelected ? 'text-white font-bold' : isSelected ? 'text-teal-200 font-bold' : 'text-slate-400'}`}>{d}</span>
                     {events.length > 0 && (
                       <div className="flex gap-0.5 flex-wrap justify-center">
                         {events.slice(0, 3).map((_, ei) => (
@@ -1086,8 +1111,33 @@ ${stmtTxns.length ? `
               })}
             </div>
 
+            {/* Selected day subscriptions */}
+            {selectedCalDay && (dueDays[selectedCalDay] || []).length > 0 && (
+              <div className="border-t border-teal-800/60 pt-2 space-y-1">
+                <p className="text-teal-400 text-[10px] uppercase tracking-wider">
+                  Due on {MONTH_NAMES[m]} {selectedCalDay}
+                </p>
+                {(dueDays[selectedCalDay] || []).map((name, i) => {
+                  const sub = subscriptions.find(s => s['Name'] === name);
+                  return (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0" />
+                        <span className="text-slate-200 truncate">{name}</span>
+                      </div>
+                      {sub?.['Amount'] && (
+                        <span className="text-slate-400 font-mono shrink-0">
+                          ${parseFloat(sub['Amount'] || 0).toFixed(2)}{cycleAmountLabel(sub['Cycle'])}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Upcoming list */}
-            {upcoming.length > 0 ? (
+            {!selectedCalDay && upcoming.length > 0 ? (
               <div className="space-y-1 border-t border-slate-700 pt-2">
                 <p className="text-slate-500 text-[10px] uppercase tracking-wider">Due next 14 days</p>
                 {upcoming.map((s, i) => (
@@ -1107,7 +1157,7 @@ ${stmtTxns.length ? `
                   </div>
                 ))}
               </div>
-            ) : subscriptions.length === 0 ? (
+            ) : !selectedCalDay && subscriptions.length === 0 ? (
               <p className="text-slate-600 text-xs text-center border-t border-slate-700 pt-2">Add subscriptions to see due dates</p>
             ) : null}
           </div>

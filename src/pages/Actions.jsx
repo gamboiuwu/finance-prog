@@ -181,6 +181,30 @@ function CategoryDetail({ category, items, onClose }) {
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 pb-8">
 
+          {/* Transaction history — shown first so it's immediately visible */}
+          <div>
+            <p className="text-slate-400 text-[10px] uppercase tracking-wider mb-2 font-broske">Transaction History</p>
+            {sorted.length === 0 ? (
+              <p className="text-slate-600 text-xs text-center py-4">No transactions found.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {sorted.slice().reverse().map((it, i) => (
+                  <div key={i} className="flex items-start justify-between gap-2 bg-slate-800 rounded-xl px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-slate-300 text-xs font-medium truncate">
+                        {it.source === 'biz' ? it.product || it.type : it.desc || it.type}
+                      </p>
+                      <p className="text-slate-600 text-[10px] mt-0.5">{formatDate(it.rawDate || it.date)}</p>
+                    </div>
+                    <span className={`text-xs font-mono font-bold tabular-nums shrink-0 ${it.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {it.amount >= 0 ? '+' : ''}${Math.abs(it.amount).toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Current balance */}
           <div className="bg-slate-800 rounded-2xl p-4 space-y-1">
             <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske">Current Total</p>
@@ -204,26 +228,6 @@ function CategoryDetail({ category, items, onClose }) {
                   <p className={`text-sm font-bold font-mono tabular-nums mt-1 ${p.value >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {p.value >= 0 ? '+' : ''}${Math.abs(p.value).toFixed(2)}
                   </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Transaction history */}
-          <div>
-            <p className="text-slate-400 text-[10px] uppercase tracking-wider mb-2 font-broske">Transaction History</p>
-            <div className="space-y-1.5">
-              {sorted.slice().reverse().map((it, i) => (
-                <div key={i} className="flex items-start justify-between gap-2 bg-slate-800 rounded-xl px-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="text-slate-300 text-xs font-medium truncate">
-                      {it.source === 'biz' ? it.product || it.type : it.desc || it.type}
-                    </p>
-                    <p className="text-slate-600 text-[10px] mt-0.5">{formatDate(it.rawDate || it.date)}</p>
-                  </div>
-                  <span className={`text-xs font-mono font-bold tabular-nums shrink-0 ${it.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {it.amount >= 0 ? '+' : ''}${Math.abs(it.amount).toFixed(2)}
-                  </span>
                 </div>
               ))}
             </div>

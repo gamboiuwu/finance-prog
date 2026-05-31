@@ -16,6 +16,7 @@ export const SHEETS = {
   ALLOCATION_SUMMARY: 'Allocation Summary',
   INQUIRIES: 'Inquiries',
   BUSINESS_PRODUCTS: 'Business Products',
+  BUSINESS_TRANSACTIONS: 'Business Transactions',
   BUSINESS_ACCOUNT_SPENDING: 'Business Account Spending',
   BUSINESS_EXPENSES: 'Business Expenses',
   COMMISSION_PRICES: 'Commission Prices',

@@ -8,24 +8,16 @@ import { SHEETS } from '../config';
 import {
   recalcMonthlySummary, updateSubscription, updateBudgetAllowance,
   setAllocationAmount, deleteAllocation,
+  readPlans, savePlan, updatePlanProgress, deletePlan, applyPlanToBudget,
 } from './sheetWrite';
+import { analyzeAffordability, monthsUntil } from './dragonPlan';
+import {
+  monthKey, derivePersonalCashflow, deriveBusinessCashflow,
+  computeOverview, overviewSummary,
+} from './dragonOverview';
+import { PAY_SCHEDULES, PACES } from './dragonPrefs';
 
 const SUBSCRIPTIONS_SHEET = 'Subscriptions';
-
-// Normalise a sheet date cell (serial number / YYYY-MM-DD / M/D/YYYY) to YYYY-MM.
-// Mirrors the monthKey helper used elsewhere in the app so month filters line up.
-function monthKey(v) {
-  if (v == null || v === '') return '';
-  const s = String(v).trim();
-  const n = Number(v);
-  if (!isNaN(n) && n > 1000 && !s.includes('-') && !s.includes('/')) {
-    const d = new Date(Math.round((Math.floor(n) - 25569) * 86400000));
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-  }
-  if (s.includes('-')) return s.slice(0, 7);                 // YYYY-MM-DD
-  if (s.includes('/')) { const p = s.split('/'); return `${p[2]}-${String(p[0]).padStart(2, '0')}`; } // M/D/YYYY
-  return '';
-}
 
 // Compact {columns, rows} payload — far fewer tokens than an array of objects.
 function pack(rows, limit) {
@@ -139,11 +131,128 @@ export const TOOLS = [
       additionalProperties: false,
     },
   },
+
+  // ── Visual tools — render rich "windows" in the chat (see "Showing things") ──
+  {
+    name: 'show_financial_overview',
+    description: "Render a rich visual financial overview WINDOW in the chat — income vs spending, savings rate, free cash flow, budget by priority group, top categories, subscriptions, and a business snapshot (revenue, expenses, net, margin, 6-month trend, top vendors). It computes every number exactly from the sheets. Use this whenever the user wants to SEE their finances, a dashboard, a full picture, 'how am I doing', or how their business is doing. After it renders, add a short spoken takeaway — do not re-list every number, the window already shows them.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        focus: { type: 'string', description: "'all' (default), 'personal', or 'business'." },
+      },
+      additionalProperties: false,
+    },
+  },
+
+  // ── Planning tools — affording a goal (see "Planning" in the system prompt) ──
+  {
+    name: 'analyze_affordability',
+    description: "Build a complete savings plan to afford a goal. Does ALL the math in one call: it reads the user's real income and committed costs and returns the monthly set-aside, per-paycheck amount, completion date, feasibility verdict, milestones, and — if money is tight — exactly which discretionary budget buckets to trim and by how much. ALWAYS use this for affordability/savings-goal questions; never compute the schedule yourself. Pass either `months` (a deadline) or `monthly_contribution` (a fixed amount they'll save); omit both to get a recommended pace.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        goal_amount:         { type: 'number', description: 'Total cost of the thing to afford.' },
+        goal_name:           { type: 'string', description: 'Short name of the goal (e.g. "New Laptop") — shown as the plan window title.' },
+        already_saved:       { type: 'number', description: 'Amount already set aside toward it (default 0).' },
+        months:              { type: 'number', description: 'Whole months until the deadline. Use this OR monthly_contribution.' },
+        target_date:         { type: 'string', description: 'Deadline as YYYY-MM-DD (converted to months). Alternative to `months`.' },
+        monthly_contribution:{ type: 'number', description: 'A fixed amount the user wants to save each month (computes the finish date instead).' },
+        scope:               { type: 'string', description: "'personal' (default) or 'business' — business reads business revenue/expenses." },
+        monthly_income:      { type: 'number', description: 'Override average monthly income instead of deriving it from the sheet.' },
+        monthly_outflow:     { type: 'number', description: 'Override average monthly committed costs instead of deriving them.' },
+      },
+      required: ['goal_amount'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_plans',
+    description: "List the user's saved savings/affordability plans: name, target, amount saved, monthly set-aside, target date, and status. Use this to check progress on a goal ('how's my laptop plan?').",
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'save_plan',
+    description: "Record a savings plan so it can be tracked later. Call after the user agrees to a plan from analyze_affordability. Pass `id` (an existing plan's id) to update it instead of creating a new one.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        name:        { type: 'string', description: 'Short goal name, e.g. "New Laptop".' },
+        target:      { type: 'number', description: 'Goal amount.' },
+        saved:       { type: 'number', description: 'Amount already saved (default 0).' },
+        per_month:   { type: 'number', description: 'Planned monthly set-aside.' },
+        target_date: { type: 'string', description: 'Target finish, e.g. "December 2026" or YYYY-MM-DD.' },
+        scope:       { type: 'string', description: "'personal' or 'business'." },
+        funding:     {
+          type: 'array',
+          description: 'Optional list of budget trims that fund this plan.',
+          items: {
+            type: 'object',
+            properties: { category: { type: 'string' }, amount: { type: 'number' } },
+            additionalProperties: false,
+          },
+        },
+        notes:       { type: 'string' },
+        id:          { type: 'string', description: 'Existing plan id to update; omit to create new.' },
+      },
+      required: ['name', 'target'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'update_plan_progress',
+    description: "Update a saved plan: log a contribution (add_amount), set the saved total directly (set_saved), and/or change status. Match the plan by id or by a word from its name.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        id:         { type: 'string', description: 'Plan id, or a word from its name (e.g. "laptop").' },
+        add_amount: { type: 'number', description: 'Amount just set aside — added to the running total.' },
+        set_saved:  { type: 'number', description: 'Set the saved total to this exact figure.' },
+        status:     { type: 'string', description: "active / paused / done." },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'delete_plan',
+    description: "Remove a saved plan, matched by id or a word from its name. Only call when the user asks to delete/cancel a plan.",
+    input_schema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Plan id or a word from its name.' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'apply_plan_to_budget',
+    description: "Reprogram the budget to fund a plan by setting several category allowances at once. Each change is a before→after on a real budget category. Confirm every change with the user first (state each before→after), exactly like any other write.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        changes: {
+          type: 'array',
+          description: 'Budget allowance changes to apply.',
+          items: {
+            type: 'object',
+            properties: {
+              type:              { type: 'string', description: 'Budget category Type/name.' },
+              monthly_allowance: { type: 'number', description: 'New monthly allowance.' },
+            },
+            required: ['type', 'monthly_allowance'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['changes'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 // Execute one tool call. Always resolves to a string; on failure returns an
 // "ERROR:" string so Claude can tell the user plainly instead of inventing data.
-export async function runTool(name, input, token) {
+export async function runTool(name, input, token, prefs = {}) {
   try {
     switch (name) {
       case 'get_monthly_summary': {
@@ -189,6 +298,81 @@ export async function runTool(name, input, token) {
       case 'delete_allocation': {
         const row = await deleteAllocation(token, { month: input.month, category: input.category, account: input.account });
         return `OK: deleted the ${input.category}/${input.account} allocation (row ${row}).`;
+      }
+
+      // ── Visual tools ──
+      case 'show_financial_overview': {
+        const focus = ['personal', 'business'].includes(input.focus) ? input.focus : 'all';
+        const ov = await computeOverview(token, focus);
+        return { content: overviewSummary(ov), card: { type: 'overview', data: ov } };
+      }
+
+      // ── Planning tools ──
+      case 'analyze_affordability': {
+        const scope = input.scope === 'business' ? 'business' : 'personal';
+        // Derive real cash flow unless the caller passed both overrides.
+        let ctx;
+        if (input.monthly_income != null && input.monthly_outflow != null) {
+          ctx = { monthlyIncome: input.monthly_income, monthlyOutflow: input.monthly_outflow, discretionary: [] };
+        } else {
+          ctx = scope === 'business' ? await deriveBusinessCashflow(token) : await derivePersonalCashflow(token);
+          if (input.monthly_income  != null) ctx.monthlyIncome  = input.monthly_income;
+          if (input.monthly_outflow != null) ctx.monthlyOutflow = input.monthly_outflow;
+        }
+        let months = input.months ?? null;
+        if (months == null && input.target_date) {
+          const m = monthsUntil(input.target_date);
+          if (m != null) months = m;
+        }
+        const sched = PAY_SCHEDULES[prefs.paySchedule] || PAY_SCHEDULES.biweekly;
+        const pace  = PACES[prefs.pace] || PACES.balanced;
+        const plan = analyzeAffordability({
+          goalAmount:          input.goal_amount,
+          alreadySaved:        input.already_saved ?? 0,
+          months,
+          monthlyContribution: input.monthly_contribution ?? null,
+          monthlyIncome:       ctx.monthlyIncome,
+          monthlyOutflow:      ctx.monthlyOutflow,
+          discretionary:       ctx.discretionary,
+          scope,
+          paychecksPerMonth:   sched.perMonth,
+          payLabel:            sched.label.toLowerCase(),
+          paceFraction:        pace.fraction,
+        });
+        plan.goalName = input.goal_name || null;
+        return { content: JSON.stringify(plan), card: { type: 'plan', data: plan } };
+      }
+      case 'get_plans': {
+        const rows = await readPlans(token);
+        return pack(rows);
+      }
+      case 'save_plan': {
+        const id = await savePlan(token, {
+          id:         input.id,
+          name:       input.name,
+          scope:      input.scope,
+          target:     input.target,
+          saved:      input.saved,
+          perMonth:   input.per_month,
+          targetDate: input.target_date,
+          funding:    input.funding,
+          notes:      input.notes,
+        });
+        return `OK: saved plan "${input.name}" (id ${id}).`;
+      }
+      case 'update_plan_progress': {
+        const res = await updatePlanProgress(token, {
+          id: input.id, addAmount: input.add_amount, setSaved: input.set_saved, status: input.status,
+        });
+        return `OK: "${res.name}" now has ${res.saved} saved${input.status ? ` · status ${input.status}` : ''}.`;
+      }
+      case 'delete_plan': {
+        const nm = await deletePlan(token, { id: input.id });
+        return `OK: deleted plan "${nm}".`;
+      }
+      case 'apply_plan_to_budget': {
+        const applied = await applyPlanToBudget(token, input.changes || []);
+        return `OK: reprogrammed ${applied.length} budget categor${applied.length === 1 ? 'y' : 'ies'} — ${applied.join('; ')}.`;
       }
 
       default:

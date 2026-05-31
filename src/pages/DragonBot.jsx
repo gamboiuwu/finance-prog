@@ -2,18 +2,28 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { streamDragon, dragonError } from '../lib/dragonBot';
 import { getDragonKey, setDragonKey, clearDragonKey, hasDragonKey } from '../lib/dragonKey';
 import DragonAvatar from '../components/DragonAvatar';
+import DragonCard from '../components/DragonCards';
+import { getPrefs, setPrefs, MODELS, PAY_SCHEDULES, PACES, TONES } from '../lib/dragonPrefs';
 
 const TOOL_LABELS = {
   get_monthly_summary:  'peering at your monthly hoard…',
   get_budget_categories:'unrolling your budget scroll…',
   get_allocations:      'counting your gold coins…',
   get_subscriptions:    'sniffing out recurring tithes…',
+  get_plans:            'reviewing your treasure plans…',
+  analyze_affordability:'charting a path to your treasure…',
+  save_plan:            'etching your plan into stone…',
+  update_plan_progress: 'updating your quest log…',
+  delete_plan:          'retiring an old plan…',
+  apply_plan_to_budget: 'reforging your budget…',
+  show_financial_overview: 'painting your treasure map…',
+  web_search:           'scouring the web for current prices…',
 };
 
 const SUGGESTIONS = [
-  'How much did I spend last month? 🪙',
-  'Am I on track for my savings goal?',
-  'What are my subscriptions costing me?',
+  'Show me my full financial overview 📊',
+  'Help me plan to afford something 🐉',
+  'How is my business doing? 💼',
   'Where can I trim my spending?',
 ];
 
@@ -35,8 +45,89 @@ function renderRich(text) {
   });
 }
 
+// ── Preferences controls ─────────────────────────────────────────────────────
+function Field({ label, desc, children }) {
+  return (
+    <div className="space-y-1.5">
+      <div>
+        <p className="text-slate-200 text-sm font-medium">{label}</p>
+        {desc && <p className="text-slate-500 text-[11px] leading-snug">{desc}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Segmented({ value, onChange, options, cols = 3 }) {
+  return (
+    <div className={`grid gap-1.5`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      {options.map(o => (
+        <button
+          key={o.key}
+          onClick={() => onChange(o.key)}
+          className={`rounded-lg px-2 py-2 text-center transition-colors ${
+            value === o.key ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-300 hover:bg-slate-700'
+          }`}
+        >
+          <span className="block text-xs font-semibold leading-tight">{o.label}</span>
+          {o.hint && <span className="block text-[9px] opacity-70 mt-0.5 leading-tight">{o.hint}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Toggle({ on, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-12 h-7 rounded-full p-0.5 transition-colors shrink-0 ${on ? 'bg-emerald-600' : 'bg-slate-700'}`}
+      role="switch"
+      aria-checked={on}
+    >
+      <span className={`block w-6 h-6 rounded-full bg-white transition-transform ${on ? 'translate-x-5' : ''}`} />
+    </button>
+  );
+}
+
+const opts = (map) => Object.entries(map).map(([key, v]) => ({ key, label: v.label, hint: v.hint }));
+
+function PrefsPanel() {
+  const [p, setP] = useState(getPrefs);
+  const update = (patch) => setP(setPrefs(patch));
+  return (
+    <div className="bg-slate-800 rounded-2xl p-4 space-y-5">
+      <p className="text-white font-bold text-sm font-broske">⚙ Ledger Preferences</p>
+
+      <Field label="🧠 Brain" desc="Smarter models cost more per message.">
+        <Segmented cols={3} value={p.model} onChange={m => update({ model: m })} options={opts(MODELS)} />
+      </Field>
+
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-slate-200 text-sm font-medium">🌐 Web research</p>
+          <p className="text-slate-500 text-[11px] leading-snug">Let Ledger search the internet for live prices &amp; rates when planning. Uses extra credits.</p>
+        </div>
+        <Toggle on={p.webResearch} onClick={() => update({ webResearch: !p.webResearch })} />
+      </div>
+
+      <Field label="🎭 Tone" desc="How much dragon flair in replies.">
+        <Segmented cols={3} value={p.tone} onChange={t => update({ tone: t })} options={opts(TONES)} />
+      </Field>
+
+      <Field label="📅 Pay schedule" desc="Used for the per-paycheck planning figure.">
+        <Segmented cols={4} value={p.paySchedule} onChange={s => update({ paySchedule: s })} options={opts(PAY_SCHEDULES)} />
+      </Field>
+
+      <Field label="🔥 Savings pace" desc="How hard to save when a goal has no deadline.">
+        <Segmented cols={3} value={p.pace} onChange={s => update({ pace: s })} options={opts(PACES)} />
+      </Field>
+    </div>
+  );
+}
+
 // ── API-key setup / settings screen ─────────────────────────────────────────
-function KeySetup({ onSaved, onCancel, hasExisting }) {
+function KeySetup({ onSaved, onCancel, hasExisting, showPrefs }) {
   const [val, setVal] = useState('');
   return (
     <div className="px-4 py-6 max-w-md mx-auto space-y-5">
@@ -81,6 +172,8 @@ function KeySetup({ onSaved, onCancel, hasExisting }) {
           </button>
         )}
       </div>
+
+      {showPrefs && <PrefsPanel />}
 
       <div className="bg-amber-900/20 border border-amber-800/40 rounded-xl p-3 text-amber-300/90 text-xs leading-relaxed">
         <p className="font-semibold mb-1">🔑 Where do I get a key?</p>
@@ -131,6 +224,7 @@ export default function DragonBot({ token }) {
     setToolLabel(null);
 
     let acc = '';
+    const cards = [];   // visual windows the dragon generates this turn
     try {
       const updated = await streamDragon({
         token,
@@ -138,9 +232,10 @@ export default function DragonBot({ token }) {
         userText: trimmed,
         onText: (delta) => { acc += delta; setStreaming(acc); setToolLabel(null); },
         onToolUse: (name) => setToolLabel(TOOL_LABELS[name] || 'consulting the ancient ledgers…'),
+        onToolResult: (card) => cards.push(card),
       });
       apiHistory.current = updated;
-      setMessages(m => [...m, { role: 'dragon', text: acc || '…' }]);
+      setMessages(m => [...m, { role: 'dragon', text: acc || '…', cards }]);
     } catch (e) {
       setHasError(true);
       setMessages(m => [...m, { role: 'dragon', text: dragonError(e), error: true }]);
@@ -162,11 +257,14 @@ export default function DragonBot({ token }) {
     return (
       <KeySetup
         hasExisting={hasDragonKey()}
+        showPrefs={keyReady}
         onCancel={showSettings ? () => setShowSettings(false) : null}
         onSaved={() => { setKeyReady(hasDragonKey()); setShowSettings(false); }}
       />
     );
   }
+
+  const prefs = getPrefs();
 
   return (
     <div className="flex flex-col h-[calc(100dvh-120px)] max-w-lg mx-auto">
@@ -176,7 +274,9 @@ export default function DragonBot({ token }) {
           <DragonAvatar mood={avatarMood} size={36} />
           <div>
             <p className="text-white font-bold font-broske leading-tight">Ledger</p>
-            <p className="text-slate-500 text-[11px]">your treasure-hoarding budget dragon</p>
+            <p className="text-slate-500 text-[11px]">
+              {MODELS[prefs.model]?.label || 'Sonnet'}{prefs.webResearch && ' · 🌐 research'}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -214,7 +314,7 @@ export default function DragonBot({ token }) {
         )}
 
         {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
               m.role === 'user'
                 ? 'bg-emerald-600 text-white rounded-br-md'
@@ -224,6 +324,12 @@ export default function DragonBot({ token }) {
             }`}>
               {m.role === 'dragon' ? <div className="space-y-0.5">{renderRich(m.text)}</div> : m.text}
             </div>
+            {/* Visual windows the dragon generated for this turn */}
+            {m.role === 'dragon' && m.cards?.length > 0 && (
+              <div className="mt-2 w-full space-y-2">
+                {m.cards.map((c, ci) => <DragonCard key={ci} card={c} />)}
+              </div>
+            )}
           </div>
         ))}
 

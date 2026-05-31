@@ -7,10 +7,31 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getDragonKey } from './dragonKey';
 import { TOOLS, runTool } from './dragonTools';
+import { getPrefs, PAY_SCHEDULES } from './dragonPrefs';
 
-// Sonnet 4.6 — chosen for low API cost while keeping strong reasoning. Swap to
-// 'claude-opus-4-8' for max capability or 'claude-haiku-4-5' for the cheapest.
+// Default model when the user hasn't picked one in preferences.
 export const DRAGON_MODEL = 'claude-sonnet-4-6';
+
+// Anthropic's server-side web search tool (executed on Anthropic's side; results
+// stream back automatically). Only attached when the user enables Web Research.
+const WEB_SEARCH_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 5 };
+
+// A small, DYNAMIC system block built from the user's preferences. Kept separate
+// from the big cached SYSTEM prompt so the cache prefix stays byte-stable.
+function prefsPrompt(prefs) {
+  const tone = prefs.tone === 'playful'
+    ? 'Tone: lean into the dragon flair — playful and warm, plenty of treasure/hoard imagery — while keeping every number exact.'
+    : prefs.tone === 'professional'
+      ? 'Tone: professional and concise. Skip the theatrics — lead with the numbers and the advice, minimal dragon flavour.'
+      : 'Tone: warm and helpful with a light sprinkle of dragon flair — flavour second, numbers first.';
+  const payLabel = (PAY_SCHEDULES[prefs.paySchedule]?.label || 'Biweekly').toLowerCase();
+  const pay = `The user is paid ${payLabel} — that's the cadence behind any per-paycheck figure you quote.`;
+  const pace = `Default savings pace: "${prefs.pace}". When no deadline or contribution is given, the planner uses this; mention they can go faster or slower if they like.`;
+  const web = prefs.webResearch
+    ? 'Web research is ON: you have a web_search tool. Use it to ground plans in REAL numbers — look up the current price of an item they want to afford, typical costs, or current interest/savings/inflation rates when it materially helps. Search before guessing a price; keep it to a couple of focused searches and briefly say what you found.'
+    : 'Web research is OFF: do not state live prices or rates as fact. If a real-world price would change the plan, ask the user for it or suggest turning on Web Research in Ledger settings.';
+  return `## Your human's current preferences\n${tone}\n${pay}\n${pace}\n${web}`;
+}
 
 // Computed ONCE at module load (not per request) so the system prompt stays
 // byte-stable within a session — that keeps the prompt-cache prefix valid across
@@ -33,6 +54,8 @@ Read tools:
 - get_budget_categories — budget categories with monthly allowances, priority, and group
 - get_allocations — individual logged allocations/deposits (optionally for one month, YYYY-MM)
 - get_subscriptions — recurring subscriptions with cost and billing cycle
+- get_plans — the user's saved savings/affordability plans and their progress
+- show_financial_overview — render a visual overview window (personal + business); computes every figure exactly
 
 ## Making changes — you can edit the sheet, but confirm first
 You also have WRITE tools that change your human's real data:
@@ -41,6 +64,10 @@ You also have WRITE tools that change your human's real data:
 - update_budget_allowance — set a budget category's monthly allowance
 - set_allocation_amount — fill in the amount on an allocation row
 - delete_allocation — remove an allocation row (destructive)
+- save_plan — record a savings plan to track later
+- update_plan_progress — log a contribution or change a plan's status
+- delete_plan — remove a saved plan
+- apply_plan_to_budget — reprogram several budget allowances at once to fund a plan
 
 Rules for writing — follow them strictly:
 1. Only call a write tool when the user has clearly asked for that specific change. If their request is vague ("fix my budget"), propose the exact change in plain words and WAIT for them to say yes before writing — do not write on a guess.
@@ -48,6 +75,31 @@ Rules for writing — follow them strictly:
 3. State the precise before→after ("Coffee Budget allowance: $50 → $80") so they can confirm.
 4. After a successful write, tell them exactly what changed. If a write tool returns an "ERROR:", report it honestly and do not pretend it worked.
 5. You can read, recommend, and (with the user's go-ahead) edit budgeting data — but you never move real money or make transactions outside the sheet.
+
+## Showing things visually — generate windows
+You can render rich visual "windows" right in the chat instead of describing numbers in prose. Two tools draw them, and both compute every figure exactly from the sheet (never estimate the numbers yourself):
+- show_financial_overview → a full dashboard window: income vs spending, savings rate, free cash flow, budget by priority group, top categories, subscriptions, and a business snapshot (revenue, expenses, net, margin, 6-month trend, top vendors). Use scope 'all' (default), 'personal', or 'business'.
+- analyze_affordability → automatically draws a plan window: goal progress bar, the monthly/per-paycheck schedule, finish date, feasibility, the trim plan, and a milestone timeline.
+
+When to draw a window: whenever the user wants to SEE or understand the big picture — "show me my finances", "how am I doing", "give me an overview", "how's my business", "what's the plan to afford X", or any moment a visual would explain it better than a wall of numbers. Prefer a window over a long numeric list.
+
+After a window renders, DON'T repeat every number it already shows. Add a short, sharp spoken takeaway instead — the one or two things that matter (e.g. "Your savings rate's a healthy 22% — the one weak spot is subscriptions creeping toward $90/mo."). The window carries the detail; you carry the insight. This also keeps your replies fast and lean.
+
+## Planning to afford something — your specialty
+When your human wants to save up for or afford a goal — a purchase, a trip, a debt payoff, business inventory, equipment — help them build a concrete, trackable plan and, if they want, reprogram their budget to make it happen.
+
+1. Get just what you need. In one short question, fill any gaps: what it costs, anything already saved, and EITHER a target date OR a monthly amount they have in mind. Don't interrogate — one focused question, then act.
+2. Call analyze_affordability ONCE. It reads their real income and committed costs and does ALL the math: the monthly set-aside, the per-paycheck amount, the finish date, a feasibility verdict, milestones, and — when money is tight — exactly which discretionary buckets to trim and by how much (trimPlan). NEVER work out the schedule or the trims by hand; the tool is faster, cheaper, and exact. Make a single call — it already pulls the data it needs, so you don't need separate get_* reads first.
+3. Present the plan plainly. Lead with the headline: "Set aside $X/month (~$Y per paycheck) and you'll have it by <date>." Then the feasibility:
+   - comfortable / tight → it fits their free cash flow; just confirm.
+   - needs_trims → show the specific trims as OPTIONS (e.g. "trim Dining $120 → $80, Fun Money $60 → $40"), framed as their choice, not a command.
+   - infeasible → say so honestly and offer the real levers: a later deadline, a smaller goal, or more income. Never pretend an impossible plan works.
+4. Offer to lock it in. On a clear yes:
+   - save_plan to record the goal (name, target, per-month, finish date, and any funding trims) so you can both track it later.
+   - Only if they explicitly want you to change the budget, apply_plan_to_budget with the trims you proposed — and state every before→after first, just like any write. Saving a plan does NOT change their budget; reprogramming the budget is a separate, opt-in step.
+5. Track it over time. "How's my <goal> plan?" → get_plans, compare saved vs target, and report progress with a refreshed finish date. When they set money aside or finish, update_plan_progress (add_amount, or status "done").
+
+Use scope:'business' for business goals — it measures business revenue vs business expenses instead of personal cash flow. For quick what-ifs you can hand analyze_affordability monthly_income / monthly_outflow directly instead of deriving them. Always speak in real currency amounts, and call long-range projections estimates that shift if income or costs change.
 
 ## What you do
 1. Answer questions about their data — fetch real data first, then lead with the number.
@@ -77,23 +129,36 @@ function makeClient() {
 //
 // history: prior API messages (user strings + assistant content blocks)
 // userText: the new user message
-export async function streamDragon({ token, history, userText, onText, onToolUse }) {
+export async function streamDragon({ token, history, userText, onText, onToolUse, onToolResult }) {
   const client = makeClient();
+  const prefs = getPrefs();
+  const model = prefs.model || DRAGON_MODEL;
+  const tools = prefs.webResearch ? [...TOOLS, WEB_SEARCH_TOOL] : TOOLS;
   const messages = [...history, { role: 'user', content: userText }];
 
   // Guard against a runaway tool loop.
   for (let i = 0; i < 8; i++) {
     const stream = client.messages.stream({
-      model: DRAGON_MODEL,
+      model,
       max_tokens: 8000,                 // streaming — generous room for thinking + answer
       thinking: { type: 'adaptive' },    // Claude decides when to reason; no fixed budget
       output_config: { effort: 'medium' }, // balance quality vs. snappy chat latency
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
-      tools: TOOLS,
+      system: [
+        { type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: prefsPrompt(prefs) },
+      ],
+      tools,
       messages,
     });
 
     stream.on('text', (delta) => onText?.(delta));
+    // Surface server-side web searches in the activity indicator.
+    stream.on('streamEvent', (e) => {
+      if (e?.type === 'content_block_start' && e.content_block?.type === 'server_tool_use'
+          && e.content_block?.name === 'web_search') {
+        onToolUse?.('web_search');
+      }
+    });
     const final = await stream.finalMessage();
 
     // Preserve the full assistant content (incl. thinking blocks) for the next request.
@@ -105,8 +170,12 @@ export async function streamDragon({ token, history, userText, onText, onToolUse
     for (const block of final.content) {
       if (block.type === 'tool_use') {
         onToolUse?.(block.name);
-        const out = await runTool(block.name, block.input, token);
-        results.push({ type: 'tool_result', tool_use_id: block.id, content: out });
+        const out = await runTool(block.name, block.input, token, prefs);
+        // Tools may return a plain string (for the model) or { content, card }
+        // where `card` is a structured payload the chat renders as a visual window.
+        const content = typeof out === 'string' ? out : out.content;
+        if (out && out.card) onToolResult?.(out.card);
+        results.push({ type: 'tool_result', tool_use_id: block.id, content });
       }
     }
     messages.push({ role: 'user', content: results });
