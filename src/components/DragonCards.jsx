@@ -18,6 +18,13 @@ function fmt(n) {
 const pct = (n) => `${Math.round(Number(n) || 0)}%`;
 const clamp = (n) => Math.max(0, Math.min(100, Number(n) || 0));
 
+function fmtGoalDate(s) {
+  if (!s) return s;
+  const d = new Date(s + 'T00:00:00');
+  if (isNaN(d.getTime())) return s;
+  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 function monthShort(ym) {
   const [y, m] = String(ym).split('-');
   const d = new Date(Number(y), Number(m) - 1, 1);
@@ -320,7 +327,7 @@ function GoalRow({ g }) {
         <p className="text-white text-sm font-semibold truncate flex items-center gap-1.5">
           {done ? '✅' : g.scope === 'business' ? '💼' : '🎯'} {g.name}
         </p>
-        {g.targetDate && <span className="text-slate-500 text-[10px] shrink-0">by {g.targetDate}</span>}
+        {g.targetDate && <span className="text-slate-500 text-[10px] shrink-0">by {fmtGoalDate(g.targetDate)}</span>}
       </div>
       <div className="h-2 bg-slate-700/60 rounded-full overflow-hidden">
         <div className={`h-full rounded-full ${barColor}`} style={{ width: `${clamp(g.progress)}%` }} />

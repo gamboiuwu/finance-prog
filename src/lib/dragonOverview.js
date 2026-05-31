@@ -227,6 +227,17 @@ export async function computeOverview(token, focus = 'all') {
   return ov;
 }
 
+// Convert a Google Sheets date serial (or already-string date) to YYYY-MM-DD.
+function sheetDateToISO(raw) {
+  const s = String(raw).trim();
+  const n = Number(s);
+  if (s && !isNaN(n) && n > 1000 && !s.includes('-') && !s.includes('/')) {
+    const d = new Date(Math.round((Math.floor(n) - 25569) * 86400000));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  }
+  return s;
+}
+
 // Parse raw Plans-sheet rows into goal objects for the visual Goals panel.
 // Tolerates cleared (deleted) rows by dropping any with no name/id.
 export function parsePlans(rows) {
@@ -254,7 +265,7 @@ export function parsePlans(rows) {
         target, saved,
         remaining:  round2(Math.max(0, target - saved)),
         perMonth:   toNum(r[iPer >= 0 ? iPer : 5]),
-        targetDate: String(r[iDate] ?? '').trim(),
+        targetDate: sheetDateToISO(String(r[iDate] ?? '').trim()),
         status:     String(r[iStatus] ?? 'active').toLowerCase().trim() || 'active',
         notes:      String(r[iNotes] ?? '').trim(),
         progress:   target > 0 ? round2((saved / target) * 100) : 0,
