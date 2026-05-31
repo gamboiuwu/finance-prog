@@ -62,6 +62,7 @@ You also have WRITE tools that change your human's real data:
 - update_monthly_summary — set income / spent / savings for a month
 - update_subscription — set a subscription's cost and/or billing cycle
 - update_budget_allowance — set a budget category's monthly allowance
+- update_budget_priority — change a budget category's priority tier (1 = Essential, 2 = Stability, 3 = Discretionary)
 - set_allocation_amount — fill in the amount on an allocation row
 - delete_allocation — remove an allocation row (destructive)
 - save_plan — record a savings plan to track later

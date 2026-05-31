@@ -66,43 +66,55 @@ function describe(el) {
   };
 }
 
-// Grab a frame of the current tab via the screen-capture API. Works without any
-// dependency and is immune to CSS parsing limits (it photographs real pixels).
-// Draws a red marker where the cursor was. Returns a JPEG data URL, or null.
-async function captureScreenshot(cursor) {
+// Grab a raw frame of the current tab (no crosshair drawn yet). Returns a JPEG data URL, or null.
+async function captureRaw() {
   if (!navigator.mediaDevices?.getDisplayMedia) return null;
   let stream;
   try {
     stream = await navigator.mediaDevices.getDisplayMedia({
       video: { displaySurface: 'browser' }, audio: false, preferCurrentTab: true,
     });
-  } catch { return null; }                              // user cancelled the picker
+  } catch { return null; }
   try {
     const video = document.createElement('video');
     video.srcObject = stream;
     video.muted = true;
     await video.play();
-    await new Promise(r => setTimeout(r, 180));         // let a frame paint
+    await new Promise(r => setTimeout(r, 180));
     const vw = video.videoWidth || window.innerWidth;
     const vh = video.videoHeight || window.innerHeight;
     const scale = Math.min(1, 1280 / vw);
     const cv = document.createElement('canvas');
     cv.width = Math.round(vw * scale);
     cv.height = Math.round(vh * scale);
-    const ctx = cv.getContext('2d');
-    ctx.drawImage(video, 0, 0, cv.width, cv.height);
-    // Map the recorded viewport cursor onto the captured frame.
-    const mx = (cursor.x / window.innerWidth) * cv.width;
-    const my = (cursor.y / window.innerHeight) * cv.height;
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = Math.max(2, cv.width / 400);
-    ctx.beginPath(); ctx.arc(mx, my, 16, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(mx - 26, my); ctx.lineTo(mx + 26, my);
-    ctx.moveTo(mx, my - 26); ctx.lineTo(mx, my + 26); ctx.stroke();
+    cv.getContext('2d').drawImage(video, 0, 0, cv.width, cv.height);
     return cv.toDataURL('image/jpeg', 0.7);
   } catch { return null; }
   finally { stream.getTracks().forEach(t => t.stop()); }
+}
+
+// Composite a red crosshair onto rawDataUrl at the given fractional position.
+function buildCompositeShot(rawDataUrl, pos) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const cv = document.createElement('canvas');
+      cv.width = img.width; cv.height = img.height;
+      const ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const mx = pos.xFrac * img.width;
+      const my = pos.yFrac * img.height;
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = Math.max(2, img.width / 400);
+      ctx.beginPath(); ctx.arc(mx, my, 16, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(mx - 26, my); ctx.lineTo(mx + 26, my);
+      ctx.moveTo(mx, my - 26); ctx.lineTo(mx, my + 26); ctx.stroke();
+      resolve(cv.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = () => resolve(rawDataUrl);
+    img.src = rawDataUrl;
+  });
 }
 
 export default function IssueReporter({ token }) {
@@ -110,7 +122,8 @@ export default function IssueReporter({ token }) {
   const [draft, setDraft] = useState(null);   // open report modal context
   const [comment, setComment] = useState('');
   const [severity, setSeverity] = useState('normal');
-  const [shot, setShot] = useState(null);
+  const [rawShot, setRawShot] = useState(null);
+  const [markerPos, setMarkerPos] = useState(null); // {xFrac, yFrac} normalized 0..1
   const [capturing, setCapturing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
@@ -154,27 +167,40 @@ export default function IssueReporter({ token }) {
       time: new Date().toISOString(),
       ua: navigator.userAgent,
     });
-    setComment(''); setSeverity('normal'); setShot(null);
+    setComment(''); setSeverity('normal'); setRawShot(null); setMarkerPos(null);
     setMenu(null);
   }
 
   async function attachShot() {
-    setCapturing(true);                 // hide our modal so it is not in the photo
+    setCapturing(true);
     await new Promise(r => setTimeout(r, 120));
-    const dataUrl = await captureScreenshot(draft.cursor);
+    const dataUrl = await captureRaw();
     setCapturing(false);
-    if (dataUrl) { setShot(dataUrl); flash('Screenshot attached'); }
-    else flash('Screenshot skipped or not supported');
+    if (dataUrl) {
+      setRawShot(dataUrl);
+      setMarkerPos({
+        xFrac: Math.max(0, Math.min(1, draft.cursor.x / window.innerWidth)),
+        yFrac: Math.max(0, Math.min(1, draft.cursor.y / window.innerHeight)),
+      });
+      flash('Screenshot attached — click image to move marker');
+    } else flash('Screenshot skipped or not supported');
+  }
+
+  function handleShotClick(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMarkerPos({
+      xFrac: (e.clientX - rect.left) / rect.width,
+      yFrac: (e.clientY - rect.top) / rect.height,
+    });
   }
 
   async function saveIssue() {
     setSaving(true);
-    const issue = { ...draft, comment: comment.trim(), severity, screenshot: shot };
+    let finalShot = null;
+    if (rawShot && markerPos) finalShot = await buildCompositeShot(rawShot, markerPos);
+    const issue = { ...draft, comment: comment.trim(), severity, screenshot: finalShot };
     const next = saveIssues([...loadIssues(), issue]);
     setCount(next.length);
-    // Best-effort durable copy of the text fields to the public Finance Issues sheet,
-    // which the daily routine reads with its API key. Screenshots stay local (kept out
-    // of the link-viewable sheet); they are still in the JSON export.
     if (token) {
       try {
         const range = encodeURIComponent('Sheet1!A:I');
@@ -186,7 +212,7 @@ export default function IssueReporter({ token }) {
             body: JSON.stringify({ values: [[
               issue.time, issue.route, issue.severity, issue.selector || issue.tag || '',
               (issue.text || '').slice(0, 200), issue.comment,
-              shot ? 'captured (in local export)' : 'none', issue.ua, '',
+              rawShot ? 'captured (in local export)' : 'none', issue.ua, '',
             ]] }),
           }
         );
@@ -260,11 +286,25 @@ export default function IssueReporter({ token }) {
             </div>
 
             {/* Screenshot */}
-            {shot ? (
-              <div className="relative">
-                <img src={shot} alt="Issue screenshot" className="w-full rounded-lg border border-slate-700" />
-                <button onClick={() => setShot(null)}
-                  className="absolute top-2 right-2 bg-slate-900/80 text-slate-200 text-xs px-2 py-1 rounded-lg">Remove</button>
+            {rawShot ? (
+              <div>
+                <div className="relative cursor-crosshair rounded-lg overflow-hidden border border-slate-700"
+                     onClick={handleShotClick}>
+                  <img src={rawShot} alt="Issue screenshot" className="w-full block" />
+                  {markerPos && (
+                    <div className="absolute pointer-events-none"
+                         style={{ left: `${markerPos.xFrac * 100}%`, top: `${markerPos.yFrac * 100}%`, transform: 'translate(-50%,-50%)' }}>
+                      <div className="relative w-8 h-8">
+                        <div className="absolute inset-0 rounded-full border-2 border-red-500" />
+                        <div className="absolute top-1/2 left-0 w-full h-px bg-red-500 -translate-y-px" />
+                        <div className="absolute left-1/2 top-0 w-px h-full bg-red-500 -translate-x-px" />
+                      </div>
+                    </div>
+                  )}
+                  <button onClick={e => { e.stopPropagation(); setRawShot(null); setMarkerPos(null); }}
+                    className="absolute top-2 right-2 bg-slate-900/80 text-slate-200 text-xs px-2 py-1 rounded-lg">Remove</button>
+                </div>
+                <p className="text-slate-500 text-[10px] mt-1 text-center">Click image to reposition the marker</p>
               </div>
             ) : (
               <button onClick={attachShot}

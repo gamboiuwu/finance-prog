@@ -6,7 +6,7 @@
 import { readRange } from './sheets';
 import { SHEETS } from '../config';
 import {
-  recalcMonthlySummary, updateSubscription, updateBudgetAllowance,
+  recalcMonthlySummary, updateSubscription, updateBudgetAllowance, updateBudgetPriority,
   setAllocationAmount, deleteAllocation,
   readPlans, savePlan, updatePlanProgress, deletePlan, applyPlanToBudget,
 } from './sheetWrite';
@@ -99,6 +99,19 @@ export const TOOLS = [
         monthly_allowance: { type: 'number', description: 'New monthly allowance.' },
       },
       required: ['type', 'monthly_allowance'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'update_budget_priority',
+    description: "Change the priority tier of a budget category (1 = Essential, 2 = Stability, 3 = Discretionary). Matched by Type name. Confirm the change with the user first.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        type:     { type: 'string', description: 'Budget category Type/name.' },
+        priority: { type: 'number', description: 'New priority: 1, 2, or 3.' },
+      },
+      required: ['type', 'priority'],
       additionalProperties: false,
     },
   },
@@ -290,6 +303,10 @@ export async function runTool(name, input, token, prefs = {}) {
       case 'update_budget_allowance': {
         const matched = await updateBudgetAllowance(token, { type: input.type, monthlyAllowance: input.monthly_allowance });
         return `OK: set "${matched}" monthly allowance to ${input.monthly_allowance}.`;
+      }
+      case 'update_budget_priority': {
+        const matched = await updateBudgetPriority(token, { type: input.type, priority: input.priority });
+        return `OK: set "${matched}" priority to ${input.priority}.`;
       }
       case 'set_allocation_amount': {
         const row = await setAllocationAmount(token, { month: input.month, category: input.category, account: input.account, amount: input.amount });

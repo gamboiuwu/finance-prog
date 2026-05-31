@@ -1066,7 +1066,7 @@ ${stmtTxns.length ? `
         for (let d = 1; d <= daysInMo; d++) cells.push(d);
 
         return (
-          <div className="bg-slate-800 rounded-2xl p-3 space-y-3">
+          <div className="bg-slate-800 rounded-2xl p-2.5 space-y-2">
             {/* Calendar header */}
             <div className="flex items-center justify-between">
               <button onClick={() => setCalMonth(prev => {
@@ -1083,9 +1083,9 @@ ${stmtTxns.length ? `
             </div>
 
             {/* Day labels */}
-            <div className="grid grid-cols-7 gap-0.5">
+            <div className="grid grid-cols-7 gap-0">
               {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
-                <div key={d} className="text-center text-[9px] text-slate-500 uppercase tracking-wider py-0.5">{d}</div>
+                <div key={d} className="text-center text-[9px] text-slate-500 uppercase tracking-wider py-0">{d}</div>
               ))}
               {cells.map((d, i) => {
                 if (!d) return <div key={`e-${i}`} />;

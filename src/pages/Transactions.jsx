@@ -223,8 +223,9 @@ export default function Transactions({ token }) {
           r[6] = i + 2;
           return r;
         });
-        setRows(patched.filter(r => r[0]).reverse());
-        setCategories([...new Set(txRows.map(r => r[1]).filter(Boolean))]);
+        const isSheetError = v => typeof v === 'string' && v.startsWith('#');
+        setRows(patched.filter(r => r[0] && !isSheetError(r[1]) && !isSheetError(r[2])).reverse());
+        setCategories([...new Set(txRows.map(r => r[1]).filter(v => v && !isSheetError(v)))]);
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
