@@ -222,6 +222,15 @@ function TrendChartCard({ data, expanded, onToggle }) {
               <span>6-mo avg net</span>
               <span className={avgNet >= 0 ? 'text-teal-400 font-medium' : 'text-rose-400 font-medium'}>{avgNet >= 0 ? '+' : ''}${avgNet.toFixed(0)}/mo</span>
             </div>
+            <p className={`italic pt-1 ${incDelta > 0 && sptDelta <= 0 ? 'text-emerald-300' : incDelta > 0 ? 'text-teal-300' : sptDelta <= 0 ? 'text-amber-300' : 'text-slate-500'}`}>
+              {incDelta > 0 && sptDelta <= 0
+                ? 'Income up, expenses down — great discipline! 🐉'
+                : incDelta > 0
+                  ? 'Income is trending up — keep the momentum going!'
+                  : sptDelta <= 0
+                    ? 'Expenses are down — you\'re making smart calls.'
+                    : 'Income dipped — one strong month flips this chart.'}
+            </p>
           </div>
         </>
       )}
@@ -262,6 +271,7 @@ export default function Dashboard({ token }) {
   const [stmtLoading, setStmtLoading]   = useState(false);
   const [stmtTxns, setStmtTxns]         = useState([]);
   const [stmtError, setStmtError]       = useState(null);
+  const [stmtFromClose, setStmtFromClose] = useState(false);
   const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0, dueAlerts: [] });
   const [allocTotals, setAllocTotals]   = useState({ income: 0, spent: 0 });
   const [healthScore, setHealthScore]   = useState({ total: 0, signals: [], history: [], loaded: false });
@@ -2101,8 +2111,12 @@ ${stmtTxns.length ? `
 
       {/* ── Month Close modal ───────────────────────────────── */}
       {showMonthClose && (() => {
-        const totalAllowance = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
-        const coveragePct    = totalAllowance > 0 ? (income / totalAllowance) * 100 : 0;
+        const totalAllowance  = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+        const closeMonthRow   = allMonths.find(m => m['Month'] === closeMonth);
+        const closeIncome     = pm(closeMonthRow?.['Total Processed Income']);
+        const closeSpent      = pm(closeMonthRow?.['Total Spent']);
+        const closeNet        = closeIncome - closeSpent;
+        const coveragePct     = totalAllowance > 0 ? (closeIncome / totalAllowance) * 100 : 0;
         const priGroups = ['1','2','3'].map(p => {
           const items = expenses.filter(e => String(e['Priority'] ?? '3') === p && pm(e['Monthly Allowance ($)']) > 0);
           return {
@@ -2126,9 +2140,9 @@ ${stmtTxns.length ? `
               {/* Month summary */}
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: 'Income',    value: fmt(income), color: 'text-emerald-400' },
-                  { label: 'Spent',     value: fmt(spent),  color: 'text-rose-400'    },
-                  { label: 'Net Flow',  value: fmt(net),    color: net >= 0 ? 'text-emerald-400' : 'text-rose-400' },
+                  { label: 'Income',    value: fmt(closeIncome), color: 'text-emerald-400' },
+                  { label: 'Spent',     value: fmt(closeSpent),  color: 'text-rose-400'    },
+                  { label: 'Net Flow',  value: fmt(closeNet),    color: closeNet >= 0 ? 'text-emerald-400' : 'text-rose-400' },
                   { label: 'Coverage',  value: `${coveragePct.toFixed(0)}%`, color: coveragePct >= 100 ? 'text-emerald-400' : 'text-amber-400' },
                 ].map(({ label, value, color }) => (
                   <div key={label} className="bg-slate-800 rounded-2xl p-4">
@@ -2172,7 +2186,7 @@ ${stmtTxns.length ? `
               </div>
 
               <button
-                onClick={openStatement}
+                onClick={() => { openStatement(); setStmtFromClose(true); }}
                 className="w-full py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors border border-slate-700"
               >
                 📄 View Full {closeMonth} Statement First
@@ -2227,8 +2241,21 @@ ${stmtTxns.length ? `
                     🖨 Save PDF
                   </button>
                 )}
+                {stmtFromClose && (
+                  <button
+                    onClick={() => {
+                      setShowStatement(false);
+                      setStmtFromClose(false);
+                      setShowMonthClose(false);
+                      localStorage.setItem(`closed_${closeMonth}_${closeYear}`, 'true');
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+                  >
+                    ✓ Close {closeMonth}
+                  </button>
+                )}
                 <button
-                  onClick={() => setShowStatement(false)}
+                  onClick={() => { setShowStatement(false); setStmtFromClose(false); }}
                   className="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-base transition-colors"
                 >✕</button>
               </div>

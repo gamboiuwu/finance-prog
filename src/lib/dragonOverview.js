@@ -254,7 +254,16 @@ export function parsePlans(rows) {
         target, saved,
         remaining:  round2(Math.max(0, target - saved)),
         perMonth:   toNum(r[iPer >= 0 ? iPer : 5]),
-        targetDate: String(r[iDate] ?? '').trim(),
+        targetDate: (() => {
+          const raw = String(r[iDate] ?? '').trim();
+          if (/^\d+$/.test(raw)) {
+            const n = parseInt(raw, 10);
+            if (n > 10000) {
+              return new Date(Math.round((n - 25569) * 86400000)).toISOString().slice(0, 10);
+            }
+          }
+          return raw;
+        })(),
         status:     String(r[iStatus] ?? 'active').toLowerCase().trim() || 'active',
         notes:      String(r[iNotes] ?? '').trim(),
         progress:   target > 0 ? round2((saved / target) * 100) : 0,
