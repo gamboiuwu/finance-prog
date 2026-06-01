@@ -105,7 +105,7 @@ src/
 ## Task Tracking
 Maintained in Google Drive doc "Finance Tracker – Updates & Task Plans" (auto-updated by Claude).
 Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTzptqo`
-**Current task doc ID**: `1EV2Gsx6KiQD-VR3zcneEWjhKiim2-fjhW-L1lSFrg4Q` (updated 2026-05-31)
+**Current task doc ID**: `1dZzEbsAjAch2nFCsbOedT4AEVjqwaSEjx3PTl34tans` (updated 2026-06-01)
 
 ### Task Status
 | # | Task | Status |
