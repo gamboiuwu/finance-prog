@@ -127,17 +127,20 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 | 15 | Tax Prep Summary | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 | 16 | Recurring Income Forecast | ⏳ Plan written 2026-05-28, awaiting Execute Y/N |
 | 17 | 6-Month Income vs Expense Trend Chart | ✅ COMPLETED + VERIFIED (2026-05-29) |
-| 18 | Monthly Journal / Memo per Month | ✅ COMPLETED + VERIFIED (2026-05-31) |
+| 18 | Monthly Journal / Memo per Month | ✅ COMPLETED + VERIFIED + DOUBLE-CHECKED (2026-06-01) |
 | 19 | Split Transaction Entry | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
 | 20 | Payday Tracker & Days-Until-Paycheck | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
 | 21 | Budget Category Notes & Annotations | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
-| 22 | Subscription Renewal Push Notifications | ⏳ Plan written 2026-05-29, awaiting Execute Y/N |
+| 22 | Subscription Renewal Push Notifications | ✅ COMPLETED + VERIFIED (2026-06-01) |
 | 23 | Bill Due-Date Alerts (Funding Reminders) | ✅ COMPLETED + VERIFIED + DOUBLE-CHECKED (2026-05-31) |
 | 24 | Spending Calendar Heatmap | ⏳ Plan written 2026-05-30, awaiting Execute Y/N |
 | 25 | Budget Category Reorder & Pinning | ⏳ Plan written 2026-05-30, awaiting Execute Y/N |
 | 26 | Debt Payoff Tracker | ⏳ Plan expanded 2026-05-31, awaiting Execute Y/N |
 | 27 | Income Source Tagging | ⏳ Plan written 2026-05-30, awaiting Execute Y/N |
 | 28 | Monthly Budget Rollover | ⏳ Plan written 2026-05-30, awaiting Execute Y/N |
+| 29 | Mobile Quick-Entry Floating Button | ⏳ Plan written 2026-06-01, awaiting Execute Y/N |
+| 30 | Full Data Backup & Restore | ⏳ Plan written 2026-06-01, awaiting Execute Y/N |
+| 31 | Smart Budget Insights (Auto-Detected) | ⏳ Plan written 2026-06-01, awaiting Execute Y/N |
 
 ### Task Plans Summary (for quick reference)
 - **Task 6**: ✅ VERIFIED. Nav badge on Budget item + amber alert banner on Dashboard + "Not yet funded" chip row in CategoryView. Uses localStorage (_fin_budget_alert) + custom event for same-tab sync.
@@ -156,15 +159,28 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 - **Task 19**: Split Transaction Entry — log one payment across multiple categories in one flow. Q: Max 3 or 5 splits? Visual link indicator? Fixed total or per-row amounts?
 - **Task 20**: Payday Tracker — "Days until paycheck" chip + spending-pace warning. localStorage only. Q: pay schedule type? which pages to show on? payday push notification?
 - **Task 21**: Budget Category Notes — per-category sticky notes in Budget Categories tab. localStorage (_fin_cat_notes). Q: tied to item or expense group? persist month-to-month?
-- **Task 22**: Subscription Renewal Push Notifications — notify N days before renewal using existing Notification API. localStorage (_fin_sub_notif_config, _fin_sub_notif_sent). Q: lead time global or per-sub? opt-out per sub?
+- **Task 22**: ✅ COMPLETED + VERIFIED (2026-06-01). On Dashboard load, scans subscriptions for renewals within `leadDays` (default 3). Fires grouped push notification for qualifying subs not already notified today. Dedup: `_fin_sub_notif_sent = { "YYYY-MM-DD": ["Sub1",...] }`. Lead-time config: `_fin_sub_notif_config = { leadDays: N }`. Settings row in Subscriptions modal list view: 🔔 1d/3d/7d pill buttons. `subNotifLeadDays` state in Dashboard. Notification uses same Notification API permission as health score (Task 10). useEffect depends on `[subscriptions]`; reads lead days from localStorage inside effect.
 - **Task 23**: ✅ COMPLETED + VERIFIED + DOUBLE-CHECKED (2026-05-31). localStorage `_fin_due_dates = { "TypeName": dayNum }`. Budget→Categories `CategoryItemCard`: per-item "📅 Due Xth" chip (tap to open select 1-31 + "No date"); shows "⚠ Past due" (rose) or "⏰ Due in Nd" (amber) badges when unfunded. Dashboard banner: `dueAlerts[]` computed as unfunded items with `0 <= diff <= 3` days. ProcessIncome: badges in allocation rows. All 3 files verified: Budget.jsx:46-546, Dashboard.jsx:362-375+818-821, ProcessIncome.jsx:100-655.
 - **Task 26**: Debt Payoff Tracker — "Debts" sheet tab (Name|Type|Balance|InterestRate|MinPayment|Account|TargetDate|Notes). Dashboard card: total debt, # accounts, total min payment (rose if debt > income). Per-debt detail: months to payoff at min vs +$X extra (slider), interest saved. Toggle Avalanche (highest APR) vs Snowball (smallest balance) order — shows total interest difference between strategies. Milestones at 25/50/75/100% → push notification, stored `_fin_debt_milestones`. "Log Payment" → updates Balance in sheet + logs to Allocation Transactions. Q: what debt types do you have? standalone page or Dashboard card? show avalanche/snowball interest difference? payments reduce budget allocation?
 - **Task 27**: Income Source Tagging — Tag processed income rows by source (Paycheck/Commission/Business/etc.) using `[Source]` prefix in Description column of Allocation Transactions. No schema change. Dashboard mini-breakdown by source. ProcessIncome source chips above Description field. Q: sources list? breakdown placement? untagged rows handling?
 - **Task 28**: Monthly Budget Rollover — Per-category rollover toggle in Budget→Categories. Unused allocation carries to next month. Storage: `_fin_rollover_cats` (enabled categories array) + `_fin_rollover_credit = { "YYYY-M": { "TypeName": amount } }`. Rollover credit shown as "+$X.XX rollover from last month" in category cards. Q: which categories? credit counts toward goal or bonus? reset on toggle-off?
 - **Task 24**: Spending Calendar Heatmap — monthly heatmap grid (7-col week layout) colored by daily transaction intensity (pale→deep rose). Tap day = micro-tooltip with category breakdown. Reuses existing Allocation Transactions data. Collapsible Dashboard card or Budget→Entries sub-view. Q: Dashboard vs Budget Entries? Show income days differently? Month navigation?
 - **Task 25**: Budget Category Reorder & Pinning — 📌 pin per category card floats it to top of its priority group. Drag-or-arrows reorder within tiers. localStorage `_fin_cat_order = { "TypeName": sortIndex }`. Reset to default button. Q: drag-and-drop vs up/down arrows? Visual pin indicator? Order persists across months?
+- **Task 29**: Mobile Quick-Entry Floating Button — FAB "+" button fixed bottom-right on all pages. Opens compact bottom-sheet for fast transaction entry (Date, Category/Type dropdown from Monthly Expenses, Amount, Description, Account, Done toggle). Saves directly to Allocation Transactions. Zero new sheet columns. Q: which pages should FAB appear? Auto-fill today's date or pick? Confirmation toast or silent save?
+- **Task 30**: Full Data Backup & Restore — Reads all 7 sheet tabs into a single JSON object and triggers browser download as `finance-backup-YYYY-MM-DD.json`. Restore: file-picker uploads JSON and re-writes each sheet in batch. Useful before major changes. No new sheets needed. Q: include Business Products/Transactions in backup, or just the financial/transaction sheets? Password-protect the export file? Restore should warn before overwriting existing data?
+- **Task 31**: Smart Budget Insights (Auto-Detected) — A collapsible "💡 Insights" card on Dashboard showing 2-3 automatically-detected patterns using already-loaded data. Example insights: "Groceries is 23% over last month", "At this pace, Emergency Fund funded in ~4 months", "Subscriptions are 18% of income — highest category", "You haven't allocated to [P1 item] yet this month". All pure math on existing chartData + allocTotals + expenses. Zero new API calls. Q: show on Dashboard always or collapsible? max how many insights to show at once? should insights be dismissible?
 
-## Month Note System (Task 18) — VERIFIED 2026-05-31
+## Subscription Notification System (Task 22) — COMPLETED 2026-06-01
+- localStorage key: `_fin_sub_notif_config = { leadDays: N }` (default 3; options: 1, 3, 7)
+- localStorage key: `_fin_sub_notif_sent = { "YYYY-MM-DD": ["SubName1", "SubName2"] }` (dedup)
+- Dashboard state: `subNotifLeadDays` (lazy init from localStorage)
+- useEffect `[subscriptions]` — fires after subscriptions load; reads leadDays from localStorage inside effect
+- Notification content: single sub → "🔁 {Name} renews {today/tomorrow/in Nd}" + "$X cycle"; multiple → "🔁 N subscriptions renewing soon" + names list
+- `tag: 'fin-sub-renew'` prevents duplicate OS-level notifications
+- Settings UI: "🔔 Notify before renewal" row in Subscriptions modal list view → 1d/3d/7d pill buttons
+- Shares Notification API permission with health score (Task 10); calls requestPermission if not yet granted
+
+## Month Note System (Task 18) — VERIFIED + DOUBLE-CHECKED 2026-06-01
 - localStorage key: `_fin_month_notes = { "YYYY-M": "text" }` e.g. `"2026-5": "Big tax month"`
 - Dashboard state: `monthNote` (lazy init), `showNoteDrawer` (bool), `noteInput` (string)
 - `saveMonthNote(text)` writes/deletes the key for `${now.getFullYear()}-${now.getMonth()+1}`

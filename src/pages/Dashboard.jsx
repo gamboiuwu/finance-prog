@@ -276,6 +276,9 @@ export default function Dashboard({ token }) {
   });
   const [showNoteDrawer, setShowNoteDrawer] = useState(false);
   const [noteInput, setNoteInput]           = useState('');
+  const [subNotifLeadDays, setSubNotifLeadDays] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('_fin_sub_notif_config') || '{}').leadDays ?? 3; } catch { return 3; }
+  });
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -461,6 +464,36 @@ export default function Dashboard({ token }) {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [token]);
+
+  // Task 22: fire subscription renewal push notifications on load (once per day per sub)
+  useEffect(() => {
+    if (!subscriptions.length) return;
+    if (typeof Notification === 'undefined' || Notification.permission === 'denied') return;
+    const today = new Date().toISOString().slice(0, 10);
+    let sent = {};
+    try { sent = JSON.parse(localStorage.getItem('_fin_sub_notif_sent') || '{}'); } catch {}
+    const todaySent = sent[today] || [];
+    let leadDays = 3;
+    try { leadDays = JSON.parse(localStorage.getItem('_fin_sub_notif_config') || '{}').leadDays ?? 3; } catch {}
+    const qualifying = subscriptions
+      .map(s => ({ ...s, days: daysUntil(nextRenewal(s['Start Date'], (s['Cycle'] || 'monthly').toLowerCase())) }))
+      .filter(s => s.days !== null && s.days >= 0 && s.days <= leadDays && !todaySent.includes(s['Name']));
+    if (!qualifying.length) return;
+    const doNotify = () => {
+      try {
+        const title = qualifying.length === 1
+          ? `🔁 ${qualifying[0]['Name']} renews ${qualifying[0].days === 0 ? 'today' : qualifying[0].days === 1 ? 'tomorrow' : `in ${qualifying[0].days} days`}`
+          : `🔁 ${qualifying.length} subscriptions renewing soon`;
+        const body = qualifying.length === 1
+          ? `$${parseFloat(qualifying[0]['Amount'] || 0).toFixed(2)} ${(qualifying[0]['Cycle'] || 'monthly').toLowerCase()}`
+          : qualifying.map(s => `${s['Name']} (${s.days === 0 ? 'today' : `${s.days}d`})`).join(', ');
+        new Notification(title, { body, tag: 'fin-sub-renew' });
+        localStorage.setItem('_fin_sub_notif_sent', JSON.stringify({ ...sent, [today]: [...todaySent, ...qualifying.map(s => s['Name'])] }));
+      } catch {}
+    };
+    if (Notification.permission === 'granted') doNotify();
+    else Notification.requestPermission().then(p => { if (p === 'granted') doNotify(); });
+  }, [subscriptions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <LoadingSpinner />;
   if (error)   return <div className="p-4 text-red-400">Error: {error}</div>;
@@ -1680,6 +1713,22 @@ ${stmtTxns.length ? `
                         </div>
                       );
                     })()}
+
+                    {/* Notification lead-time setting */}
+                    <div className="flex items-center justify-between bg-slate-700/30 rounded-xl px-3 py-2">
+                      <span className="text-slate-400 text-xs">🔔 Notify before renewal</span>
+                      <div className="flex gap-1">
+                        {[1, 3, 7].map(d => (
+                          <button key={d}
+                            onClick={() => {
+                              setSubNotifLeadDays(d);
+                              try { localStorage.setItem('_fin_sub_notif_config', JSON.stringify({ leadDays: d })); } catch {}
+                            }}
+                            className={`px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${subNotifLeadDays === d ? 'bg-teal-600 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}
+                          >{d}d</button>
+                        ))}
+                      </div>
+                    </div>
 
                     {subs.map((s, i) => {
                       const cycle    = (s['Cycle'] || 'monthly').toLowerCase();
