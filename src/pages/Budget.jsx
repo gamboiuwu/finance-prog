@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { readRange, batchUpdateCells, appendRow } from '../lib/sheets';
 import { SHEETS, MONTHS } from '../config';
+import { fetchGasPrices } from '../lib/gasPrice';
+import { computeGasBudget, saveGasBudget, getGasBudget } from '../lib/gasBudget';
 import LoadingSpinner from '../components/LoadingSpinner';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
@@ -9,6 +11,16 @@ import {
 
 const EXPENSE_TYPES = ['Essentials', 'Discretionary', 'Savings', 'Stability', 'Subscription'];
 const ACCOUNTS      = ['Checking', 'Outside Payment', 'Cash', 'Savings', 'Business Tax', 'Subscription'];
+
+const isGasType = name => String(name || '').trim().toLowerCase() === 'gas';
+// Goal/allowance for a budget item, applying the live dynamic gas budget for Gas.
+function itemGoal(item) {
+  if (isGasType(item['Type'])) {
+    const v = getGasBudget()?.value;
+    if (v > 0) return v;
+  }
+  return pm(item['Monthly Allowance ($)']);
+}
 
 const CAT_COLORS = {
   Essentials:    '#3b82f6',
@@ -358,7 +370,7 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
 function BudgetCard({ item, onEdit }) {
   const p   = String(item['Priority'] ?? '3');
   const pri = PRI[p] || PRI['3'];
-  const allowance  = pm(item['Monthly Allowance ($)']);
+  const allowance  = itemGoal(item);
   const spent      = pm(item['Actual Spend']);
   const remaining  = allowance - spent;
   const pct        = allowance > 0 ? Math.min((spent / allowance) * 100, 100) : 0;
@@ -667,7 +679,7 @@ function CategoryItemCard({ item, allocated, budgeted }) {
 function CategoryGroup({ label, items, allocByType }) {
   const [open, setOpen] = useState(true);
   const color  = CAT_COLORS[label] || '#64748b';
-  const totalB = items.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0);
+  const totalB = items.reduce((s, i) => s + itemGoal(i), 0);
   const totalA = items.reduce((s, i) => s + (allocByType[i['Type'] || ''] || 0), 0);
   const over   = totalA > totalB && totalB > 0;
   const pct    = totalB > 0 ? Math.min((totalA / totalB) * 100, 100) : 0;
@@ -714,7 +726,7 @@ function CategoryGroup({ label, items, allocByType }) {
               key={item._rowNum}
               item={item}
               allocated={allocByType[item['Type'] || ''] || 0}
-              budgeted={pm(item['Monthly Allowance ($)'])}
+              budgeted={itemGoal(item)}
             />
           ))}
         </div>
@@ -727,7 +739,7 @@ const CAT_ORDER = ['Essentials', 'Stability', 'Discretionary', 'Subscription'];
 
 // ── By Category view ──────────────────────────────────────────────────────────
 
-function CategoryView({ items, allocTx }) {
+function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
   const [showSavings, setShowSavings] = useState(false);
 
   const allocByType = useMemo(() => {
@@ -735,8 +747,13 @@ function CategoryView({ items, allocTx }) {
     allocTx.forEach(tx => {
       if (tx.amount > 0) map[tx.type] = (map[tx.type] || 0) + tx.amount;
     });
+    // Gas tracks an all-time running balance, not just this month's deposits.
+    const gasKey = Object.keys(map).find(k => isGasType(k));
+    const gasName = items.find(i => isGasType(i['Type']))?.['Type'];
+    if (gasName) map[gasName] = Math.max(0, gasBalanceAllTime);
+    else if (gasKey) map[gasKey] = Math.max(0, gasBalanceAllTime);
     return map;
-  }, [allocTx]);
+  }, [allocTx, gasBalanceAllTime, items]);
 
   const mainItems    = items.filter(i => i['Expense'] !== 'Savings');
   const savingsItems = items.filter(i => i['Expense'] === 'Savings');
@@ -756,7 +773,7 @@ function CategoryView({ items, allocTx }) {
     ...Object.keys(groups).filter(k => !CAT_ORDER.includes(k)),
   ];
 
-  const totalB  = mainItems.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0);
+  const totalB  = mainItems.reduce((s, i) => s + itemGoal(i), 0);
   const totalA  = mainItems.reduce((s, i) => s + (allocByType[i['Type'] || ''] || 0), 0);
   const overAll = totalA > totalB && totalB > 0;
   const pctAll  = totalB > 0 ? Math.min((totalA / totalB) * 100, 100) : 0;
@@ -1110,6 +1127,7 @@ export default function Budget({ token }) {
   const [pi, setPi]               = useState(0);
   const [allocTx, setAllocTx]       = useState([]);
   const [allAllocTx, setAllAllocTx] = useState([]);
+  const [gasBudget, setGasBudget]   = useState(() => getGasBudget()?.value ?? null);
   const [activeTab, setActiveTab]   = useState('budget');
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
@@ -1183,6 +1201,25 @@ export default function Budget({ token }) {
 
   useEffect(() => { if (token) load(); }, [token, load]);
 
+  // Keep the dynamic gas budget fresh (cached 1 h by fetchGasPrices, so cheap).
+  useEffect(() => {
+    let cancelled = false;
+    fetchGasPrices()
+      .then(gas => {
+        if (cancelled || !gas) return;
+        const nyc = gas.byRegion['Y35NY']?.products['EPMR']?.value;
+        if (!nyc || nyc <= 0) return;
+        const cachedMpg = getGasBudget()?.mpg;
+        const budget = computeGasBudget({ gasPerGal: nyc, mpg: cachedMpg });
+        if (budget) {
+          setGasBudget(budget);
+          saveGasBudget(budget, { gasPerGal: nyc, ...(cachedMpg ? { mpg: cachedMpg } : {}) });
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
+
   async function handleSave(fields) {
     setSaving(true);
     setSaveError(null);
@@ -1238,15 +1275,26 @@ export default function Budget({ token }) {
   // vs. starting to be funded (partial), independent of which tab they're on.
   const fundingByType = {};
   allocTx.forEach(tx => { if (tx.amount > 0) fundingByType[tx.type] = (fundingByType[tx.type] || 0) + tx.amount; });
+
+  // Gas is special: it uses an ALL-TIME running balance (deposits − fill-ups), not
+  // monthly deposits, and its goal is the live dynamic budget (~$185), not the sheet $120.
+  const gasBalanceAllTime = allAllocTx
+    .filter(tx => String(tx.type).trim().toLowerCase() === 'gas')
+    .reduce((s, tx) => s + tx.amount, 0);
+  const isGas = i => String(i['Type'] || '').trim().toLowerCase() === 'gas';
+  // Effective goal & funded amount for an item, with gas overrides applied.
+  const effGoal = i => (isGas(i) && gasBudget > 0) ? gasBudget : pm(i['Monthly Allowance ($)']);
+  const effFunded = i => isGas(i) ? Math.max(0, gasBalanceAllTime) : (fundingByType[i['Type'] || ''] || 0);
+
   const essentialItems = items.filter(i =>
     String(i['Priority'] ?? '3') === '1' &&
-    pm(i['Monthly Allowance ($)']) > 0 &&
+    effGoal(i) > 0 &&
     i['Expense'] !== 'Savings'
   );
-  const unfundedEssentials = essentialItems.filter(i => !((fundingByType[i['Type'] || ''] || 0) > 0));
+  const unfundedEssentials = essentialItems.filter(i => !(effFunded(i) > 0));
   const partialEssentials  = essentialItems.filter(i => {
-    const a = fundingByType[i['Type'] || ''] || 0;
-    const b = pm(i['Monthly Allowance ($)']);
+    const a = effFunded(i);
+    const b = effGoal(i);
     return a > 0 && a < b - 0.005;
   });
 
@@ -1301,7 +1349,7 @@ export default function Budget({ token }) {
                   {unfundedEssentials.map(item => (
                     <span key={item._rowNum} className="text-rose-200 bg-rose-900/50 border border-rose-800/40 text-xs px-2 py-1 rounded-lg">
                       <span className="font-medium">{item['Type']}</span>
-                      <span className="text-rose-400/80 ml-1.5 font-mono">$0 / {fmt(pm(item['Monthly Allowance ($)']))}</span>
+                      <span className="text-rose-400/80 ml-1.5 font-mono">$0 / {fmt(effGoal(item))}</span>
                       {item['Account'] && <span className="text-rose-500/60 ml-1.5 text-[10px]">→ {item['Account']}</span>}
                     </span>
                   ))}
@@ -1316,8 +1364,8 @@ export default function Budget({ token }) {
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {partialEssentials.map(item => {
-                    const a = fundingByType[item['Type'] || ''] || 0;
-                    const b = pm(item['Monthly Allowance ($)']);
+                    const a = effFunded(item);
+                    const b = effGoal(item);
                     const p = b > 0 ? Math.round((a / b) * 100) : 0;
                     return (
                       <span key={item._rowNum} className="text-amber-200 bg-amber-900/40 border border-amber-800/40 text-xs px-2 py-1 rounded-lg">
@@ -1398,7 +1446,7 @@ export default function Budget({ token }) {
 
         {/* ── By Category tab ── */}
         {activeTab === 'categories' && (
-          <CategoryView items={items} allocTx={allocTx} />
+          <CategoryView items={items} allocTx={allocTx} gasBalanceAllTime={gasBalanceAllTime} />
         )}
 
         {/* ── Entries & Trends tab ── */}

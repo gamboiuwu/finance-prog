@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { readRange } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
+import { computeGasBudget, saveGasBudget } from '../lib/gasBudget';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -496,6 +497,15 @@ export default function Summary({ token }) {
   }, [expRows]);
   const c = useMemo(() => computeAll(expenses, sv, allocRows, livePrice, livePeriod), [expenses, sv, allocRows, livePrice, livePeriod]);
   const insights = useMemo(() => buildInsights(c), [c]);
+
+  // Cache the dynamic gas budget (with the user's real mpg from the sheet) so the
+  // Dashboard / Budget / ProcessIncome all reflect the same ~$185 reserve.
+  useEffect(() => {
+    if (c.gasPerGal > 0) {
+      const budget = computeGasBudget({ gasPerGal: c.gasPerGal, mpg: c.mpg });
+      if (budget) saveGasBudget(budget, { gasPerGal: c.gasPerGal, mpg: c.mpg });
+    }
+  }, [c.gasPerGal, c.mpg]);
 
   if (loading) return <LoadingSpinner />;
   if (error)   return <div className="p-4 text-red-400">Error: {error}</div>;

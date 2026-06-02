@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { readRange, readReportLinks, appendRow, ensureSheetTab, batchUpdateCells, clearRow } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
+import { computeGasBudget, saveGasBudget, getGasBudget } from '../lib/gasBudget';
 import { SHEETS, MONTHS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ProcessIncome from '../components/ProcessIncome';
@@ -253,6 +254,7 @@ export default function Dashboard({ token }) {
   const [gasLogging, setGasLogging]     = useState(false);
   const [gasLogDone, setGasLogDone]     = useState(false);
   const [gasBalance, setGasBalance]     = useState(null);
+  const [gasBudget, setGasBudget]       = useState(() => getGasBudget()?.value ?? null);
   const [showExpLog, setShowExpLog]     = useState(false);
   const [expAmount, setExpAmount]       = useState('');
   const [expCategory, setExpCategory]   = useState('');
@@ -403,11 +405,12 @@ export default function Dashboard({ token }) {
               const b = pm(i['Monthly Allowance ($)']);
               return b > 0 && (abt[i['Type'] || ''] || 0) > b;
             }).length;
-            const needsCount = mainExp.filter(i =>
-              String(i['Priority'] ?? '3') === '1' &&
-              pm(i['Monthly Allowance ($)']) > 0 &&
-              !(abt[i['Type'] || ''] > 0)
-            ).length;
+            const needsCount = mainExp.filter(i => {
+              if (String(i['Priority'] ?? '3') !== '1' || pm(i['Monthly Allowance ($)']) <= 0) return false;
+              // Gas funds from its all-time running balance, not monthly deposits.
+              if (String(i['Type'] || '').trim().toLowerCase() === 'gas') return gasBal <= 0;
+              return !(abt[i['Type'] || ''] > 0);
+            }).length;
             let dueDateMap = {};
             try { dueDateMap = JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch {}
             const todayDay = new Date().getDate();
@@ -544,6 +547,16 @@ export default function Dashboard({ token }) {
         if (cancelled || !gas) return;
         const nyc = gas.byRegion['Y35NY']?.products['EPMR']?.value;
         setGasPrice({ value: nyc, period: gas.period });
+        // Recompute the dynamic gas budget from the live price and cache it so
+        // ProcessIncome / Budget reflect the same ~$185 reserve (not a static $120).
+        if (nyc && nyc > 0) {
+          const cachedMpg = getGasBudget()?.mpg;
+          const budget = computeGasBudget({ gasPerGal: nyc, mpg: cachedMpg });
+          if (budget) {
+            setGasBudget(budget);
+            saveGasBudget(budget, { gasPerGal: nyc, ...(cachedMpg ? { mpg: cachedMpg } : {}) });
+          }
+        }
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -2364,6 +2377,7 @@ ${stmtTxns.length ? `
           token={token}
           alreadyProcessed={income}
           gasBalance={gasBalance}
+          gasBudget={gasBudget}
           onClose={() => setShowIncome(false)}
           onProcessed={() => setGasBalRefresh(k => k + 1)}
         />

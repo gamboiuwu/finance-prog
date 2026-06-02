@@ -43,12 +43,19 @@ function parseSheetDate(val) {
 // Proportional mode: distribute proportionally across remaining gaps.
 // gasBalance: all-time running net for Gas (from Dashboard); if provided, Gas uses this
 // instead of the monthly-only allocated amount so we never over-deposit into Gas.
-function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = null) {
+function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = null, gasBudget = null) {
   if (!income) return [];
+  const isGasDynamic = typeof gasBudget === 'number' && !isNaN(gasBudget) && gasBudget > 0;
   const eligible = expenses
-    .filter(e => pm(e['Monthly Allowance ($)']) > 0)
+    // Gas is always eligible when we have a live dynamic budget, even if the sheet
+    // allowance is 0/stale — the real target comes from the gas price.
+    .filter(e => pm(e['Monthly Allowance ($)']) > 0 || (e['Type'] === 'Gas' && isGasDynamic))
     .map(e => {
-      const allowance  = pm(e['Monthly Allowance ($)']);
+      // Gas uses the live dynamic budget (scales with gas price) instead of the
+      // static sheet allowance, so the target is the ~$185 reserve, not $120.
+      const allowance  = (e['Type'] === 'Gas' && isGasDynamic)
+        ? gasBudget
+        : pm(e['Monthly Allowance ($)']);
       const already    = (e['Type'] === 'Gas' && typeof gasBalance === 'number' && !isNaN(gasBalance))
         ? Math.max(0, gasBalance)  // use all-time net so balance > allowance → stillNeeds = 0
         : (alreadyByType[e['Type'] || ''] || 0);
@@ -90,7 +97,7 @@ function CoverageChip({ coverage }) {
   return                     <span className="text-[10px] font-medium text-rose-400   bg-rose-900/40   px-1.5 py-0.5 rounded-full">✗ Unfunded</span>;
 }
 
-export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose, defaultIncome, onProcessed, gasBalance }) {
+export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose, defaultIncome, onProcessed, gasBalance, gasBudget = null }) {
   const [income,        setIncome]       = useState(defaultIncome > 0 ? String(defaultIncome.toFixed(2)) : '');
   const [source,        setSource]       = useState('');
   const [mode,          setMode]         = useState('priority');
@@ -185,10 +192,14 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
 
   const amount         = parseFloat(income) || 0;
   const deposits       = useMemo(
-    () => calcDeposits(expenses, amount, mode, alreadyByType, gasBalance),
-    [expenses, amount, mode, alreadyByType, gasBalance]
+    () => calcDeposits(expenses, amount, mode, alreadyByType, gasBalance, gasBudget),
+    [expenses, amount, mode, alreadyByType, gasBalance, gasBudget]
   );
-  const totalAllowance = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+  const totalAllowance = expenses.reduce((s, e) => {
+    // Gas contributes its live dynamic budget to the monthly goal, not the static sheet value.
+    if (e['Type'] === 'Gas' && typeof gasBudget === 'number' && gasBudget > 0) return s + gasBudget;
+    return s + pm(e['Monthly Allowance ($)']);
+  }, 0);
   const totalAlready   = Object.values(alreadyByType).reduce((s, v) => s + v, 0);
   const totalCovered   = totalAlready + amount;
   const stillNeeded    = Math.max(0, totalAllowance - totalCovered);
