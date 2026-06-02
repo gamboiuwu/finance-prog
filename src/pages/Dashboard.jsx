@@ -341,6 +341,9 @@ export default function Dashboard({ token }) {
           const yr0 = d0.getFullYear();
           const abt = {};
           let monthIncome = 0, monthSpent = 0, gasBal = 0, hasCurrentRows = false;
+          // Collect the previous (close) month's rows so we can auto-archive its statement
+          const closeMo = closeDate.getMonth() + 1, closeYr = closeDate.getFullYear();
+          const closeTxns = [];
           const [, ...allocData] = allocRows;
           allocData.forEach(r => {
             if (!r[0] || !r[1]) return;
@@ -355,6 +358,14 @@ export default function Dashboard({ token }) {
               d = new Date(ds);
             }
             if (!d || isNaN(d.getTime())) return;
+            // Capture the close-month rows for the auto-archived statement
+            if (d.getMonth() + 1 === closeMo && d.getFullYear() === closeYr) {
+              closeTxns.push({
+                date: `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`,
+                type: String(r[1]), amount: amt,
+                desc: r[3] != null ? String(r[3]) : '', account: r[4] != null ? String(r[4]) : '',
+              });
+            }
             if (d.getMonth() + 1 !== mo0 || d.getFullYear() !== yr0) return;
             hasCurrentRows = true;
             if (amt > 0) {
@@ -367,6 +378,25 @@ export default function Dashboard({ token }) {
           setAllocTotals({ income: monthIncome, spent: monthSpent });
           setHasCurrentMonthAllocRows(hasCurrentRows);
           setGasBalance(gasBal);
+
+          // Auto-backfill the previous month's statement into the archive if it
+          // isn't there yet (so closed months appear without a manual close).
+          try {
+            const arch = JSON.parse(localStorage.getItem('_fin_statements') || '{}');
+            const closeKey = `${closeMonth} ${closeYear}`;
+            if (!arch[closeKey]) {
+              const closeRows = (summaryRows.length ? summaryRows.slice(1) : [])
+                .map(r => summaryRows[0].reduce((o, h, i) => { o[h] = r[i] ?? null; return o; }, {}));
+              const closeRow = closeRows.find(m => m['Month'] === closeMonth && String(m['Year']) === String(closeYear))
+                || closeRows.find(m => m['Month'] === closeMonth);
+              const cInc = closeTxns.reduce((s, t) => t.amount > 0 ? s + t.amount : s, 0) || pm(closeRow?.['Total Processed Income']);
+              const cSpt = closeTxns.reduce((s, t) => t.amount < 0 ? s + Math.abs(t.amount) : s, 0) || pm(closeRow?.['Total Spent']);
+              const cGoal = (expItems.length ? expItems : []).reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0) || pm(closeRow?.['Allowance Goal']);
+              if (cInc > 0 || cSpt > 0 || closeTxns.length) {
+                saveStatementArchive(closeMonth, closeYear, cInc, cSpt, cGoal, closeTxns);
+              }
+            }
+          } catch {}
           if (expItems.length) {
             const mainExp = expItems.filter(i => i['Expense'] !== 'Savings');
             const overCount = mainExp.filter(i => {
