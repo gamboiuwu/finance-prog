@@ -278,6 +278,7 @@ export default function Dashboard({ token }) {
   const [stmtFromClose, setStmtFromClose] = useState(false);
   const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0, dueAlerts: [] });
   const [allocTotals, setAllocTotals]   = useState({ income: 0, spent: 0 });
+  const [hasCurrentMonthAllocRows, setHasCurrentMonthAllocRows] = useState(null);
   const [healthScore, setHealthScore]   = useState({ total: 0, signals: [], history: [], loaded: false });
   const [healthExpanded, setHealthExpanded] = useState(false);
   const [trendExpanded, setTrendExpanded]   = useState(false);
@@ -290,6 +291,8 @@ export default function Dashboard({ token }) {
   });
   const [showNoteDrawer, setShowNoteDrawer] = useState(false);
   const [noteInput, setNoteInput]           = useState('');
+  const [showArchive, setShowArchive]         = useState(false);
+  const [archiveEntry, setArchiveEntry]       = useState(null);
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -337,7 +340,7 @@ export default function Dashboard({ token }) {
           const mo0 = d0.getMonth() + 1;
           const yr0 = d0.getFullYear();
           const abt = {};
-          let monthIncome = 0, monthSpent = 0, gasBal = 0;
+          let monthIncome = 0, monthSpent = 0, gasBal = 0, hasCurrentRows = false;
           const [, ...allocData] = allocRows;
           allocData.forEach(r => {
             if (!r[0] || !r[1]) return;
@@ -353,6 +356,7 @@ export default function Dashboard({ token }) {
             }
             if (!d || isNaN(d.getTime())) return;
             if (d.getMonth() + 1 !== mo0 || d.getFullYear() !== yr0) return;
+            hasCurrentRows = true;
             if (amt > 0) {
               abt[String(r[1])] = (abt[String(r[1])] || 0) + amt;
               monthIncome += amt;
@@ -361,6 +365,7 @@ export default function Dashboard({ token }) {
             }
           });
           setAllocTotals({ income: monthIncome, spent: monthSpent });
+          setHasCurrentMonthAllocRows(hasCurrentRows);
           setGasBalance(gasBal);
           if (expItems.length) {
             const mainExp = expItems.filter(i => i['Expense'] !== 'Savings');
@@ -521,7 +526,12 @@ export default function Dashboard({ token }) {
     m => m['Month'] === currentMonth && String(m['Year']) === String(currentYear)
   );
 
-  const income      = allocTotals.income  || pm(current?.['Total Processed Income']);
+  // Once allocation data is loaded, use it as ground truth for current-month income.
+  // This prevents stale sheet formula values (e.g., copied from prior month) from
+  // showing as income at the start of a new month before any income is processed.
+  const income      = hasCurrentMonthAllocRows !== null
+    ? allocTotals.income
+    : (allocTotals.income || pm(current?.['Total Processed Income']));
   const unprocessed = pm(current?.['Unprocessed Income']);
   const spent       = allocTotals.spent   || pm(current?.['Total Spent']);
   const goal        = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0) || pm(current?.['Allowance Goal']);
@@ -642,6 +652,27 @@ export default function Dashboard({ token }) {
       if (text.trim()) all[k] = text.trim(); else delete all[k];
       localStorage.setItem('_fin_month_notes', JSON.stringify(all));
       setMonthNote(text.trim());
+    } catch {}
+  }
+
+  function saveStatementArchive(month, year, incomeVal, spentVal, goalVal, txns) {
+    try {
+      const archive = JSON.parse(localStorage.getItem('_fin_statements') || '{}');
+      const key = `${month} ${year}`;
+      archive[key] = {
+        month, year: String(year),
+        income: incomeVal, spent: spentVal, net: incomeVal - spentVal, goal: goalVal,
+        closedAt: new Date().toISOString(),
+        note: (() => { try { return JSON.parse(localStorage.getItem('_fin_month_notes') || '{}')[`${year}-${MONTHS.indexOf(month) + 1}`] || ''; } catch { return ''; } })(),
+        ...(txns?.length ? { txns: txns.map(t => ({ date: t.date, type: t.type, amount: t.amount, desc: t.desc, account: t.account })) } : {}),
+      };
+      const keys = Object.keys(archive).sort((a, b) => {
+        const [am, ay] = [MONTHS.indexOf(a.split(' ')[0]), parseInt(a.split(' ')[1])];
+        const [bm, by] = [MONTHS.indexOf(b.split(' ')[0]), parseInt(b.split(' ')[1])];
+        return ay !== by ? ay - by : am - bm;
+      });
+      while (keys.length > 24) delete archive[keys.shift()];
+      localStorage.setItem('_fin_statements', JSON.stringify(archive));
     } catch {}
   }
 
@@ -824,6 +855,13 @@ ${stmtTxns.length ? `
         >
           <span className="text-xl">📄</span>
           <span className="text-[10px] text-slate-300 font-medium">Statement</span>
+        </button>
+        <button
+          onClick={() => setShowArchive(true)}
+          className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white rounded-2xl px-4 flex flex-col items-center justify-center gap-1 shrink-0 transition-colors"
+        >
+          <span className="text-xl">📚</span>
+          <span className="text-[10px] text-slate-300 font-medium">Archive</span>
         </button>
       </div>
 
@@ -2272,6 +2310,11 @@ ${stmtTxns.length ? `
             <div className="shrink-0 px-5 py-4 border-t border-slate-800 bg-slate-950">
               <button
                 onClick={() => {
+                  const closeMonthRow = allMonths.find(m => m['Month'] === closeMonth && String(m['Year']) === String(closeYear));
+                  const ci = pm(closeMonthRow?.['Total Processed Income']);
+                  const cs = pm(closeMonthRow?.['Total Spent']);
+                  const cg = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+                  saveStatementArchive(closeMonth, closeYear, ci, cs, cg, null);
                   setShowMonthClose(false);
                   localStorage.setItem(`closed_${closeMonth}_${closeYear}`, 'true');
                 }}
@@ -2319,6 +2362,10 @@ ${stmtTxns.length ? `
                 {stmtFromClose && (
                   <button
                     onClick={() => {
+                      const ci = stmtTxns.reduce((s, t) => t.amount > 0 ? s + t.amount : s, 0) || pm(current?.['Total Processed Income']);
+                      const cs = stmtTxns.reduce((s, t) => t.amount < 0 ? s + Math.abs(t.amount) : s, 0) || pm(current?.['Total Spent']);
+                      const cg = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+                      saveStatementArchive(closeMonth, closeYear, ci, cs, cg, stmtTxns);
                       setShowStatement(false);
                       setStmtFromClose(false);
                       setShowMonthClose(false);
@@ -2685,6 +2732,208 @@ ${stmtTxns.length ? `
           </div>
         </div>
       )}
+
+      {/* ── Statement Archive modal ──────────────────────────── */}
+      {showArchive && (() => {
+        let archive = {};
+        try { archive = JSON.parse(localStorage.getItem('_fin_statements') || '{}'); } catch {}
+        const entries = Object.entries(archive).sort((a, b) => {
+          const [am, ay] = [MONTHS.indexOf(a[0].split(' ')[0]), parseInt(a[0].split(' ')[1])];
+          const [bm, by] = [MONTHS.indexOf(b[0].split(' ')[0]), parseInt(b[0].split(' ')[1])];
+          return ay !== by ? by - ay : bm - am;
+        });
+
+        const fmtA = n => n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
+
+        if (archiveEntry) {
+          const e = archiveEntry;
+          const txns = e.txns || [];
+          const catSpend = {};
+          txns.forEach(t => { if (t.amount < 0) catSpend[t.type] = (catSpend[t.type] || 0) + Math.abs(t.amount); });
+          const catRanked = Object.entries(catSpend).sort((a, b) => b[1] - a[1]);
+          const totalCatSpend = catRanked.reduce((s, [, v]) => s + v, 0);
+          const rankColors = ['#f43f5e','#f97316','#f59e0b','#84cc16','#10b981','#06b6d4','#3b82f6','#8b5cf6','#ec4899'];
+          return (
+            <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
+              <div className="shrink-0 border-b border-slate-800 bg-slate-950/95 backdrop-blur">
+                <div className="max-w-3xl mx-auto px-5 py-4 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-white font-bold text-lg leading-tight">📄 {e.month} {e.year}</h2>
+                    <p className="text-slate-400 text-xs mt-0.5">Closed {new Date(e.closedAt).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setArchiveEntry(null)}
+                      className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+                    >← All Statements</button>
+                    <button
+                      onClick={() => { setShowArchive(false); setArchiveEntry(null); }}
+                      className="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-base transition-colors"
+                    >✕</button>
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <div className="max-w-3xl mx-auto px-5 py-6 space-y-6 pb-16">
+                  {/* Summary */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      { label: 'Income',    val: e.income, color: 'text-emerald-400' },
+                      { label: 'Spent',     val: e.spent,  color: e.spent > e.income ? 'text-rose-400' : 'text-white' },
+                      { label: 'Net Saved', val: e.net,    color: e.net >= 0 ? 'text-emerald-400' : 'text-rose-400' },
+                      { label: 'Goal',      val: e.goal,   color: 'text-sky-400' },
+                    ].map(({ label, val, color }) => (
+                      <div key={label} className="bg-slate-900 rounded-2xl p-4 space-y-1">
+                        <p className="text-slate-500 text-[10px] uppercase tracking-wider">{label}</p>
+                        <p className={`text-xl font-bold font-broske tabular-nums ${color}`}>{fmtA(val || 0)}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {e.note && (
+                    <div className="bg-slate-800/60 border border-slate-700/40 rounded-2xl px-4 py-3">
+                      <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Month Note</p>
+                      <p className="text-white/80 text-sm italic">{e.note}</p>
+                    </div>
+                  )}
+                  {catRanked.length > 0 && (
+                    <div>
+                      <p className="text-slate-400 text-xs uppercase tracking-wider mb-3">Spending by Category</p>
+                      <div className="bg-slate-900 rounded-2xl overflow-hidden divide-y divide-slate-800/60">
+                        {catRanked.map(([cat, amt], idx) => (
+                          <div key={cat} className="px-5 py-3">
+                            <div className="flex items-center justify-between mb-1.5 gap-3">
+                              <span className="text-white text-sm">{cat}</span>
+                              <div className="text-right">
+                                <span className="text-white text-sm font-mono tabular-nums">${amt.toFixed(2)}</span>
+                                <span className="text-slate-500 text-[10px] ml-2">{totalCatSpend > 0 ? ((amt / totalCatSpend) * 100).toFixed(1) : 0}%</span>
+                              </div>
+                            </div>
+                            <div className="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                              <div className="h-1.5 rounded-full" style={{ width: `${(amt / (catRanked[0]?.[1] || 1)) * 100}%`, background: rankColors[Math.min(idx, rankColors.length - 1)] }} />
+                            </div>
+                          </div>
+                        ))}
+                        <div className="px-5 py-3 flex justify-between items-center bg-slate-800/40">
+                          <span className="text-slate-400 text-xs">{catRanked.length} categories</span>
+                          <span className="text-white text-sm font-mono font-bold tabular-nums">${totalCatSpend.toFixed(2)} total</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {txns.length > 0 && (
+                    <div>
+                      <p className="text-slate-400 text-xs uppercase tracking-wider mb-3">All Transactions · {txns.length}</p>
+                      <div className="bg-slate-900 rounded-2xl overflow-hidden divide-y divide-slate-800/60">
+                        {txns.map((t, i) => (
+                          <div key={i} className="px-5 py-3 flex items-center justify-between gap-4">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-white text-sm truncate">{t.type || t.desc}</p>
+                              <p className="text-slate-500 text-[10px] mt-0.5">
+                                {t.date}
+                                {t.account && <> · <span className="text-slate-600">{t.account}</span></>}
+                                {t.desc && t.desc !== t.type && <> · <span className="text-slate-600 truncate">{t.desc}</span></>}
+                              </p>
+                            </div>
+                            <span className={`font-mono text-sm font-semibold tabular-nums shrink-0 ${t.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {fmtA(t.amount)}
+                            </span>
+                          </div>
+                        ))}
+                        <div className="px-5 py-3 flex justify-between bg-slate-800/60">
+                          <span className="text-slate-300 text-sm font-semibold">Net Total</span>
+                          <span className={`font-mono text-sm font-bold tabular-nums ${txns.reduce((s, t) => s + t.amount, 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {fmtA(txns.reduce((s, t) => s + t.amount, 0))}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {txns.length === 0 && (
+                    <div className="bg-slate-900 rounded-2xl p-6 text-center">
+                      <p className="text-slate-500 text-sm">No transaction details saved for this statement.</p>
+                      <p className="text-slate-600 text-xs mt-1">Close a month via "View Full Statement First" to include transactions.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
+            <div className="shrink-0 border-b border-slate-800 bg-slate-950/95 backdrop-blur">
+              <div className="max-w-3xl mx-auto px-5 py-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-white font-bold text-lg leading-tight">📚 Statement Archive</h2>
+                  <p className="text-slate-400 text-xs mt-0.5">{entries.length} closed month{entries.length !== 1 ? 's' : ''}</p>
+                </div>
+                <button
+                  onClick={() => setShowArchive(false)}
+                  className="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-base transition-colors"
+                >✕</button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <div className="max-w-3xl mx-auto px-5 py-6 pb-16">
+                {entries.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
+                    <span className="text-5xl">📭</span>
+                    <p className="text-white font-semibold">No archived statements yet</p>
+                    <p className="text-slate-400 text-sm max-w-xs">Close a month using the End-of-Month banner or the "View Full Statement First" button to create your first archived statement.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {entries.map(([key, e]) => {
+                      const netColor = e.net >= 0 ? 'text-emerald-400' : 'text-rose-400';
+                      const goalPct = e.goal > 0 ? Math.min((e.income / e.goal) * 100, 100) : 0;
+                      const hasTxns = Array.isArray(e.txns) && e.txns.length > 0;
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => setArchiveEntry(e)}
+                          className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-2xl p-5 text-left transition-colors group"
+                        >
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div>
+                              <p className="text-white font-bold text-base">{e.month} {e.year}</p>
+                              <p className="text-slate-500 text-xs mt-0.5">Closed {new Date(e.closedAt).toLocaleDateString()}{hasTxns ? ` · ${e.txns.length} txns` : ''}</p>
+                            </div>
+                            <span className="text-slate-600 group-hover:text-slate-400 text-sm transition-colors">→</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3 mb-3">
+                            <div>
+                              <p className="text-slate-500 text-[10px] uppercase tracking-wider">Income</p>
+                              <p className="text-emerald-400 font-mono font-semibold text-sm tabular-nums">{fmtA(e.income || 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 text-[10px] uppercase tracking-wider">Spent</p>
+                              <p className="text-white font-mono font-semibold text-sm tabular-nums">{fmtA(e.spent || 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 text-[10px] uppercase tracking-wider">Net</p>
+                              <p className={`font-mono font-semibold text-sm tabular-nums ${netColor}`}>{fmtA(e.net || 0)}</p>
+                            </div>
+                          </div>
+                          {e.goal > 0 && (
+                            <div className="space-y-1">
+                              <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                <div className="h-1.5 rounded-full" style={{ width: `${goalPct}%`, background: goalPct >= 100 ? '#10b981' : goalPct >= 75 ? '#3b82f6' : '#f59e0b' }} />
+                              </div>
+                              <p className="text-slate-600 text-[10px]">{goalPct.toFixed(0)}% of {fmtA(e.goal)} goal</p>
+                            </div>
+                          )}
+                          {e.note && <p className="text-slate-500 text-xs italic mt-2 truncate">"{e.note}"</p>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Month Note Drawer ────────────────────────────────── */}
       {showNoteDrawer && (

@@ -41,13 +41,17 @@ function parseSheetDate(val) {
 // Deposits fill each category's *remaining gap* (goal minus already contributed).
 // Priority mode: fill P1 gaps before P2, then P3.
 // Proportional mode: distribute proportionally across remaining gaps.
-function calcDeposits(expenses, income, mode, alreadyByType = {}) {
+// gasBalance: all-time running net for Gas (from Dashboard); if provided, Gas uses this
+// instead of the monthly-only allocated amount so we never over-deposit into Gas.
+function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = null) {
   if (!income) return [];
   const eligible = expenses
     .filter(e => pm(e['Monthly Allowance ($)']) > 0)
     .map(e => {
       const allowance  = pm(e['Monthly Allowance ($)']);
-      const already    = alreadyByType[e['Type'] || ''] || 0;
+      const already    = (e['Type'] === 'Gas' && typeof gasBalance === 'number' && !isNaN(gasBalance))
+        ? Math.max(0, gasBalance)  // use all-time net so balance > allowance → stillNeeds = 0
+        : (alreadyByType[e['Type'] || ''] || 0);
       const stillNeeds = Math.max(0, allowance - already);
       return {
         type:      e['Type']    || '',
@@ -181,8 +185,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
 
   const amount         = parseFloat(income) || 0;
   const deposits       = useMemo(
-    () => calcDeposits(expenses, amount, mode, alreadyByType),
-    [expenses, amount, mode, alreadyByType]
+    () => calcDeposits(expenses, amount, mode, alreadyByType, gasBalance),
+    [expenses, amount, mode, alreadyByType, gasBalance]
   );
   const totalAllowance = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
   const totalAlready   = Object.values(alreadyByType).reduce((s, v) => s + v, 0);
