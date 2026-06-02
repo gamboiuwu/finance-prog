@@ -764,27 +764,10 @@ function CategoryView({ items, allocTx }) {
   const savingsB = savingsItems.reduce((s, i) => s + pm(i['Monthly Allowance ($)']), 0);
   const savingsA = savingsItems.reduce((s, i) => s + (allocByType[i['Type'] || ''] || 0), 0);
 
-  const needsFunding = mainItems.filter(i =>
-    String(i['Priority'] ?? '3') === '1' &&
-    pm(i['Monthly Allowance ($)']) > 0 &&
-    !(allocByType[i['Type'] || ''] > 0)
-  );
-
   return (
     <div className="space-y-4">
-      {/* Needs Funding alert */}
-      {needsFunding.length > 0 && (
-        <div className="bg-rose-950/40 border border-rose-700/50 rounded-2xl p-3">
-          <p className="text-rose-300 font-semibold text-xs uppercase tracking-wide mb-2">⚡ Not yet funded — Essentials</p>
-          <div className="flex flex-wrap gap-1.5">
-            {needsFunding.map(item => (
-              <span key={item._rowNum} className="text-rose-200 bg-rose-900/50 text-xs px-2 py-1 rounded-lg font-mono">
-                {item['Type']} · {fmt(pm(item['Monthly Allowance ($)']))}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* (Funding status now lives in the page-level banner above the tabs,
+          covering both unfunded and partially-funded essentials.) */}
 
       {/* Summary bar */}
       <div className="bg-slate-900 rounded-2xl p-4">
@@ -1250,6 +1233,23 @@ export default function Budget({ token }) {
     .map(p => ({ priority: p, items: items.filter(i => String(i['Priority'] ?? '3') === p) }))
     .filter(g => g.items.length > 0);
 
+  // ── Funding status (this month) — based ONLY on positive allocations/deposits,
+  // never on Actual Spend. Lets the user see which essentials are not yet funded
+  // vs. starting to be funded (partial), independent of which tab they're on.
+  const fundingByType = {};
+  allocTx.forEach(tx => { if (tx.amount > 0) fundingByType[tx.type] = (fundingByType[tx.type] || 0) + tx.amount; });
+  const essentialItems = items.filter(i =>
+    String(i['Priority'] ?? '3') === '1' &&
+    pm(i['Monthly Allowance ($)']) > 0 &&
+    i['Expense'] !== 'Savings'
+  );
+  const unfundedEssentials = essentialItems.filter(i => !((fundingByType[i['Type'] || ''] || 0) > 0));
+  const partialEssentials  = essentialItems.filter(i => {
+    const a = fundingByType[i['Type'] || ''] || 0;
+    const b = pm(i['Monthly Allowance ($)']);
+    return a > 0 && a < b - 0.005;
+  });
+
   return (
     <div className="pb-24">
 
@@ -1272,6 +1272,68 @@ export default function Budget({ token }) {
           </button>
         )}
       </div>
+
+      {/* Funding status banner — which essentials are unfunded / partially funded.
+          Visible on every tab; based on deposits, NOT spending. */}
+      {(unfundedEssentials.length > 0 || partialEssentials.length > 0) && (
+        <div className="px-4 mb-4">
+          <div className="rounded-2xl border border-amber-800/50 bg-amber-950/30 overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-amber-900/40 flex items-center justify-between gap-2">
+              <p className="text-amber-300 text-xs font-bold uppercase tracking-wide">
+                ⚡ Essential funding · {essentialItems.length - unfundedEssentials.length}/{essentialItems.length} started
+              </p>
+              {activeTab !== 'categories' && (
+                <button
+                  onClick={() => setActiveTab('categories')}
+                  className="text-amber-400 hover:text-amber-300 text-[11px] font-semibold underline underline-offset-2 shrink-0"
+                >
+                  details →
+                </button>
+              )}
+            </div>
+
+            {unfundedEssentials.length > 0 && (
+              <div className="px-4 py-2.5">
+                <p className="text-rose-300/90 text-[10px] font-semibold uppercase tracking-wider mb-1.5">
+                  Not yet funded ({unfundedEssentials.length})
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {unfundedEssentials.map(item => (
+                    <span key={item._rowNum} className="text-rose-200 bg-rose-900/50 border border-rose-800/40 text-xs px-2 py-1 rounded-lg">
+                      <span className="font-medium">{item['Type']}</span>
+                      <span className="text-rose-400/80 ml-1.5 font-mono">$0 / {fmt(pm(item['Monthly Allowance ($)']))}</span>
+                      {item['Account'] && <span className="text-rose-500/60 ml-1.5 text-[10px]">→ {item['Account']}</span>}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {partialEssentials.length > 0 && (
+              <div className="px-4 py-2.5 border-t border-amber-900/30">
+                <p className="text-amber-300/90 text-[10px] font-semibold uppercase tracking-wider mb-1.5">
+                  Starting to be funded ({partialEssentials.length})
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {partialEssentials.map(item => {
+                    const a = fundingByType[item['Type'] || ''] || 0;
+                    const b = pm(item['Monthly Allowance ($)']);
+                    const p = b > 0 ? Math.round((a / b) * 100) : 0;
+                    return (
+                      <span key={item._rowNum} className="text-amber-200 bg-amber-900/40 border border-amber-800/40 text-xs px-2 py-1 rounded-lg">
+                        <span className="font-medium">{item['Type']}</span>
+                        <span className="text-amber-400/80 ml-1.5 font-mono">{fmt(a)} / {fmt(b)}</span>
+                        <span className="text-amber-500/70 ml-1.5">{p}%</span>
+                        {item['Account'] && <span className="text-amber-600/60 ml-1.5 text-[10px]">→ {item['Account']}</span>}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className="px-4 mb-4">
