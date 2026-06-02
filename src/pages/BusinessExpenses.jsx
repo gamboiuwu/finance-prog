@@ -276,7 +276,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
         <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-lg">✕</button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 pb-36">
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5 space-y-5 pb-36">
 
         {/* Name + Price */}
         <div className="space-y-3">
@@ -582,8 +582,8 @@ function ProcessModal({ product, token, onClose, onSuccess }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end z-50">
-      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[90dvh] flex flex-col">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end sm:items-center sm:justify-center z-50">
+      <div className="bg-slate-900 w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90dvh] min-h-0 flex flex-col">
         {/* Header */}
         <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div>
@@ -593,7 +593,7 @@ function ProcessModal({ product, token, onClose, onSuccess }) {
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center">✕</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-3">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5 space-y-3">
           {/* Client name */}
           <div>
             <label className="text-slate-400 text-[10px] uppercase tracking-wider block mb-1.5 font-broske">Client Name <span className="text-slate-600 normal-case tracking-normal">(optional)</span></label>
@@ -859,8 +859,8 @@ function EditTransactionModal({ tx, products, token, onSave, onDelete, onClose }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end z-50">
-      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[92dvh] flex flex-col">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end sm:items-center sm:justify-center z-50">
+      <div className="bg-slate-900 w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[92dvh] min-h-0 flex flex-col">
 
         <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div>
@@ -870,7 +870,7 @@ function EditTransactionModal({ tx, products, token, onSave, onDelete, onClose }
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center">✕</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
 
           {/* Date + Time */}
           <div className="grid grid-cols-2 gap-3">
@@ -1857,7 +1857,7 @@ function AccountSpendModal({ token, account, history, contributions, onClose, on
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center z-50">
-      <div className="bg-slate-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl max-h-[92dvh] flex flex-col">
+      <div className="bg-slate-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl max-h-[92dvh] min-h-0 flex flex-col">
         <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div>
             <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske">Account</p>
@@ -1879,7 +1879,7 @@ function AccountSpendModal({ token, account, history, contributions, onClose, on
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-3">
           {tab === 'spend' && (
             <>
               <div>
@@ -1969,13 +1969,13 @@ function AccountSpendModal({ token, account, history, contributions, onClose, on
 
 function AddExpenseModal({ products, saving, onSave, onClose, form, setForm }) {
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-end" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-slate-900 w-full rounded-t-3xl max-h-[92dvh] flex flex-col">
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-end sm:items-center sm:justify-center" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-slate-900 w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[92dvh] min-h-0 flex flex-col">
         <div className="shrink-0 flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-800">
           <h3 className="text-white font-bold">Add Expense</h3>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center">✕</button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
           <div>
             <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1">Date</label>
             <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}

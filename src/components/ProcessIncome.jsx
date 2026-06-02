@@ -622,7 +622,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         </div>
 
         {/* Breakdown by account */}
-        <div className="overflow-y-auto flex-1 p-4 space-y-3">
+        <div className="overflow-y-auto flex-1 min-h-0 p-4 space-y-3">
           {/* ── Where the money goes — flat receipt list ──────── */}
           {amount > 0 && depositPlan.length > 0 && (
             <div className="rounded-2xl border border-emerald-800/40 bg-gradient-to-b from-emerald-950/40 to-slate-900 overflow-hidden">
