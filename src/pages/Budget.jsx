@@ -52,6 +52,9 @@ function dayLabel(d) {
 function getDueDates() {
   try { return JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch { return {}; }
 }
+function getCatNotes() {
+  try { return JSON.parse(localStorage.getItem('_fin_cat_notes') || '{}'); } catch { return {}; }
+}
 
 // Parses a Sheets date cell (serial number or M/D/YYYY or YYYY-MM-DD string)
 function parseSheetDate(val) {
@@ -360,6 +363,7 @@ function BudgetCard({ item, onEdit }) {
   const remaining  = allowance - spent;
   const pct        = allowance > 0 ? Math.min((spent / allowance) * 100, 100) : 0;
   const overBudget = spent > allowance && allowance > 0;
+  const note       = getCatNotes()[item['Type'] || ''];
 
   return (
     <button
@@ -370,6 +374,11 @@ function BudgetCard({ item, onEdit }) {
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-white font-medium text-sm truncate">{item['Type'] || '—'}</p>
+          {note && (
+            <p className="text-slate-600 text-[10px] italic mt-0.5 truncate">
+              {note.length > 60 ? note.slice(0, 60) + '…' : note}
+            </p>
+          )}
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {item['Expense'] && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
@@ -478,6 +487,9 @@ function CategoryItemCard({ item, allocated, budgeted }) {
   const type  = item['Type'] || '';
   const [dueDay, setDueDayState] = useState(() => getDueDates()[type] ?? null);
   const [editingDue, setEditingDue] = useState(false);
+  const [note, setNote]           = useState(() => getCatNotes()[type] || '');
+  const [showNoteDrawer, setShowNoteDrawer] = useState(false);
+  const [noteInput, setNoteInput] = useState('');
 
   function saveDueDay(val) {
     const all = getDueDates();
@@ -485,6 +497,20 @@ function CategoryItemCard({ item, allocated, budgeted }) {
     localStorage.setItem('_fin_due_dates', JSON.stringify(all));
     setDueDayState(val == null ? null : Number(val));
     setEditingDue(false);
+  }
+
+  function openNoteDrawer() {
+    setNoteInput(note);
+    setShowNoteDrawer(true);
+  }
+
+  function saveNote(text) {
+    const trimmed = text.trim();
+    const all = getCatNotes();
+    if (trimmed) all[type] = trimmed; else delete all[type];
+    localStorage.setItem('_fin_cat_notes', JSON.stringify(all));
+    setNote(trimmed);
+    setShowNoteDrawer(false);
   }
 
   const todayDay  = new Date().getDate();
@@ -500,80 +526,139 @@ function CategoryItemCard({ item, allocated, budgeted }) {
   const leftBorder = pastDue ? '#ef4444' : dueSoon ? '#f59e0b' : over ? '#ef4444' : color;
 
   return (
-    <div
-      className="bg-slate-900 rounded-xl p-3.5 border border-slate-800/60"
-      style={{ borderLeft: `3px solid ${leftBorder}` }}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <p className="text-white text-sm font-medium">{type || '—'}</p>
-            {pastDue && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium shrink-0">⚠ Past due</span>
-            )}
-            {dueSoon && !pastDue && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/60 text-amber-300 font-medium shrink-0">
-                ⏰ {daysUntil === 0 ? 'Due today' : `Due in ${daysUntil}d`}
-              </span>
-            )}
-          </div>
-          {item['Account'] && (
-            <p className="text-slate-500 text-[10px] mt-0.5">{item['Account']}</p>
-          )}
-          <div className="mt-1">
-            {editingDue ? (
-              <div className="flex items-center gap-1.5">
-                <select
-                  className="text-[10px] bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-white"
-                  value={dueDay ?? ''}
-                  onChange={e => saveDueDay(e.target.value === '' ? null : e.target.value)}
-                  autoFocus
-                  onBlur={() => setEditingDue(false)}
-                >
-                  <option value="">No date</option>
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
-                    <option key={d} value={d}>the {dayLabel(d)}</option>
-                  ))}
-                </select>
-              </div>
-            ) : (
+    <>
+      <div
+        className="bg-slate-900 rounded-xl p-3.5 border border-slate-800/60"
+        style={{ borderLeft: `3px solid ${leftBorder}` }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="text-white text-sm font-medium">{type || '—'}</p>
+              {pastDue && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium shrink-0">⚠ Past due</span>
+              )}
+              {dueSoon && !pastDue && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/60 text-amber-300 font-medium shrink-0">
+                  ⏰ {daysUntil === 0 ? 'Due today' : `Due in ${daysUntil}d`}
+                </span>
+              )}
               <button
-                onClick={() => setEditingDue(true)}
-                className={`text-[10px] px-1.5 py-0.5 rounded-full transition-colors ${
-                  dueDay != null
-                    ? pastDue ? 'bg-rose-900/40 text-rose-400' : dueSoon ? 'bg-amber-900/40 text-amber-400' : 'bg-slate-800 text-slate-400 hover:text-slate-300'
-                    : 'text-slate-600 hover:text-slate-400'
-                }`}
+                onClick={openNoteDrawer}
+                className="text-slate-600 hover:text-slate-300 text-[11px] leading-none transition-colors shrink-0 ml-auto"
+                title="Add note"
               >
-                {dueDay != null ? `📅 Due ${dayLabel(dueDay)}` : '+ set due date'}
+                ✎
+              </button>
+            </div>
+            {item['Account'] && (
+              <p className="text-slate-500 text-[10px] mt-0.5">{item['Account']}</p>
+            )}
+            {note && (
+              <button
+                onClick={openNoteDrawer}
+                className="text-slate-500 hover:text-slate-400 text-[10px] italic mt-0.5 text-left w-full truncate transition-colors block"
+              >
+                {note.length > 60 ? note.slice(0, 60) + '…' : note}
               </button>
             )}
+            <div className="mt-1">
+              {editingDue ? (
+                <div className="flex items-center gap-1.5">
+                  <select
+                    className="text-[10px] bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-white"
+                    value={dueDay ?? ''}
+                    onChange={e => saveDueDay(e.target.value === '' ? null : e.target.value)}
+                    autoFocus
+                    onBlur={() => setEditingDue(false)}
+                  >
+                    <option value="">No date</option>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                      <option key={d} value={d}>the {dayLabel(d)}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setEditingDue(true)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full transition-colors ${
+                    dueDay != null
+                      ? pastDue ? 'bg-rose-900/40 text-rose-400' : dueSoon ? 'bg-amber-900/40 text-amber-400' : 'bg-slate-800 text-slate-400 hover:text-slate-300'
+                      : 'text-slate-600 hover:text-slate-400'
+                  }`}
+                >
+                  {dueDay != null ? `📅 Due ${dayLabel(dueDay)}` : '+ set due date'}
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="text-right shrink-0">
+            <p className={`text-sm font-bold font-mono ${over ? 'text-rose-400' : 'text-white'}`}>
+              {fmt(allocated)}
+              <span className="text-slate-500 font-normal text-xs"> / {fmt(budgeted)}</span>
+            </p>
+            {over ? (
+              <p className="text-rose-400 text-[10px] font-mono mt-0.5">+{fmt(allocated - budgeted)} over!</p>
+            ) : allocated === 0 ? (
+              <p className="text-slate-600 text-[10px] mt-0.5">not started</p>
+            ) : (
+              <p className="text-slate-500 text-[10px] font-mono mt-0.5">{fmt(budgeted - allocated)} left</p>
+            )}
           </div>
         </div>
-        <div className="text-right shrink-0">
-          <p className={`text-sm font-bold font-mono ${over ? 'text-rose-400' : 'text-white'}`}>
-            {fmt(allocated)}
-            <span className="text-slate-500 font-normal text-xs"> / {fmt(budgeted)}</span>
-          </p>
-          {over ? (
-            <p className="text-rose-400 text-[10px] font-mono mt-0.5">+{fmt(allocated - budgeted)} over!</p>
-          ) : allocated === 0 ? (
-            <p className="text-slate-600 text-[10px] mt-0.5">not started</p>
-          ) : (
-            <p className="text-slate-500 text-[10px] font-mono mt-0.5">{fmt(budgeted - allocated)} left</p>
-          )}
-        </div>
+        {budgeted > 0 && (
+          <div className="mt-2.5">
+            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div className="h-1.5 rounded-full transition-all"
+                style={{ width: `${pct}%`, background: over ? '#ef4444' : color }} />
+            </div>
+            <p className="text-[10px] text-slate-600 font-mono mt-0.5">{pct.toFixed(0)}% funded</p>
+          </div>
+        )}
       </div>
-      {budgeted > 0 && (
-        <div className="mt-2.5">
-          <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-            <div className="h-1.5 rounded-full transition-all"
-              style={{ width: `${pct}%`, background: over ? '#ef4444' : color }} />
+
+      {showNoteDrawer && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col justify-end"
+          style={{ background: 'rgba(0,0,0,0.6)' }}
+          onClick={() => setShowNoteDrawer(false)}
+        >
+          <div
+            className="bg-slate-900 rounded-t-2xl p-5 pb-10 w-full max-w-lg mx-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-white font-semibold text-sm">Note — {type}</p>
+              <button onClick={() => setShowNoteDrawer(false)} className="text-slate-500 hover:text-slate-300 text-lg leading-none">✕</button>
+            </div>
+            <textarea
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white text-sm resize-none focus:outline-none focus:border-blue-500"
+              rows={3}
+              maxLength={160}
+              value={noteInput}
+              onChange={e => setNoteInput(e.target.value)}
+              placeholder="Add a note for this category…"
+              autoFocus
+            />
+            <p className="text-slate-600 text-[10px] text-right mt-1">{noteInput.length}/160</p>
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => saveNote('')}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Clear
+              </button>
+              <button
+                onClick={() => saveNote(noteInput)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"
+              >
+                Save
+              </button>
+            </div>
           </div>
-          <p className="text-[10px] text-slate-600 font-mono mt-0.5">{pct.toFixed(0)}% funded</p>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
