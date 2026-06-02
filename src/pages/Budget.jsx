@@ -1306,8 +1306,9 @@ export default function Budget({ token }) {
         <div>
           <h1 className="text-xl font-bold text-white">Budget</h1>
           <p className="text-slate-500 text-xs mt-0.5">
-            {activeTab === 'budget'     ? 'Tap any item to edit · syncs to Sheets' :
-             activeTab === 'trends'     ? 'Month-over-month allocation comparison' :
+            {activeTab === 'budget'     ? 'Plan vs. actual spend · tap any item to edit' :
+             activeTab === 'categories' ? 'Funded this month (deposits) vs. goal' :
+             activeTab === 'entries'    ? 'Allocation entries + month-over-month trends' :
              'Allocation actuals vs. plan'}
           </p>
         </div>

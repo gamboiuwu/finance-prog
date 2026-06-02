@@ -1150,7 +1150,7 @@ function SalesView({ token, products }) {
           const spent = (spendRows || [])
             .slice(String(spendRows?.[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
             .filter(r => r[1] === 'Profit' || r[1] === 'Revenue')
-            .filter(r => String(r[4] || '').toLowerCase() === 'processed as personal income')
+            .filter(r => IS_OWNER_DRAW(r[4]))  // substring match — same detector as the P&L
             .reduce((s, r) => s + (parseFloat(r[2]) || 0), 0);
           setProfitSpent(spent);
         }
@@ -2221,8 +2221,10 @@ function ExpensesTab({ token, products }) {
   const mPfx         = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const lastDate     = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const lPfx         = `${lastDate.getFullYear()}-${String(lastDate.getMonth() + 1).padStart(2, '0')}`;
-  const thisMonth    = expenses.filter(e => e.date.startsWith(mPfx));
-  const lastMonth    = expenses.filter(e => e.date.startsWith(lPfx));
+  // Normalize via monthKey so serial / M/D/YYYY / YYYY-MM-DD dates all bucket
+  // correctly — a raw .startsWith('YYYY-MM') silently misses non-ISO date cells.
+  const thisMonth    = expenses.filter(e => monthKey(e.date) === mPfx);
+  const lastMonth    = expenses.filter(e => monthKey(e.date) === lPfx);
 
   const catTotals = {};
   thisMonth.forEach(e => { if (e.category) catTotals[e.category] = (catTotals[e.category] || 0) + e.amount; });

@@ -26,7 +26,12 @@ function Status({ s }) {
 }
 
 export default function DataRepair({ token }) {
-  const [hidden, setHidden] = useState(() => localStorage.getItem(DONE_KEY) === '1');
+  // RETIRED: this was a one-time May-2026 data fix and has already been applied.
+  // It is force-hidden so it can never re-surface on a fresh browser/device and
+  // overwrite correct Monthly Summary / budget data with the old hard-coded
+  // constants. Flip RETIRED to false only to intentionally re-run a repair.
+  const RETIRED = true;
+  const [hidden, setHidden] = useState(() => RETIRED || localStorage.getItem(DONE_KEY) === '1');
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [results, setResults] = useState({});

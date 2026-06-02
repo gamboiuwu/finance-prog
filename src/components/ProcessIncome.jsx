@@ -38,6 +38,10 @@ function parseSheetDate(val) {
   return null;
 }
 
+// Case/whitespace-insensitive Gas match — the sheet may store "gas" or " Gas ".
+// Must agree with Budget.jsx so the gas-balance override never silently misses.
+const isGas = (type) => String(type || '').trim().toLowerCase() === 'gas';
+
 // Deposits fill each category's *remaining gap* (goal minus already contributed).
 // Priority mode: fill P1 gaps before P2, then P3.
 // Proportional mode: distribute proportionally across remaining gaps.
@@ -49,14 +53,14 @@ function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = n
   const eligible = expenses
     // Gas is always eligible when we have a live dynamic budget, even if the sheet
     // allowance is 0/stale — the real target comes from the gas price.
-    .filter(e => pm(e['Monthly Allowance ($)']) > 0 || (e['Type'] === 'Gas' && isGasDynamic))
+    .filter(e => pm(e['Monthly Allowance ($)']) > 0 || (isGas(e['Type']) && isGasDynamic))
     .map(e => {
       // Gas uses the live dynamic budget (scales with gas price) instead of the
       // static sheet allowance, so the target is the ~$185 reserve, not $120.
-      const allowance  = (e['Type'] === 'Gas' && isGasDynamic)
+      const allowance  = (isGas(e['Type']) && isGasDynamic)
         ? gasBudget
         : pm(e['Monthly Allowance ($)']);
-      const already    = (e['Type'] === 'Gas' && typeof gasBalance === 'number' && !isNaN(gasBalance))
+      const already    = (isGas(e['Type']) && typeof gasBalance === 'number' && !isNaN(gasBalance))
         ? Math.max(0, gasBalance)  // use all-time net so balance > allowance → stillNeeds = 0
         : (alreadyByType[e['Type'] || ''] || 0);
       const stillNeeds = Math.max(0, allowance - already);
@@ -195,12 +199,17 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     () => calcDeposits(expenses, amount, mode, alreadyByType, gasBalance, gasBudget),
     [expenses, amount, mode, alreadyByType, gasBalance, gasBudget]
   );
+  const gasDynamic     = typeof gasBudget === 'number' && gasBudget > 0;
   const totalAllowance = expenses.reduce((s, e) => {
     // Gas contributes its live dynamic budget to the monthly goal, not the static sheet value.
-    if (e['Type'] === 'Gas' && typeof gasBudget === 'number' && gasBudget > 0) return s + gasBudget;
+    if (isGas(e['Type']) && gasDynamic) return s + gasBudget;
     return s + pm(e['Monthly Allowance ($)']);
   }, 0);
-  const totalAlready   = Object.values(alreadyByType).reduce((s, v) => s + v, 0);
+  // "Already" must use the gas all-time balance for Gas (not the monthly alloc map),
+  // mirroring calcDeposits — otherwise the header "% covered" double-counts gas.
+  const hasGasItem     = expenses.some(e => isGas(e['Type']));
+  const totalAlready   = Object.entries(alreadyByType).reduce((s, [t, v]) => isGas(t) ? s : s + v, 0)
+    + (hasGasItem && typeof gasBalance === 'number' && !isNaN(gasBalance) ? Math.max(0, gasBalance) : 0);
   const totalCovered   = totalAlready + amount;
   const stillNeeded    = Math.max(0, totalAllowance - totalCovered);
   const coveragePct    = totalAllowance > 0 ? (totalCovered / totalAllowance) * 100 : 0;

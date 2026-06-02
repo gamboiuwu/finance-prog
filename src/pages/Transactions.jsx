@@ -346,9 +346,11 @@ export default function Transactions({ token }) {
     rows.forEach(r => {
       const amt = parseAmount(r[2]);
       if (amt >= 0 || !r[0]) return;
-      const parts = String(r[0]).split('/');
-      if (parts.length < 2) return;
-      const label = MONTH_NAMES[(parseInt(parts[0], 10) - 1)] ?? parts[0];
+      // Use the shared date parser so serial / ISO / M/D/YYYY rows all bucket
+      // (a naive split('/') silently dropped non-slash dates from the chart).
+      const d = parseSheetDate(r[0]);
+      if (!d) return;
+      const label = MONTH_NAMES[d.getMonth()] ?? String(d.getMonth() + 1);
       mm[label] = (mm[label] || 0) + Math.abs(amt);
     });
     return Object.entries(mm).map(([month, spent]) => ({ month, spent }));

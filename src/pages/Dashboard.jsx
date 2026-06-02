@@ -255,6 +255,8 @@ export default function Dashboard({ token }) {
   const [gasLogDone, setGasLogDone]     = useState(false);
   const [gasBalance, setGasBalance]     = useState(null);
   const [gasBudget, setGasBudget]       = useState(() => getGasBudget()?.value ?? null);
+  // Bumped after income is processed / a gas spend is logged to re-pull sheet data.
+  const [refreshKey, setRefreshKey]     = useState(0);
   const [showExpLog, setShowExpLog]     = useState(false);
   const [expAmount, setExpAmount]       = useState('');
   const [expCategory, setExpCategory]   = useState('');
@@ -431,7 +433,11 @@ export default function Dashboard({ token }) {
 
             // Financial Health Score — 4 weighted signals, no extra API calls
             const p1Items = mainExp.filter(i => String(i['Priority']??'3')==='1' && pm(i['Monthly Allowance ($)'])>0);
-            const p1Done  = p1Items.filter(i => (abt[i['Type']||'']||0) >= pm(i['Monthly Allowance ($)']));
+            const p1Done  = p1Items.filter(i => {
+              // Gas funds from its all-time running balance, not this month's deposits.
+              if (String(i['Type']||'').trim().toLowerCase() === 'gas') return gasBal > 0;
+              return (abt[i['Type']||'']||0) >= pm(i['Monthly Allowance ($)']);
+            });
             const s1Pct   = p1Items.length > 0 ? p1Done.length / p1Items.length : 1;
             const s1      = s1Pct * 40;
 
@@ -535,7 +541,7 @@ export default function Dashboard({ token }) {
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, refreshKey]);
 
   // Fetch the external gas-price API after first paint (non-blocking) so a
   // slow or rate-limited EIA response never delays the dashboard rendering.
@@ -576,7 +582,9 @@ export default function Dashboard({ token }) {
     ? allocTotals.income
     : (allocTotals.income || pm(current?.['Total Processed Income']));
   const unprocessed = pm(current?.['Unprocessed Income']);
-  const spent       = allocTotals.spent   || pm(current?.['Total Spent']);
+  const spent       = hasCurrentMonthAllocRows !== null
+    ? allocTotals.spent
+    : (allocTotals.spent || pm(current?.['Total Spent']));
   const goal        = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0) || pm(current?.['Allowance Goal']);
   const net         = income - spent;
   const goalPct     = goal > 0 ? (income / goal) * 100 : 0;
@@ -2436,7 +2444,7 @@ ${stmtTxns.length ? `
           gasBalance={gasBalance}
           gasBudget={gasBudget}
           onClose={() => setShowIncome(false)}
-          onProcessed={() => setGasBalRefresh(k => k + 1)}
+          onProcessed={() => setRefreshKey(k => k + 1)}
         />
       )}
 
@@ -2524,7 +2532,7 @@ ${stmtTxns.length ? `
                   p,
                   label:  { '1':'Essential','2':'Stability','3':'Optional' }[p],
                   color:  { '1':'text-rose-400','2':'text-amber-400','3':'text-violet-400' }[p],
-                  barClr: { '1':'#f43f5e','2':'f59e0b','3':'#8b5cf6' }[p],
+                  barClr: { '1':'#f43f5e','2':'#f59e0b','3':'#8b5cf6' }[p],
                   bg:     { '1':'bg-rose-950/40','2':'bg-amber-950/40','3':'bg-violet-950/40' }[p],
                   border: { '1':'border-rose-800/40','2':'border-amber-800/40','3':'border-violet-800/40' }[p],
                   items: expenses.filter(e => String(e['Priority'] ?? '3') === p && pm(e['Monthly Allowance ($)']) > 0),

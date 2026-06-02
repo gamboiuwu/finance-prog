@@ -1,5 +1,10 @@
 # Finance Tracker — Claude Internal Reference
 
+> **📐 Full system reconciliation lives in [`ARCHITECTURE.md`](./ARCHITECTURE.md)** — every
+> money formula, sheet tab, localStorage key, the gas model, and the cross-screen
+> "reconciliation hazards" (where the same word means different numbers). Read it before
+> touching any financial calculation. Last full audit: 2026-06-02.
+
 ## Stack
 - **Framework**: React 18 + Vite 8 + Tailwind CSS 4
 - **Charts**: Recharts
@@ -14,15 +19,29 @@
 - **Never commit** the spreadsheet ID to public files — it is in `src/config.js` which is gitignored-safe since no financial data is in the ID itself, but the sheet is private-only-accessible via OAuth
 
 ## Google Sheets Layout
+*(Full column-level detail + which screen reads/writes each tab is in ARCHITECTURE.md §2.)*
 | Sheet tab | Purpose |
 |---|---|
 | Monthly Summary | Income/spent/goal per month (rows = months, cols = metrics) |
-| Monthly Expenses | Budget categories: Type, Account, Priority, Monthly Allowance ($), etc. |
-| Allocation Transactions | Every deposit: Date, Type, Amount, Desc, Account, Done (bool) |
+| Monthly Expenses | Budget categories: Type, Account, Priority, Expense, Monthly Allowance ($), Actual Spend |
+| Allocation Transactions | Every deposit/spend: Date, Type, Amount, Desc, Account, Done (bool) |
+| Allocation Summary | label/balance pairs incl. **Gas** row (gas balance on hand) — read by Summary |
+| Expense Summary | wide key/value layout (PI, CI, wage, mpg, $/gal, deposits) — read by Summary |
+| Subscriptions | Subscription items: Name, Start Date, Cycle, Amount, Notes |
+| Inquiries | Commission inquiries: Card Name, Contact, desc, Status, Price Agreed, Paid Amount… |
+| Commission Prices | Pricing tiers: ID,Category,Variant,BasePrice,ExtraChar,Bg*,RushPct,CommercialPct,… |
 | Business Products | Product cards: ID, Name, StartPrice, Formula (JSON blocks) |
-| Business Transactions | Sales log: Date, Client, Product, Qty, Unit Price, Revenue, Margin%, Allocs(JSON) |
+| Business Transactions | Sales log: Date, Client, Product, Qty, Unit Price, Revenue, Margin%, Allocs(JSON), Order(JSON) |
+| Business Account Spending | Owner draws + direct bucket spends: Date, Account, Amount, Vendor, Description |
 | Business Expenses | Business spending log: Date, Vendor, Amount, Category, Product, Payment, Notes |
-| Subscriptions | Subscription items: Name, Cost, Cycle, Start Date, Account |
+| Work Sessions | Time-clock log: Date, Start, Duration, Products, Total Units, Total Profit, $/hr, Notes |
+| Plans | Savings/affordability goals (Dragon/Goals): ID,Name,Scope,Target,Saved,Per Month,… |
+
+**Subsystems beyond the budget core** (see ARCHITECTURE.md §3 for formulas):
+Business (`BusinessExpenses.jsx`, 6 tabs incl. time clock) · Commissions (`CommissionPrices` +
+`Commissions`) · Time Clock (`TimeClockView`, `Work Sessions` sheet) · Dragon AI assistant
+(`DragonBot` + `lib/dragon*`, user's own Anthropic key) · Goals (`Goals.jsx` + `Plans` sheet) ·
+Orders/shipping (`lib/orders`, `lib/easypost`, EasyPost via CORS proxy).
 
 **Spreadsheet ID**: `1RNhMNI3nM3dZisuP8vo2w6FYnx33Lvnvpe_UnHdGz4o`  
 **Google Client ID**: see `src/config.js`
