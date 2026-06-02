@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { readRange, readReportLinks, appendRow, ensureSheetTab, batchUpdateCells, clearRow } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
@@ -297,6 +297,7 @@ export default function Dashboard({ token }) {
   const [noteInput, setNoteInput]           = useState('');
   const [showArchive, setShowArchive]         = useState(false);
   const [archiveEntry, setArchiveEntry]       = useState(null);
+  const billCalendarRef = useRef(null);
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -1036,6 +1037,24 @@ ${stmtTxns.length ? `
         )}
       </div>
 
+      {/* ── Quick Actions (Task 29) ─────────────────────────── */}
+      <div className="overflow-x-auto scrollbar-none -mx-1 px-1">
+        <div className="flex gap-2 pb-0.5">
+          {[
+            { id: 'income', icon: '💰', label: 'Process Income', badge: allocTotals.income === 0, color: 'bg-emerald-900/40 border-emerald-700/40 text-emerald-200 hover:bg-emerald-900/60', onClick: () => setShowIncome(true) },
+            { id: 'log',    icon: '📝', label: 'Log Transaction', badge: false, color: 'bg-slate-800 border-slate-700/40 text-slate-200 hover:bg-slate-700', onClick: () => navigate('/transactions') },
+            { id: 'month',  icon: '📊', label: 'This Month',      badge: false, color: 'bg-slate-800 border-slate-700/40 text-slate-200 hover:bg-slate-700', onClick: () => reportLinks[currentMonth] ? navigate(`/month/${reportLinks[currentMonth]}/${currentMonth}`) : navigate('/summary') },
+            { id: 'cal',    icon: '📅', label: 'Bill Calendar',   badge: false, color: 'bg-slate-800 border-slate-700/40 text-slate-200 hover:bg-slate-700', onClick: () => billCalendarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+          ].map(({ id, icon, label, badge, color, onClick }) => (
+            <button key={id} onClick={onClick} className={`relative flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors active:opacity-75 shrink-0 ${color}`}>
+              {badge && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-teal-400 ring-2 ring-slate-900" />}
+              <span className="text-base leading-none">{icon}</span>
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* ── Gas price chip + Log Gas spend ─────────────────── */}
       {gasPrice?.value && (
         <div className="flex gap-2">
@@ -1226,7 +1245,7 @@ ${stmtTxns.length ? `
         for (let d = 1; d <= daysInMo; d++) cells.push(d);
 
         return (
-          <div className="bg-slate-800 rounded-2xl p-2.5 space-y-2">
+          <div ref={billCalendarRef} className="bg-slate-800 rounded-2xl p-2.5 space-y-2">
             {/* Calendar header */}
             <div className="flex items-center justify-between">
               <button onClick={() => setCalMonth(prev => {

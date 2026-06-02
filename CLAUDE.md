@@ -149,7 +149,7 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 | 18 | Monthly Journal / Memo per Month | ✅ COMPLETED + VERIFIED (2026-05-31) |
 | 19 | Split Transaction Entry | ⏳ Plan expanded 2026-05-31, awaiting Execute Y/N |
 | 20 | Payday Tracker & Days-Until-Paycheck | ⏳ Plan expanded 2026-05-31, awaiting Execute Y/N |
-| 21 | Budget Category Notes & Annotations | ✅ COMPLETED + VERIFIED (2026-06-02) |
+| 21 | Budget Category Notes & Annotations | ✅ COMPLETED + VERIFIED + DOUBLE-CHECKED (2026-06-02) |
 | 22 | Subscription Renewal Push Notifications | ✅ COMPLETED + VERIFIED (2026-05-31) |
 | 23 | Bill Due-Date Alerts (Funding Reminders) | ✅ COMPLETED + VERIFIED + DOUBLE-CHECKED (2026-05-31) |
 | 24 | Spending Calendar Heatmap | ⏳ Plan written 2026-05-30, awaiting Execute Y/N |
@@ -157,7 +157,7 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 | 26 | Debt Payoff Tracker | ⏳ Plan expanded 2026-05-31, awaiting Execute Y/N |
 | 27 | Income Source Tagging | ⏳ Plan written 2026-05-30, awaiting Execute Y/N |
 | 28 | Monthly Budget Rollover | ⏳ Plan written 2026-05-30, awaiting Execute Y/N |
-| 29 | Dashboard Quick-Actions Row | ⏳ Plan written 2026-06-02, awaiting Execute Y/N |
+| 29 | Dashboard Quick-Actions Row | ✅ COMPLETED + VERIFIED (2026-06-02) |
 | 30 | Weekly Spending Digest Notification | ⏳ Plan written 2026-06-02, awaiting Execute Y/N |
 | 31 | PDF / Print-Ready Monthly Statement | ⏳ Plan written 2026-06-02, awaiting Execute Y/N |
 
@@ -177,19 +177,59 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 - **Task 18**: ✅ COMPLETED + VERIFIED (2026-05-31). ✎ pencil button next to month/year header on Dashboard opens a bottom-drawer text input (max 200 chars). Saved note shows as italic grey chip below month name (tap to edit). MonthlyDetail page shows note as subtle callout at top. Storage: localStorage `_fin_month_notes = { "YYYY-M": text }`. saveMonthNote() in Dashboard.jsx; getMonthNote() helper in MonthlyDetail.jsx (tries current year then previous year). State: `monthNote`, `showNoteDrawer`, `noteInput`.
 - **Task 19 (EXPANDED)**: Split Transaction Entry — In AddModal, "+ Add Split" button adds Category+Amount pairs (up to 5). Shared fields: Date/Description/Account/Status. Running tally vs total. Batch-appends to Allocation Transactions (no schema change). Grouped display in transaction list with ⛓ icon. Q1: max splits 3 or 5? Q2: visual grouping in both Chronological and By Category views, or just Chronological? Q3: fixed total first, then split it — OR per-row amounts that auto-sum? Q4: should split rows appear as individual entries in Budget Categories view? Q5: save common split configurations as templates?
 - **Task 20 (EXPANDED)**: Payday Tracker — localStorage `_fin_payday_config = { schedule, startDate }`. Schedule types: Bi-weekly / Semi-monthly (1st & 15th) / Monthly. Dashboard chip: "💰 Paycheck in X days" (green >7d, amber 3-7d, red <3d). Spending-pace warning: "You've spent Y% of income with Z% of pay cycle elapsed." Optional push notification the evening before payday. Q1: what is your pay schedule? Q2: chip on Dashboard only or Budget page too? Q3: would you like an evening-before push notification? Q4: how many past pay periods to look back to confirm history? Q5: custom spending-pace warning threshold (e.g. warn when >80% spent with >50% cycle remaining)?
-- **Task 21**: ✅ COMPLETED + VERIFIED (2026-06-02). localStorage `_fin_cat_notes = { "TypeName": "text" }`. `getCatNotes()` helper in Budget.jsx. `CategoryItemCard`: ✎ button (ml-auto in type name flex row) → bottom-drawer textarea (160 chars, autoFocus, Clear+Save). Note shown as italic truncated button below Account line (tap to edit). `BudgetCard` shows note as read-only italic gray text below item name.
+- **Task 21**: ✅ COMPLETED + VERIFIED + DOUBLE-CHECKED (2026-06-02). localStorage `_fin_cat_notes = { "TypeName": "text" }`. `getCatNotes()` helper in Budget.jsx:67-69. `CategoryItemCard` (Budget.jsx:498-675): `note`/`showNoteDrawer`/`noteInput` state, `openNoteDrawer()` pre-fills input, `saveNote(text)` writes/deletes from map. ✎ button ml-auto at line 558. Note as italic clickable button at line 569. Bottom-drawer (lines 632-672): 160-char textarea, char counter, Clear+Save, autoFocus. `BudgetCard` (line 378): reads `getCatNotes()[type]`, shows read-only italic gray at line 389.
 - **Task 22**: ✅ COMPLETED + VERIFIED (2026-05-31). On Dashboard load, scans subscriptions for renewals within lead time (default 3 days). Fires grouped push notification. localStorage `_fin_sub_notif_sent = { "YYYY-MM-DD": ["Name1",...] }` for dedup. Lead time (1/3/7 days) via ⚙ gear in Subscriptions modal header → mini-picker. Uses existing `nextRenewal()` + `daysUntil()` helpers + Notification API from Task 10. `subNotifLead` state at Dashboard level. `showNotifPicker`/`leadVal` states in SubsModal.
 - **Task 23**: ✅ COMPLETED + VERIFIED + DOUBLE-CHECKED (2026-05-31). localStorage `_fin_due_dates = { "TypeName": dayNum }`. Budget→Categories `CategoryItemCard`: per-item "📅 Due Xth" chip (tap to open select 1-31 + "No date"); shows "⚠ Past due" (rose) or "⏰ Due in Nd" (amber) badges when unfunded. Dashboard banner: `dueAlerts[]` computed as unfunded items with `0 <= diff <= 3` days. ProcessIncome: badges in allocation rows. All 3 files verified: Budget.jsx:46-546, Dashboard.jsx:362-375+818-821, ProcessIncome.jsx:100-655.
 - **Task 26**: Debt Payoff Tracker — "Debts" sheet tab (Name|Type|Balance|InterestRate|MinPayment|Account|TargetDate|Notes). Dashboard card: total debt, # accounts, total min payment (rose if debt > income). Per-debt detail: months to payoff at min vs +$X extra (slider), interest saved. Toggle Avalanche (highest APR) vs Snowball (smallest balance) order — shows total interest difference between strategies. Milestones at 25/50/75/100% → push notification, stored `_fin_debt_milestones`. "Log Payment" → updates Balance in sheet + logs to Allocation Transactions. Q: what debt types do you have? standalone page or Dashboard card? show avalanche/snowball interest difference? payments reduce budget allocation?
-- **Task 27**: Income Source Tagging — Tag processed income rows by source (Paycheck/Commission/Business/etc.) using `[Source]` prefix in Description column of Allocation Transactions. No schema change. Dashboard mini-breakdown by source. ProcessIncome source chips above Description field. Q: sources list? breakdown placement? untagged rows handling?
-- **Task 28**: Monthly Budget Rollover — Per-category rollover toggle in Budget→Categories. Unused allocation carries to next month. Storage: `_fin_rollover_cats` (enabled categories array) + `_fin_rollover_credit = { "YYYY-M": { "TypeName": amount } }`. Rollover credit shown as "+$X.XX rollover from last month" in category cards. Q: which categories? credit counts toward goal or bonus? reset on toggle-off?
 - **Task 24**: Spending Calendar Heatmap — monthly heatmap grid (7-col week layout) colored by daily transaction intensity (pale→deep rose). Tap day = micro-tooltip with category breakdown. Reuses existing Allocation Transactions data. Collapsible Dashboard card or Budget→Entries sub-view. Q: Dashboard vs Budget Entries? Show income days differently? Month navigation?
 - **Task 25**: Budget Category Reorder & Pinning — 📌 pin per category card floats it to top of its priority group. Drag-or-arrows reorder within tiers. localStorage `_fin_cat_order = { "TypeName": sortIndex }`. Reset to default button. Q: drag-and-drop vs up/down arrows? Visual pin indicator? Order persists across months?
-- **Task 29**: Dashboard Quick-Actions Row — chips row below month header: "💰 Process Income" | "📝 Add Transaction" | "📊 This Month" | "📅 Bill Calendar". Tapping income opens ProcessIncome modal, transaction navigates/opens add form, month links to MonthlyDetail, bill calendar scrolls to it. Order stored in localStorage `_fin_quickactions`. No new API calls.
-- **Task 30**: Weekly Spending Digest Notification — Sunday-by-default push notification via existing Notification API: total allocated this week, % monthly budget used, top category. Fires on Dashboard load if >7 days since last. Config in localStorage `_fin_digest_config = { enabled, dayOfWeek, lastFired }`. No new API calls — reuses allocTx.
+- **Task 27 (EXPANDED 2026-06-02)**: Income Source Tagging
+  - Source chips in ProcessIncome modal above Description field: Paycheck | Art Commission | Business | Side Work | Other (tapping one auto-sets Description prefix `[Paycheck]`, etc.)
+  - No schema change — prefix stored inside existing Allocation Transactions col D (Description)
+  - Dashboard income breakdown (collapsible, below income stat): sum this-month positive alloc rows by `[Source]` prefix → horizontal pill bar showing % per source; untagged rows grouped as "Untagged"
+  - Transactions page: new "Source" filter chip group below existing filters (parses prefix from Description)
+  - Files to modify: ProcessIncome.jsx (source chip row), Dashboard.jsx (mini breakdown section), Transactions.jsx (source filter)
+  - localStorage: none needed — data lives in the sheet
+  - Q1: Which income sources do you have? (Paycheck / Art Commission / Business / Tips / Other?)
+  - Q2: Should the source breakdown show on Dashboard only, or also in Budget → Trends?
+  - Q3: Should `[Source]` prefix be hidden in most views (only shown in breakdown), or always visible?
+  - Execute? Y/N:
+- **Task 28 (EXPANDED 2026-06-02)**: Monthly Budget Rollover
+  - Rollover toggle (↩) on each CategoryItemCard in Budget → Categories; stored in `_fin_rollover_cats = ["TypeName", ...]`
+  - On category view load: compute previous month's surplus per enabled item (budgeted − allocated from prior month's Allocation Transactions rows); store in `_fin_rollover_credit = { "YYYY-M": { "TypeName": amt } }` (keyed by the CURRENT month)
+  - Credit display: "+$X.XX rollover from [Month]" line in soft teal below the progress bar; reduces effective funding gap (credit + allocated vs. budgeted)
+  - Dashboard chip (optional): "↩ $X.XX in rollover credits active" near month header when any credits exist
+  - Credits expire automatically after 13 months
+  - Budget Plan tab: rollover-enabled items show a small ↩ icon next to their name
+  - Files to modify: Budget.jsx (CategoryItemCard toggle + credit display + rollover computation), Dashboard.jsx (optional chip)
+  - Q1: Which categories should roll over? (vacation fund, car maintenance, irregular bills, savings buffer?)
+  - Q2: Should rolled-over credits count TOWARD the monthly goal (reduce income needed) or stack as bonus ABOVE the goal?
+  - Q3: If you turn off rollover for a category mid-year, should the existing credit stay until spent, or clear immediately?
+  - Execute? Y/N:
+- **Task 29**: ✅ COMPLETED + VERIFIED (2026-06-02). Horizontal scrollable chip strip below month header in Dashboard.jsx. Four actions: 💰 Process Income (opens ProcessIncome modal, shows teal dot badge when allocTotals.income === 0), 📝 Log Transaction (navigates to /transactions), 📊 This Month (navigates to MonthlyDetail or /summary), 📅 Bill Calendar (smooth-scrolls via `billCalendarRef`). `useRef` added to import; `billCalendarRef` attached to bill calendar IIFE div. No localStorage, no new API calls.
+- **Task 30 (EXPANDED 2026-06-02)**: Weekly Spending Digest Push Notification
+  - Trigger logic: on Dashboard load, read `_fin_digest_config = { enabled, dayOfWeek, lastFired }`. If enabled AND today's day-of-week matches AND lastFired is > 7 days ago → fire notification
+  - Notification text: "Week ending [Date]: $X allocated, Y% of monthly budget used. Top category: [Z]." + "⚠ N essential items still unfunded." (if any P1 unfunded)
+  - Data source: reuses `allocTx` / `abt` map already computed in the `Promise.all` handler — zero extra API calls
+  - Config UI: "📬 Weekly Digest" toggle chip added below the Health Score card on Dashboard; tap opens a small bottom-drawer with enabled toggle + day-of-week selector (7 chips Mon–Sun) + preview message
+  - localStorage: `_fin_digest_config = { enabled: false, dayOfWeek: 0, lastFired: "YYYY-MM-DD" }`
+  - Files to modify: Dashboard.jsx only (digest check in existing alloc processing block + config drawer)
+  - Q1: What day of the week would you prefer the digest? (Sunday default)
+  - Q2: Should the digest also show as an in-app summary card visible for that week, or push notification only?
+  - Q3: Should it name the #1 unfunded essential item, or just the count?
+  - Execute? Y/N:
 - **Task 31**: PDF/Print Monthly Statement — enhance existing `printStatement()` with full layout: income summary, category breakdown (budgeted vs actual), top 5 expenses, health score, month note. `@media print` CSS for clean A4/letter output. "Copy as Plain Text" button. No new API calls — all data already loaded by Dashboard.
 
-## Category Notes System (Task 21) — VERIFIED 2026-06-02
+## Quick Actions Row (Task 29) — VERIFIED 2026-06-02
+- Horizontal scrollable chip strip (overflow-x-auto) placed between month header and gas price section in Dashboard.jsx
+- Four chips rendered from an inline array: each has `id`, `icon`, `label`, `badge` (bool), `color` (Tailwind classes), `onClick`
+- `billCalendarRef = useRef(null)` declared after state block; attached via `ref={billCalendarRef}` to the bill calendar IIFE's root div
+- Badge: teal dot (`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-teal-400 ring-2 ring-slate-900`) shown on Process Income chip when `allocTotals.income === 0`
+- "This Month" navigates to MonthlyDetail if `reportLinks[currentMonth]` exists, otherwise falls back to `/summary`
+- "Bill Calendar" uses `billCalendarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })`
+- No localStorage, no new API calls
+
+## Category Notes System (Task 21) — VERIFIED + DOUBLE-CHECKED 2026-06-02
 - localStorage key: `_fin_cat_notes = { "TypeName": "note text" }` — persists across months
 - `getCatNotes()` helper in Budget.jsx (after `getDueDates()` line ~54)
 - `CategoryItemCard`: `note` state (lazy init), `showNoteDrawer`, `noteInput` state
