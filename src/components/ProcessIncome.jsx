@@ -225,6 +225,20 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     return { ...it, deposit };
   });
 
+  // Flat "where the money goes" receipt — every line that actually receives money,
+  // budget deposits + named surplus buckets, biggest first. Used for the summary list.
+  const depositPlan = useMemo(() => {
+    const rows = deposits
+      .filter(d => d.deposit > 0.005)
+      .map(d => ({ name: d.type, account: d.account, amount: d.deposit, priority: d.priority, kind: 'budget' }));
+    surplusDeposits.forEach(it => {
+      if (it.name?.trim() && it.deposit > 0.005) {
+        rows.push({ name: it.name.trim(), account: it.account || 'Savings', amount: it.deposit, priority: 4, kind: 'surplus' });
+      }
+    });
+    return rows.sort((a, b) => b.amount - a.amount);
+  }, [deposits, surplusDeposits]);
+
   function addTemplate() {
     const amt = parseFloat(income);
     if (!amt || amt <= 0 || templates.length >= 8) return;
@@ -598,6 +612,49 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
 
         {/* Breakdown by account */}
         <div className="overflow-y-auto flex-1 p-4 space-y-3">
+          {/* ── Where the money goes — flat receipt list ──────── */}
+          {amount > 0 && depositPlan.length > 0 && (
+            <div className="rounded-2xl border border-emerald-800/40 bg-gradient-to-b from-emerald-950/40 to-slate-900 overflow-hidden">
+              <div className="px-4 py-3 flex items-center justify-between border-b border-emerald-900/40">
+                <div>
+                  <p className="text-emerald-300 text-xs font-bold uppercase tracking-wider">🧾 Where it goes</p>
+                  <p className="text-slate-500 text-[10px] mt-0.5">{depositPlan.length} deposit{depositPlan.length !== 1 ? 's' : ''} · process top to bottom</p>
+                </div>
+                <button
+                  onClick={copyText}
+                  className="text-emerald-400 hover:text-emerald-300 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-emerald-900/40 border border-emerald-800/40 transition-colors shrink-0"
+                >{copied ? '✓ Copied' : '📋 Copy'}</button>
+              </div>
+              <div className="divide-y divide-slate-800/60">
+                {depositPlan.map((r, i) => {
+                  const priClr = r.kind === 'surplus' ? 'text-emerald-400'
+                    : r.priority === 1 ? 'text-rose-400' : r.priority === 2 ? 'text-amber-400' : 'text-violet-400';
+                  return (
+                    <div key={i} className="px-4 py-2.5 flex items-center gap-3">
+                      <span className="text-emerald-300 font-mono font-bold text-sm tabular-nums w-20 shrink-0 text-right">
+                        +{fmt(r.amount)}
+                      </span>
+                      <span className={`shrink-0 ${priClr}`}>→</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-white text-sm truncate leading-tight">{r.name}</p>
+                        <p className="text-slate-500 text-[10px] leading-tight">
+                          {r.account}{r.kind === 'surplus' ? ' · surplus' : ` · P${r.priority}`}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="px-4 py-2.5 flex items-center gap-3 bg-slate-800/60">
+                  <span className="text-white font-mono font-bold text-sm tabular-nums w-20 shrink-0 text-right">
+                    {fmt(depositPlan.reduce((s, r) => s + r.amount, 0))}
+                  </span>
+                  <span className="text-slate-600 shrink-0">→</span>
+                  <span className="text-slate-300 text-xs font-semibold flex-1">Total allocated</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {amount <= 0 && !histLoading && (
             <div className="space-y-2">
               <p className="text-slate-600 text-center py-4 text-sm">Enter an amount above to see where it goes</p>
