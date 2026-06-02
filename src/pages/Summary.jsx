@@ -305,13 +305,13 @@ function renderTile(id, c, sv, ov, onEdit) {
     case 'monthlyGoal':
       return <MetricTile label="Monthly Goal" value={fmt(c.totalAllowance)} detail="Sum of all Monthly Expenses allowances" verify={close(c.totalAllowance, sv['Monthly Goal'])} onEdit={e('Monthly Goal')} overrideVal={o} />;
     case 'pi':
-      return <MetricTile label="Processed Income" value={fmt(c.pi)} sub="PI" detail="Paychecks + commissions received and processed" onEdit={e('Processed Income')} overrideVal={o} />;
+      return <MetricTile label="Processed Income" value={fmt(c.pi)} sub="Income logged this month · resets each month" detail="Paychecks + commissions received and processed" onEdit={e('Processed Income')} overrideVal={o} />;
     case 'ci':
       return <MetricTile label="Claimable Income" value={fmt(c.ci)} sub="CI" detail="Income available to allocate across accounts" onEdit={e('Claimable Income')} overrideVal={o} />;
     case 'ciPlusPi':
       return <MetricTile label="CI + PI" value={fmt(c.ciPlusPi)} detail="Claimable Income + Processed Income combined" onEdit={e('CI + PI')} overrideVal={o} />;
     case 'ar':
-      return <MetricTile label="Still Required (AR)" value={fmt(c.ar)} color={c.ar > 0 ? 'text-amber-400' : 'text-emerald-400'} detail="Monthly Goal − Processed Income" onEdit={e('Still Required')} overrideVal={o} />;
+      return <MetricTile label="Remaining to Goal" value={fmt(c.ar)} sub={c.ar > 0 ? 'More income needed this month' : 'Monthly goal fully covered!'} color={c.ar > 0 ? 'text-amber-400' : 'text-emerald-400'} detail="Monthly Goal − Processed Income = how much more you need to earn/process" onEdit={e('Still Required')} overrideVal={o} />;
     case 'coveragePct':
       return <MetricTile label="Coverage %" value={fmtPct(c.goalToCycle)} color={c.goalToCycle >= 1 ? 'text-emerald-400' : c.goalToCycle >= 0.75 ? 'text-amber-400' : 'text-rose-400'} detail="PI ÷ Monthly Goal" verify={close(c.goalToCycle, pm(sv['Goal to Cycle']) < 2 ? pm(sv['Goal to Cycle']) : null)} onEdit={e('Coverage %')} overrideVal={o} />;
     case 'projectedEnd':
