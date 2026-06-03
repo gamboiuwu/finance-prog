@@ -1,9 +1,46 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { streamDragon, dragonError } from '../lib/dragonBot';
-import { getDragonKey, setDragonKey, clearDragonKey, hasDragonKey } from '../lib/dragonKey';
+import {
+  getDragonKey, setDragonKeyWithSync, clearDragonKeyWithSync,
+  hasDragonKey, syncKeyFromSheet,
+} from '../lib/dragonKey';
 import DragonAvatar from '../components/DragonAvatar';
 import DragonCard from '../components/DragonCards';
 import { getPrefs, setPrefs, MODELS, PAY_SCHEDULES, PACES, TONES } from '../lib/dragonPrefs';
+
+// ── Monthly usage tracking ───────────────────────────────────────────────────
+// Anthropic pricing (per million tokens, as of 2025). claude-sonnet-4-6 rates
+// used as a conservative fallback; all figures are estimates.
+const TOKEN_PRICING = {
+  'claude-haiku-4-5-20251001': { in: 0.80,  out: 4.00  },
+  'claude-sonnet-4-6':         { in: 3.00,  out: 15.00 },
+  'claude-opus-4-8':           { in: 15.00, out: 75.00 },
+};
+const USAGE_KEY = '_fin_dragon_usage';
+
+function getUsageStore() {
+  try { return JSON.parse(localStorage.getItem(USAGE_KEY) || '{}'); } catch { return {}; }
+}
+function monthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+export function recordUsage(model, inputTokens, outputTokens) {
+  const store = getUsageStore();
+  const mk = monthKey();
+  const prior = store[mk] || { inputTokens: 0, outputTokens: 0, cost: 0 };
+  const pricing = TOKEN_PRICING[model] || TOKEN_PRICING['claude-sonnet-4-6'];
+  const addedCost = (inputTokens / 1_000_000) * pricing.in + (outputTokens / 1_000_000) * pricing.out;
+  store[mk] = {
+    inputTokens:  prior.inputTokens  + inputTokens,
+    outputTokens: prior.outputTokens + outputTokens,
+    cost:         prior.cost         + addedCost,
+  };
+  try { localStorage.setItem(USAGE_KEY, JSON.stringify(store)); } catch { /* quota */ }
+}
+function getThisMonthUsage() {
+  return getUsageStore()[monthKey()] || null;
+}
 
 const TOOL_LABELS = {
   get_monthly_summary:  'peering at your monthly hoard…',
@@ -127,58 +164,103 @@ function PrefsPanel() {
 }
 
 // ── API-key setup / settings screen ─────────────────────────────────────────
-function KeySetup({ onSaved, onCancel, hasExisting, showPrefs }) {
+// Issue 4 fix: wrapper is scrollable and height-constrained so the bottom button
+// is always reachable on any screen size. Inner content max-width is capped and
+// centred.
+function KeySetup({ token, onSaved, onCancel, hasExisting, showPrefs }) {
   const [val, setVal] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    const trimmed = val.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    await setDragonKeyWithSync(trimmed, token);  // Issue 0: write to sheet
+    setSaving(false);
+    onSaved();
+  }
+
+  async function handleClear() {
+    setSaving(true);
+    await clearDragonKeyWithSync(token);          // Issue 0: wipe sheet cell
+    setSaving(false);
+    onSaved();
+  }
+
+  const usage = getThisMonthUsage();
+
   return (
-    <div className="px-4 py-6 max-w-md mx-auto space-y-5">
-      <div className="text-center space-y-2">
-        <div className="flex justify-center"><DragonAvatar mood="sleep" size={80} /></div>
-        <h2 className="text-white font-bold text-xl font-broske">Wake the Dragon</h2>
-        <p className="text-slate-400 text-sm leading-relaxed">
-          Ledger runs on your own Anthropic API key. Paste it below — it's saved only on
-          this device (in your browser) and sent straight to Anthropic. It's never uploaded
-          or committed anywhere.
-        </p>
-      </div>
+    // Issue 4: full-height scrollable container so nothing goes off-screen
+    <div className="h-[calc(100dvh-120px)] overflow-y-auto">
+      <div className="px-4 py-6 max-w-md mx-auto space-y-5">
+        <div className="text-center space-y-2">
+          <div className="flex justify-center"><DragonAvatar mood="sleep" size={80} /></div>
+          <h2 className="text-white font-bold text-xl font-broske">Wake the Dragon</h2>
+          <p className="text-slate-400 text-sm leading-relaxed">
+            Ledger runs on your own Anthropic API key. Paste it below — it's saved to
+            your private Google Sheet so it syncs across devices. It's sent straight to
+            Anthropic and never committed anywhere.
+          </p>
+        </div>
 
-      <div className="bg-slate-800 rounded-2xl p-4 space-y-3">
-        <label className="text-slate-400 text-xs uppercase tracking-wider block">Anthropic API Key</label>
-        <input
-          type="password"
-          value={val}
-          onChange={e => setVal(e.target.value)}
-          placeholder="sk-ant-..."
-          autoComplete="off"
-          className="w-full bg-slate-900 text-white rounded-xl px-4 py-3 text-sm font-mono outline-none focus:ring-2 focus:ring-emerald-500 placeholder-slate-600"
-        />
-        <button
-          onClick={() => { if (val.trim()) { setDragonKey(val); onSaved(); } }}
-          disabled={!val.trim()}
-          className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-sm transition-colors"
-        >
-          🔥 Light the Fire
-        </button>
-        {hasExisting && (
+        <div className="bg-slate-800 rounded-2xl p-4 space-y-3">
+          <label className="text-slate-400 text-xs uppercase tracking-wider block">Anthropic API Key</label>
+          <input
+            type="password"
+            value={val}
+            onChange={e => setVal(e.target.value)}
+            placeholder="sk-ant-..."
+            autoComplete="off"
+            className="w-full bg-slate-900 text-white rounded-xl px-4 py-3 text-sm font-mono outline-none focus:ring-2 focus:ring-emerald-500 placeholder-slate-600"
+          />
           <button
-            onClick={() => { clearDragonKey(); onSaved(); }}
-            className="w-full py-2.5 rounded-xl bg-slate-700 hover:bg-rose-900/40 text-rose-300 font-medium text-xs transition-colors"
+            onClick={handleSave}
+            disabled={!val.trim() || saving}
+            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-sm transition-colors"
           >
-            Remove saved key
+            {saving ? 'Saving…' : '🔥 Light the Fire'}
           </button>
-        )}
-        {onCancel && (
-          <button onClick={onCancel} className="w-full py-2 text-slate-500 hover:text-slate-300 text-xs transition-colors">
-            Cancel
-          </button>
-        )}
-      </div>
+          {hasExisting && (
+            <button
+              onClick={handleClear}
+              disabled={saving}
+              className="w-full py-2.5 rounded-xl bg-slate-700 hover:bg-rose-900/40 text-rose-300 font-medium text-xs transition-colors disabled:opacity-50"
+            >
+              Remove saved key
+            </button>
+          )}
+          {onCancel && (
+            <button onClick={onCancel} className="w-full py-2 text-slate-500 hover:text-slate-300 text-xs transition-colors">
+              Cancel
+            </button>
+          )}
+        </div>
 
-      {showPrefs && <PrefsPanel />}
+        {/* Issue 3: monthly usage summary shown on the settings page */}
+        {usage && (
+          <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 space-y-1.5">
+            <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider">This month's usage (estimate)</p>
+            <div className="flex gap-3 flex-wrap">
+              <span className="text-slate-300 text-xs">
+                <span className="text-white font-bold">${usage.cost.toFixed(4)}</span> spent
+              </span>
+              <span className="text-slate-500 text-xs">
+                {(usage.inputTokens / 1000).toFixed(1)}k in · {(usage.outputTokens / 1000).toFixed(1)}k out
+              </span>
+            </div>
+            <p className="text-slate-600 text-[10px] leading-snug">
+              Estimate based on published Anthropic list prices. Actual charges may differ (caching, promotions, etc.).
+            </p>
+          </div>
+        )}
 
-      <div className="bg-amber-900/20 border border-amber-800/40 rounded-xl p-3 text-amber-300/90 text-xs leading-relaxed">
-        <p className="font-semibold mb-1">🔑 Where do I get a key?</p>
-        <p>Create one at <span className="text-amber-200">console.anthropic.com</span> → API Keys.
-        Tip: set a low monthly spend limit on the key, since it lives in your browser.</p>
+        {showPrefs && <PrefsPanel />}
+
+        <div className="bg-amber-900/20 border border-amber-800/40 rounded-xl p-3 text-amber-300/90 text-xs leading-relaxed">
+          <p className="font-semibold mb-1">🔑 Where do I get a key?</p>
+          <p>Create one at <span className="text-amber-200">console.anthropic.com</span> → API Keys.
+          Tip: set a low monthly spend limit on the key.</p>
+        </div>
       </div>
     </div>
   );

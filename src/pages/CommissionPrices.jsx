@@ -1028,6 +1028,18 @@ export default function CommissionPrices({ token }) {
             <p className="text-slate-500 text-sm leading-relaxed max-w-xs mx-auto">
               Add your commission types — sketches, lineart, full paintings — and their pricing to get started.
             </p>
+            {/* Link to the owner's live commission pricing page for reference */}
+            <a
+              href="https://antryab.com/commissions/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-sm font-medium underline underline-offset-2 transition-colors"
+            >
+              View antryab.com/commissions ↗
+            </a>
+            <p className="text-slate-600 text-xs max-w-xs mx-auto">
+              Copy prices from your commissions page, then add each tier below.
+            </p>
             <button
               onClick={() => setEditing({})}
               className="mt-2 bg-green-600 hover:bg-green-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-colors"

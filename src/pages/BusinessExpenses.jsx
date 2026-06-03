@@ -264,7 +264,8 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col overflow-hidden">
+    <div className="fixed inset-0 bg-black/70 z-50 flex flex-col items-center justify-end sm:justify-center overflow-hidden">
+      <div className="bg-slate-950 w-full sm:max-w-xl sm:rounded-3xl flex flex-col overflow-hidden mx-3 rounded-t-3xl sm:mx-3 max-h-[96dvh] sm:max-h-[92dvh]">
       <div className="shrink-0 border-b border-slate-800 px-5 py-4 flex items-center justify-between">
         <div>
           <h2 className="text-white font-bold text-lg font-broske">{product.id ? 'Edit Formula' : 'New Product'}</h2>
