@@ -179,7 +179,7 @@ function CategoryDetail({ category, items, onClose }) {
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center">✕</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 pb-8">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4 pb-8">
 
           {/* Transaction history — shown first so it's immediately visible */}
           <div>

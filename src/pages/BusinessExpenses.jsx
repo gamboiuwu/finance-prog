@@ -2744,6 +2744,7 @@ export default function BusinessExpenses({ token }) {
         return;
       }
 
+      const isSheetErr = v => typeof v === 'string' && /^#(ERROR|REF|N\/A|DIV\/0!|VALUE|NAME)/.test(v);
       const [, ...dataRows] = rows;
       const parsed = dataRows
         .map((row, idx) => {
@@ -2751,7 +2752,8 @@ export default function BusinessExpenses({ token }) {
           if (!id || id === 'ID') return null;
           let formula = [];
           try { formula = JSON.parse(row[3] || '[]'); } catch { formula = []; }
-          return { id, name: row[1] || '', startPrice: parseFloat(row[2]) || 0, formula, _rowNum: idx + 2 };
+          const startPrice = isSheetErr(row[2]) ? 0 : (parseFloat(row[2]) || 0);
+          return { id, name: row[1] || '', startPrice, formula, _rowNum: idx + 2 };
         })
         .filter(Boolean);
       setProducts(parsed);

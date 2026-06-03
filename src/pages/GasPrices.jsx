@@ -124,25 +124,67 @@ export default function GasPrices() {
         })}
       </div>
 
-      {/* Range indicator */}
-      <div className="bg-slate-800 rounded-2xl p-4">
-        <p className="text-slate-300 text-sm font-medium mb-3 font-broske">Regular Grade — Regional Range</p>
-        <div className="flex items-center gap-3">
-          <span className="text-emerald-400 text-sm font-bold">{fmt(lowestRegular)}</span>
-          <div className="flex-1 bg-slate-700 rounded-full h-3 overflow-hidden relative">
-            <div className="h-3 rounded-full" style={{
-              marginLeft: `${((lowestRegular - lowestRegular * 0.98) / (highestRegular * 1.02 - lowestRegular * 0.98)) * 100}%`,
-              width: `${((highestRegular - lowestRegular) / (highestRegular * 1.02 - lowestRegular * 0.98)) * 100}%`,
-              background: 'linear-gradient(to right, #10b981, #f43f5e)',
-            }} />
+      {/* Range indicator + history chart */}
+      {(() => {
+        // Build a per-week min/max across all regions that have history data.
+        const byWeek = {};
+        REGIONS.forEach(rd => {
+          (data.byRegion[rd.code]?.history || []).forEach(h => {
+            if (!byWeek[h.period]) byWeek[h.period] = [];
+            byWeek[h.period].push(h.value);
+          });
+        });
+        const rangeHistory = Object.keys(byWeek).sort().map(period => ({
+          week:  period.slice(5).replace('-', '/'),
+          low:   Math.min(...byWeek[period]),
+          high:  Math.max(...byWeek[period]),
+        }));
+        const hasHistory = rangeHistory.length >= 2;
+
+        return (
+          <div className="bg-slate-800 rounded-2xl p-4 space-y-3">
+            <p className="text-slate-300 text-sm font-medium font-broske">Regular Grade — Regional Range</p>
+            {/* Static current-week range bar */}
+            <div className="flex items-center gap-3">
+              <span className="text-emerald-400 text-sm font-bold">{fmt(lowestRegular)}</span>
+              <div className="flex-1 bg-slate-700 rounded-full h-3 overflow-hidden relative">
+                <div className="h-3 rounded-full" style={{
+                  marginLeft: `${((lowestRegular - lowestRegular * 0.98) / (highestRegular * 1.02 - lowestRegular * 0.98)) * 100}%`,
+                  width: `${((highestRegular - lowestRegular) / (highestRegular * 1.02 - lowestRegular * 0.98)) * 100}%`,
+                  background: 'linear-gradient(to right, #10b981, #f43f5e)',
+                }} />
+              </div>
+              <span className="text-rose-400 text-sm font-bold">{fmt(highestRegular)}</span>
+            </div>
+            <div className="flex justify-between text-xs text-slate-500">
+              <span>Lowest region</span>
+              <span>Highest region</span>
+            </div>
+            {/* Weekly history chart */}
+            {hasHistory && (
+              <>
+                <p className="text-slate-500 text-[10px] uppercase tracking-wider pt-1">Regional range — past weeks</p>
+                <ResponsiveContainer width="100%" height={110}>
+                  <BarChart data={rangeHistory} barCategoryGap="18%">
+                    <XAxis dataKey="week" tick={{ fontSize: 9, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                    <YAxis domain={['auto', 'auto']} tick={{ fontSize: 9, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v.toFixed(2)}`} width={38} />
+                    <Tooltip
+                      contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }}
+                      formatter={(v, name) => [`$${Number(v).toFixed(3)}`, name === 'low' ? 'Lowest region' : 'Highest region']}
+                    />
+                    <Bar dataKey="low"  fill="#10b981" radius={[3, 3, 0, 0]} name="low" />
+                    <Bar dataKey="high" fill="#f43f5e" radius={[3, 3, 0, 0]} name="high" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="flex gap-4 text-[10px] text-slate-500">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500 inline-block" /> Lowest region</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-rose-500 inline-block" /> Highest region</span>
+                </div>
+              </>
+            )}
           </div>
-          <span className="text-rose-400 text-sm font-bold">{fmt(highestRegular)}</span>
-        </div>
-        <div className="flex justify-between text-xs text-slate-500 mt-1">
-          <span>Lowest region</span>
-          <span>Highest region</span>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Full regional breakdown */}
       {REGIONS.map(regionDef => {

@@ -223,8 +223,12 @@ export default function Transactions({ token }) {
           r[6] = i + 2;
           return r;
         });
-        const isSheetError = v => typeof v === 'string' && v.startsWith('#');
-        setRows(patched.filter(r => r[0] && !isSheetError(r[1]) && !isSheetError(r[2])).reverse());
+        const isSheetError = v => typeof v === 'string' && /^#(ERROR|REF|N\/A|DIV\/0!|VALUE|NAME)/.test(v);
+        const sanitize    = v => (isSheetError(v) ? '' : v);
+        setRows(patched
+          .filter(r => r[0] && !isSheetError(r[0]) && !isSheetError(r[1]) && !isSheetError(r[2]))
+          .map(r => { const c = [...r]; c[3] = sanitize(r[3]); c[4] = sanitize(r[4]); return c; })
+          .reverse());
         setCategories([...new Set(txRows.map(r => r[1]).filter(v => v && !isSheetError(v)))]);
       })
       .catch(e => setError(e.message))

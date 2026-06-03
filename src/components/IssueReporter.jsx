@@ -15,6 +15,30 @@ import { ISSUES_SPREADSHEET_ID } from '../config';
 const STORE_KEY = 'fin_issues';
 const MAX_ISSUES = 30;
 
+// ── One-time "What's New" window ──────────────────────────────────────────────
+// A plain, manually-curated changelog shown ONCE per release, gated by its `id`
+// in localStorage. This is deliberately NOT an automatic/recurring popup system —
+// to surface it again you bump `CHANGELOG.id` by hand. On first view it also
+// prunes locally-stored issues reported at/before `resolvedThrough`, so issues
+// that have since been fixed stop resurfacing in the working list.
+const CHANGELOG = {
+  id: 'fixes-2026-06-03',
+  date: 'June 3, 2026',
+  resolvedThrough: '2026-06-02T13:46:49.629Z',
+  items: [
+    'Summary — the last day of the month now shows hours left instead of “0 days”. Account tiles show your target share while income is still unclaimed, not a blank $0.00.',
+    'Budget — the monthly figure fits inside the allocation ring; subscriptions show a per-item breakdown with monthly + yearly totals; the Edit Budget Item window opens centered on desktop and closes when you click outside.',
+    'Dashboard — tap a calendar day to see which subscriptions are due; the bill calendar is more compact; the health gauge is cleaner; the statement explains when no income is in yet and lets you close out the month.',
+    'Process Income — a new “move money to accounts” panel shows exactly where each dollar lands.',
+    'Navigation — tidier, more legible bottom tabs with a subtle active animation.',
+    'Goals — add, edit, and delete goals; fixed a target date that showed as a raw number (e.g. “46327”).',
+    'Gas — the regional price range now has a week-by-week history chart.',
+    'Dragon — a “Run anyway” option when a plan falls short of a goal.',
+    'Issue Reporter — left-click the screenshot to mark the exact spot; resolved issues now clear from your local list automatically.',
+  ],
+};
+const CHANGELOG_SEEN_KEY = '_fin_changelog_seen';
+
 function loadIssues() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { return []; }
 }
@@ -128,6 +152,7 @@ export default function IssueReporter({ token }) {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
   const [count, setCount] = useState(() => loadIssues().length);
+  const [whatsNew, setWhatsNew] = useState(false);
   const cursor = useRef({ x: 0, y: 0 });
 
   // Intercept right-click everywhere (except inside text fields, so native
@@ -154,6 +179,21 @@ export default function IssueReporter({ token }) {
       document.removeEventListener('keydown', onEsc);
     };
   }, []);
+
+  // One-shot per release: prune issues that have since been resolved and surface
+  // the "What's New" window. Gated by the changelog id so it never shows twice.
+  useEffect(() => {
+    if (localStorage.getItem(CHANGELOG_SEEN_KEY) === CHANGELOG.id) return;
+    const remaining = loadIssues().filter(i => !(i.time && i.time <= CHANGELOG.resolvedThrough));
+    saveIssues(remaining);
+    setCount(remaining.length);
+    setWhatsNew(true);
+  }, []);
+
+  function dismissWhatsNew() {
+    localStorage.setItem(CHANGELOG_SEEN_KEY, CHANGELOG.id);
+    setWhatsNew(false);
+  }
 
   const flash = useCallback((msg) => { setToast(msg); setTimeout(() => setToast(''), 2600); }, []);
 
@@ -351,6 +391,35 @@ export default function IssueReporter({ token }) {
                 <button onClick={clearAll} className="text-slate-500 hover:text-rose-400">Clear all</button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* What's New — shown once per release (CHANGELOG.id) */}
+      {whatsNew && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-[125] p-4"
+          onClick={dismissWhatsNew}>
+          <div className="bg-slate-800 rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[88dvh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-start">
+              <div>
+                <h2 className="text-white font-semibold text-lg">✨ What's new</h2>
+                <p className="text-slate-500 text-xs mt-0.5">Updated {CHANGELOG.date} · built from your reported issues</p>
+              </div>
+              <button onClick={dismissWhatsNew} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+            </div>
+            <ul className="space-y-2">
+              {CHANGELOG.items.map((it, i) => (
+                <li key={i} className="flex gap-2 text-sm text-slate-200 leading-relaxed">
+                  <span className="text-emerald-400 shrink-0 mt-px">✓</span>
+                  <span>{it}</span>
+                </li>
+              ))}
+            </ul>
+            <button onClick={dismissWhatsNew}
+              className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">
+              Got it
+            </button>
           </div>
         </div>
       )}
