@@ -276,8 +276,23 @@ export default function DragonBot({ token }) {
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState('');
 
+  // Issue 2: per-message web-research prompt state
+  // null = not shown, 'pending' = waiting for user choice, 'yes'|'no' = resolved
+  const [webResearchPrompt, setWebResearchPrompt] = useState(null);
+  const pendingTextRef = useRef(null);   // the message waiting on the web-research decision
+
   const apiHistory = useRef([]);                          // full Anthropic message history
   const scrollRef = useRef(null);
+
+  // Issue 0: on mount, sync key from the sheet (non-blocking, best-effort)
+  useEffect(() => {
+    if (token && !hasDragonKey()) {
+      syncKeyFromSheet(token).then(found => {
+        if (found) setKeyReady(true);
+      }).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   const scrollToEnd = useCallback(() => {
     requestAnimationFrame(() => {
@@ -295,10 +310,32 @@ export default function DragonBot({ token }) {
     : messages.length === 0 ? 'idle'
     : 'happy';
 
-  async function send(text) {
+  // Issue 2: decide whether to prompt the user about web research for this message.
+  // We ask when: the global pref is OFF (not already on), and the message text looks
+  // like it could benefit from live prices/rates (simple heuristic).
+  function mightBenefitFromWebResearch(text) {
+    const lower = text.toLowerCase();
+    return /price|cost|rate|afford|current|today|average|how much|market|interest|inflation|worth/.test(lower);
+  }
+
+  async function send(text, webOverride) {
     const trimmed = (text ?? input).trim();
     if (!trimmed || busy) return;
+
+    const prefs = getPrefs();
+
+    // Issue 2: if web research is OFF globally and this message might benefit from it,
+    // pause and ask — but only once per conversation per message.
+    if (webOverride === undefined && !prefs.webResearch && mightBenefitFromWebResearch(trimmed)) {
+      pendingTextRef.current = trimmed;
+      setInput('');
+      setWebResearchPrompt('pending');
+      return;
+    }
+
     setInput('');
+    setWebResearchPrompt(null);
+    pendingTextRef.current = null;
     setHasError(false);
     setMessages(m => [...m, { role: 'user', text: trimmed }]);
     setBusy(true);
@@ -306,15 +343,19 @@ export default function DragonBot({ token }) {
     setToolLabel(null);
 
     let acc = '';
-    const cards = [];   // visual windows the dragon generates this turn
+    const cards = [];
     try {
       const updated = await streamDragon({
         token,
         history: apiHistory.current,
         userText: trimmed,
+        // Issue 2: pass a one-shot override so the pref is respected for this message
+        webResearchOverride: webOverride,
         onText: (delta) => { acc += delta; setStreaming(acc); setToolLabel(null); },
         onToolUse: (name) => setToolLabel(TOOL_LABELS[name] || 'consulting the ancient ledgers…'),
         onToolResult: (card) => cards.push(card),
+        // Issue 3: capture usage tokens returned by the API
+        onUsage: (model, inputTokens, outputTokens) => recordUsage(model, inputTokens, outputTokens),
       });
       apiHistory.current = updated;
       setMessages(m => [...m, { role: 'dragon', text: acc || '…', cards }]);
@@ -329,15 +370,26 @@ export default function DragonBot({ token }) {
     }
   }
 
+  // Issue 2: resolve the web-research prompt and proceed
+  function resolveWebResearch(useWeb) {
+    const text = pendingTextRef.current;
+    setWebResearchPrompt(null);
+    pendingTextRef.current = null;
+    if (text) send(text, useWeb);
+  }
+
   function resetChat() {
     apiHistory.current = [];
     setMessages([]);
     setStreaming('');
+    setWebResearchPrompt(null);
+    pendingTextRef.current = null;
   }
 
   if (!keyReady || showSettings) {
     return (
       <KeySetup
+        token={token}
         hasExisting={hasDragonKey()}
         showPrefs={keyReady}
         onCancel={showSettings ? () => setShowSettings(false) : null}
@@ -458,6 +510,31 @@ export default function DragonBot({ token }) {
       <div className="fixed bottom-20 left-6 z-30 hidden md:flex flex-col items-center pointer-events-none select-none">
         <DragonAvatar mood={avatarMood} size={260} />
       </div>
+
+      {/* Issue 2: web-research prompt — appears above the input bar when triggered */}
+      {webResearchPrompt === 'pending' && (
+        <div className="shrink-0 px-3 pt-2 pb-1 border-t border-slate-800 bg-slate-950">
+          <div className="bg-slate-800 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2">
+            <p className="text-slate-300 text-xs leading-snug flex-1">
+              🌐 This question might benefit from live data. Use web research?
+            </p>
+            <div className="flex gap-1.5 shrink-0">
+              <button
+                onClick={() => resolveWebResearch(true)}
+                className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold transition-colors"
+              >
+                Yes
+              </button>
+              <button
+                onClick={() => resolveWebResearch(false)}
+                className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold transition-colors"
+              >
+                No
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Input */}
       <div className="shrink-0 px-3 py-3 border-t border-slate-800 bg-slate-950 safe-area-bottom">

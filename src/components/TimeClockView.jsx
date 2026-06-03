@@ -1,5 +1,85 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { appendRow, ensureSheetTab, readRange, batchUpdateCells } from '../lib/sheets';
+
+// ── Confetti burst (no external dep — pure CSS keyframe animation) ─────────────
+const CONFETTI_STYLE = `
+@keyframes confetti-fall {
+  0%   { transform: translateY(-10px) rotate(0deg) scale(1);   opacity: 1; }
+  80%  { opacity: 1; }
+  100% { transform: translateY(110vh) rotate(720deg) scale(0.4); opacity: 0; }
+}
+@keyframes confetti-sway {
+  0%, 100% { margin-left: 0; }
+  25%       { margin-left: 40px; }
+  75%       { margin-left: -40px; }
+}
+.confetti-piece {
+  position: fixed;
+  top: -12px;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 9999;
+  animation: confetti-fall var(--dur) ease-in forwards,
+             confetti-sway var(--sway) ease-in-out infinite;
+}
+@keyframes badge-pop {
+  0%   { transform: scale(0.5) translateY(20px); opacity: 0; }
+  60%  { transform: scale(1.12) translateY(-4px); opacity: 1; }
+  80%  { transform: scale(0.96); }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+.badge-toast {
+  animation: badge-pop 0.5s cubic-bezier(.34,1.56,.64,1) forwards;
+}
+@keyframes badge-glow {
+  0%, 100% { box-shadow: 0 0 12px 2px #f59e0b88; }
+  50%       { box-shadow: 0 0 28px 8px #f59e0bcc; }
+}
+.badge-glow {
+  animation: badge-glow 1.2s ease-in-out infinite;
+}
+`;
+
+const CONFETTI_COLORS = ['#f59e0b','#10b981','#3b82f6','#ec4899','#a78bfa','#f97316','#ffd700','#34d399'];
+
+function ConfettiBurst({ active }) {
+  const pieces = useMemo(() => {
+    if (!active) return [];
+    return Array.from({ length: 48 }, (_, i) => ({
+      id: i,
+      left: `${5 + Math.random() * 90}%`,
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      dur:  `${1.8 + Math.random() * 1.4}s`,
+      sway: `${0.8 + Math.random() * 0.8}s`,
+      delay: `${Math.random() * 0.5}s`,
+      shape: Math.random() > 0.5 ? '50%' : '2px',
+    }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  if (!active || !pieces.length) return null;
+  return (
+    <>
+      <style>{CONFETTI_STYLE}</style>
+      {pieces.map(p => (
+        <div
+          key={p.id}
+          className="confetti-piece"
+          style={{
+            left: p.left,
+            background: p.color,
+            borderRadius: p.shape,
+            '--dur': p.dur,
+            '--sway': p.sway,
+            animationDelay: p.delay,
+          }}
+        />
+      ))}
+    </>
+  );
+}
 
 // ── localStorage keys ─────────────────────────────────────────────────────────
 const KEY_SESSIONS  = 'biz_timeclock_sessions';
@@ -554,11 +634,18 @@ export default function TimeClockView({ products, token }) {
 
   return (
     <div className="px-4 pb-6 space-y-4">
-      {/* Achievement toast */}
+      {/* Confetti burst — fires while badge toast is showing */}
+      <ConfettiBurst active={!!newBadge} />
+
+      {/* Achievement toast — celebratory pop + glow */}
       {newBadge && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-amber-500 text-black px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2 font-bold text-sm animate-bounce">
-          <span className="text-xl">{newBadge.icon}</span>
-          Achievement Unlocked: {newBadge.title}!
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[9998] badge-toast badge-glow bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-900 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 font-bold text-sm whitespace-nowrap">
+          <span className="text-2xl">{newBadge.icon}</span>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-900/70 leading-none mb-0.5">Achievement Unlocked!</p>
+            <p className="leading-tight">{newBadge.title}</p>
+          </div>
+          <span className="text-xl">🎉</span>
         </div>
       )}
 
@@ -826,10 +913,15 @@ export default function TimeClockView({ products, token }) {
             {ACHIEVEMENTS.map(a => {
               const unlocked = unlockedIds.has(a.id);
               return (
-                <div key={a.id} className={`rounded-2xl p-4 border transition-all ${unlocked ? 'bg-slate-800 border-slate-600' : 'bg-slate-900/50 border-slate-800 opacity-60'}`}>
-                  <p className="text-3xl mb-2">{unlocked ? a.icon : '🔒'}</p>
+                <div key={a.id}
+                  className={`rounded-2xl p-4 border transition-all ${unlocked ? 'bg-slate-800 border-amber-600/40' : 'bg-slate-900/50 border-slate-800 opacity-50'}`}
+                  style={unlocked ? { boxShadow: '0 0 10px 1px rgba(245,158,11,0.18)' } : {}}>
+                  <p className="text-3xl mb-2" style={unlocked ? { filter: 'drop-shadow(0 0 6px rgba(245,158,11,0.5))' } : {}}>
+                    {unlocked ? a.icon : '🔒'}
+                  </p>
                   <p className={`font-bold text-sm ${unlocked ? 'text-white' : 'text-slate-500'}`}>{a.title}</p>
                   <p className="text-slate-500 text-xs mt-0.5 leading-tight">{a.desc}</p>
+                  {unlocked && <p className="text-amber-500 text-[10px] mt-1.5 font-bold uppercase tracking-wider">Unlocked ✓</p>}
                 </div>
               );
             })}

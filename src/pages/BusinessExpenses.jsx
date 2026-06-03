@@ -132,6 +132,32 @@ function profitMarginPct(steps, startPrice) {
   return (profitAmt / startPrice) * 100;
 }
 
+// Compute per-unit profit for a product defensively:
+// • If startPrice is missing/errored, fall back to sum of fixed blocks as implied price.
+// • Profit = explicit Profit+Revenue allocations PLUS any unallocated waterfall remainder.
+// This mirrors the same logic in TimeClockView.jsx computeProfit.
+function computeProductProfitPerUnit(product) {
+  if (!product) return 0;
+  const blocks = product.formula || [];
+  let start = parseFloat(product.startPrice);
+  if (!isFinite(start) || start < 0) start = 0;
+  if (start === 0) {
+    const fixedTotal = blocks.reduce((s, b) => s + (b.type === 'fixed' ? (parseFloat(b.value) || 0) : 0), 0);
+    if (fixedTotal > 0) start = fixedTotal;
+  }
+  if (start <= 0) return 0;
+  let remaining = start;
+  let profitAmt = 0;
+  blocks.forEach(block => {
+    const val = parseFloat(block.value) || 0;
+    const allocated = block.type === 'fixed' ? Math.min(val, remaining) : (remaining * val / 100);
+    remaining = Math.max(0, remaining - allocated);
+    if (block.category === 'Profit' || block.category === 'Revenue') profitAmt += allocated;
+  });
+  profitAmt += remaining; // unallocated remainder is implicit profit
+  return profitAmt;
+}
+
 // ── Redistribute Remainder panel ───────────────────────────────────────────────
 
 function RedistPanel({ blocks, steps, remaining, onApply, onCancel }) {
@@ -264,8 +290,8 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex flex-col items-center justify-end sm:justify-center overflow-hidden">
-      <div className="bg-slate-950 w-full sm:max-w-xl sm:rounded-3xl flex flex-col overflow-hidden mx-3 rounded-t-3xl sm:mx-3 max-h-[96dvh] sm:max-h-[92dvh]">
+    <div className="fixed inset-0 bg-black/70 z-50 flex flex-col items-center justify-end sm:justify-center overflow-hidden px-3 sm:px-0">
+      <div className="bg-slate-950 w-full max-w-xl sm:rounded-3xl flex flex-col overflow-hidden rounded-t-3xl max-h-[96dvh] sm:max-h-[92dvh]">
       <div className="shrink-0 border-b border-slate-800 px-5 py-4 flex items-center justify-between">
         <div>
           <h2 className="text-white font-bold text-lg font-broske">{product.id ? 'Edit Formula' : 'New Product'}</h2>
@@ -503,6 +529,7 @@ function FormulaEditor({ product, onSave, onClose, saving }) {
           {saving ? 'Saving…' : product.id ? 'Save Changes' : 'Create Product'}
         </button>
       </div>
+      </div>{/* inner sheet */}
     </div>
   );
 }
@@ -2663,6 +2690,112 @@ function InsightsView({ token }) {
         )}
       </div>
 
+      {/* ── Profit improvement suggestions (data-driven, recomputes each render) ── */}
+      {(pnl.revenue > 0 || pnl.cogs > 0 || pnl.opex > 0 || vendors.ranked.length > 0) && (() => {
+        const tips = [];
+
+        // 1. COGS percentage of revenue
+        if (pnl.cogs > 0 && pnl.revenue > 0) {
+          const cogsPct = (pnl.cogs / pnl.revenue) * 100;
+          // Top COGS vendor (any vendor whose entries appear in COGS-category costRows)
+          const cogsVendorMap = {};
+          costRows.filter(r => inPeriod(r.mkey) && r.cat === 'COGS').forEach(r => {
+            if (r.vendor) cogsVendorMap[r.vendor] = (cogsVendorMap[r.vendor] || 0) + r.amount;
+          });
+          const topCogsVendor = Object.entries(cogsVendorMap).sort((a, b) => b[1] - a[1])[0]?.[0];
+          tips.push({
+            icon: '📦',
+            title: `COGS is ${cogsPct.toFixed(0)}% of revenue`,
+            body: cogsPct > 40
+              ? `Your materials cost is high${topCogsVendor ? ` (top COGS vendor: ${topCogsVendor})` : ''}. Compare supplier prices — a 10% reduction would add $${(pnl.cogs * 0.1).toFixed(2)} back as profit. Try bulk ordering, Alibaba/AliExpress for blanks, or negotiating net-30 terms with your supplier.`
+              : `COGS is ${cogsPct.toFixed(0)}% of revenue${topCogsVendor ? ` (top vendor: ${topCogsVendor})` : ''}. Continue tracking per-product COGS to catch creeping material costs early.`,
+          });
+        }
+
+        // 2. Net margin signal
+        if (pnl.margin !== null) {
+          if (pnl.margin < 0) {
+            tips.push({
+              icon: '🚨',
+              title: 'Negative net margin — spending exceeds revenue',
+              body: `You're losing ${Math.abs(pnl.net).toFixed(2)} this period. Prioritize cutting the largest OpEx category (${pnl.opexByCat[0]?.[0] || 'expenses'}) or raise prices. Even a 5–10% price increase on your best-selling product can flip this.`,
+            });
+          } else if (pnl.margin < 15) {
+            tips.push({
+              icon: '⚠️',
+              title: `Low net margin (${pnl.margin.toFixed(1)}%)`,
+              body: `Healthy small-business margins are 20–40%. Consider raising prices by $1–2 per unit, reducing the lowest-ROI OpEx line (${pnl.opexByCat[0]?.[0] || 'see breakdown above'}), or adding a higher-margin product to your lineup.`,
+            });
+          } else if (pnl.margin >= 30) {
+            tips.push({
+              icon: '✅',
+              title: `Strong margin (${pnl.margin.toFixed(1)}%) — keep it up`,
+              body: `Your profit margin is excellent. Reinvest some of this into marketing or inventory to scale volume without sacrificing margin. Track monthly to catch any drift early.`,
+            });
+          }
+        }
+
+        // 3. Top vendor concentration
+        if (vendors.ranked.length > 0) {
+          const [topVendor, topAmt] = vendors.ranked[0];
+          const topPct = vendors.total > 0 ? (topAmt / vendors.total) * 100 : 0;
+          if (topPct > 50) {
+            tips.push({
+              icon: '🏷️',
+              title: `${topVendor} is ${topPct.toFixed(0)}% of all vendor spend`,
+              body: `Heavy reliance on one supplier is a price-risk. Research 1–2 alternative vendors for the same materials. Getting a competing quote often unlocks a lower rate from your primary supplier.`,
+            });
+          }
+        }
+
+        // 4. Spending trend
+        if (trend.delta > 0 && trend.prev > 0) {
+          const pct = ((trend.delta / trend.prev) * 100).toFixed(0);
+          tips.push({
+            icon: '📈',
+            title: `Spending up ${pct}% vs last month ($${trend.delta.toFixed(2)})`,
+            body: `Costs are trending up. Review what drove the increase — use the Expenses tab to drill into this month's line items. If it's COGS, check if a volume price break is available. If it's OpEx, see if any subscriptions or tools can be paused.`,
+          });
+        } else if (trend.delta < 0 && trend.prev > 0) {
+          tips.push({
+            icon: '📉',
+            title: `Spending down ${Math.abs(((trend.delta / trend.prev) * 100)).toFixed(0)}% vs last month`,
+            body: `Costs are lower than last month — great sign. Make sure cuts aren't affecting product quality. If intentional, consider directing the savings into a high-ROI category like marketing or new product samples.`,
+          });
+        }
+
+        // 5. Generic research tips (always show a couple)
+        tips.push({
+          icon: '🔍',
+          title: 'Research: compare supplier prices quarterly',
+          body: `Search "[your top material] wholesale alternatives" or check Alibaba, Faire, or local distributors. Even switching one supply line can meaningfully improve COGS. Document your current unit cost so you have a baseline to beat.`,
+        });
+        if (pnl.opex > 0) {
+          tips.push({
+            icon: '💡',
+            title: 'Automate or batch to cut labor costs',
+            body: `If labor or overhead is a significant OpEx line, look for batch-production workflows, template shortcuts, or tools that reduce per-unit time. Cutting 15 minutes per batch at your average $/hr rate compounds quickly over a month.`,
+          });
+        }
+
+        return (
+          <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
+            <p className="text-slate-300 text-sm font-bold font-broske mb-3">💡 Ways to Improve Profit <span className="text-slate-600 text-[10px] font-normal">· {periodLabel}</span></p>
+            <div className="space-y-3">
+              {tips.map((tip, i) => (
+                <div key={i} className="flex gap-3 bg-slate-800/60 rounded-xl p-3">
+                  <span className="text-xl shrink-0 mt-0.5">{tip.icon}</span>
+                  <div>
+                    <p className="text-slate-200 text-xs font-semibold mb-0.5">{tip.title}</p>
+                    <p className="text-slate-400 text-xs leading-relaxed">{tip.body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Tool 2: Spending trends ── */}
       <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
         <div className="flex items-center justify-between mb-3">
@@ -2679,7 +2812,7 @@ function InsightsView({ token }) {
           <BarChart data={trend.data} barCategoryGap="28%">
             <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={40} />
-            <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }} formatter={v => [`$${Number(v).toFixed(2)}`, 'Spent']} cursor={{ fill: '#1e293b55' }} />
+            <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }} itemStyle={{ color: '#cbd5e1' }} labelStyle={{ color: '#94a3b8' }} formatter={v => [`$${Number(v).toFixed(2)}`, 'Spent']} cursor={{ fill: '#1e293b55' }} />
             <Bar dataKey="value" radius={[4, 4, 0, 0]}>
               {trend.data.map((d, i) => <Cell key={i} fill={i === trend.data.length - 1 ? '#3b82f6' : '#334155'} />)}
             </Bar>
@@ -2926,8 +3059,9 @@ export default function BusinessExpenses({ token }) {
             {products.map(product => {
               const { steps, remaining } = computeFormula(product.startPrice, product.formula);
               const balanced  = Math.abs(remaining) < 0.001;
-              const profitAmt = (steps.find(st => st.category === 'Profit')?.allocated || 0)
-                              + (steps.find(st => st.category === 'Revenue')?.allocated || 0);
+              // Use the defensive helper so sticker products with a missing/errored startPrice
+              // still show real profit (falls back to fixed-block sum + unallocated remainder).
+              const profitAmt = computeProductProfitPerUnit(product);
               const cogsAmt   = steps.find(st => st.category === 'COGS')?.allocated   || 0;
               const margin    = profitMarginPct(steps, product.startPrice);
 

@@ -131,11 +131,15 @@ function makeClient() {
 //
 // history: prior API messages (user strings + assistant content blocks)
 // userText: the new user message
-export async function streamDragon({ token, history, userText, onText, onToolUse, onToolResult }) {
+// webResearchOverride: true/false to override the global pref for this message only
+// onUsage: (model, inputTokens, outputTokens) => void — called after each API round
+export async function streamDragon({ token, history, userText, onText, onToolUse, onToolResult, webResearchOverride, onUsage }) {
   const client = makeClient();
   const prefs = getPrefs();
   const model = prefs.model || DRAGON_MODEL;
-  const tools = prefs.webResearch ? [...TOOLS, WEB_SEARCH_TOOL] : TOOLS;
+  // Issue 2: honour a per-message override; fall back to the global pref
+  const useWeb = webResearchOverride !== undefined ? webResearchOverride : prefs.webResearch;
+  const tools = useWeb ? [...TOOLS, WEB_SEARCH_TOOL] : TOOLS;
   const messages = [...history, { role: 'user', content: userText }];
 
   // Guard against a runaway tool loop.
@@ -162,6 +166,11 @@ export async function streamDragon({ token, history, userText, onText, onToolUse
       }
     });
     const final = await stream.finalMessage();
+
+    // Issue 3: report token usage to the caller so it can accumulate monthly cost.
+    if (onUsage && final.usage) {
+      onUsage(model, final.usage.input_tokens || 0, final.usage.output_tokens || 0);
+    }
 
     // Preserve the full assistant content (incl. thinking blocks) for the next request.
     messages.push({ role: 'assistant', content: final.content });
