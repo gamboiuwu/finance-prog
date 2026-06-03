@@ -938,6 +938,200 @@ function AllEntriesView({ allocTx }) {
   );
 }
 
+// ── Spending Calendar Heatmap (Task 24) ──────────────────────────────────────
+// Month grid (7 cols × up to 6 week-rows). Each day cell is graded slate→rose by
+// the magnitude of that day's actual spend; days where income/allocation deposits
+// dominate are tinted teal instead, so funding days read differently from spend
+// days. Reuses allAllocTx (already loaded by Budget) — zero new API calls.
+// Tap any day to expand a panel listing that day's transactions.
+const HEAT_ROSE = ['#1e293b', '#4c1d2b', '#9f1239', '#f43f5e']; // tier 0..3 spend
+const HEAT_TEAL = ['#1e293b', '#134e4a', '#0f766e', '#14b8a6']; // tier 0..3 income
+const DOW_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+function SpendingHeatmap({ allAllocTx }) {
+  const now = new Date();
+  const [open, setOpen]     = useState(false);
+  const [year, setYear]     = useState(now.getFullYear());
+  const [month, setMonth]   = useState(now.getMonth()); // 0-indexed
+  const [selDay, setSelDay] = useState(null);
+
+  // Bucket the selected month's transactions by day-of-month.
+  const { byDay, maxMag } = useMemo(() => {
+    const map = {}; // day -> { spend, inflow, txs: [] }
+    allAllocTx.forEach(tx => {
+      const d = tx.dateObj;
+      if (!d || d.getFullYear() !== year || d.getMonth() !== month) return;
+      const day = d.getDate();
+      if (!map[day]) map[day] = { spend: 0, inflow: 0, txs: [] };
+      if (tx.amount < 0) map[day].spend += -tx.amount;
+      else map[day].inflow += tx.amount;
+      map[day].txs.push(tx);
+    });
+    let mx = 0;
+    Object.values(map).forEach(o => { mx = Math.max(mx, o.spend, o.inflow); });
+    return { byDay: map, maxMag: mx };
+  }, [allAllocTx, year, month]);
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDow    = new Date(year, month, 1).getDay();
+  const monthLabel  = new Date(year, month, 1)
+    .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+
+  // 4 intensity tiers from the day's share of the month's busiest day.
+  function tier(mag) {
+    if (mag <= 0 || maxMag <= 0) return 0;
+    const f = mag / maxMag;
+    if (f <= 0.33) return 1;
+    if (f <= 0.66) return 2;
+    return 3;
+  }
+
+  function step(delta) {
+    setSelDay(null);
+    let m = month + delta, y = year;
+    if (m < 0) { m = 11; y -= 1; }
+    if (m > 11) { m = 0; y += 1; }
+    setMonth(m); setYear(y);
+  }
+
+  // Build grid cells: leading blanks for the first week, then each day number.
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const sel = selDay != null ? byDay[selDay] : null;
+  const monthSpend  = Object.values(byDay).reduce((s, o) => s + o.spend, 0);
+  const monthInflow = Object.values(byDay).reduce((s, o) => s + o.inflow, 0);
+
+  return (
+    <div className="bg-slate-900 rounded-2xl border border-slate-800/60 overflow-hidden">
+      <button
+        className="w-full flex items-center justify-between px-4 py-3 active:opacity-80"
+        onClick={() => setOpen(o => !o)}
+      >
+        <span className="text-white font-semibold text-sm">📅 Spending Calendar</span>
+        <span className="text-slate-500 text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4">
+          {/* Month navigation */}
+          <div className="flex items-center justify-between mb-3">
+            <button
+              onClick={() => step(-1)}
+              className="w-8 h-8 rounded-lg bg-slate-800 text-slate-300 hover:text-white active:opacity-70 text-sm"
+            >‹</button>
+            <div className="text-center">
+              <p className="text-white text-sm font-medium">{monthLabel}</p>
+              <p className="text-slate-500 text-[10px] font-mono mt-0.5">
+                <span className="text-rose-400">{fmt(monthSpend)} spent</span>
+                {monthInflow > 0 && <span className="text-teal-400"> · {fmt(monthInflow)} in</span>}
+              </p>
+            </div>
+            <button
+              onClick={() => step(1)}
+              disabled={isCurrentMonth}
+              className="w-8 h-8 rounded-lg bg-slate-800 text-slate-300 hover:text-white active:opacity-70 text-sm disabled:opacity-30"
+            >›</button>
+          </div>
+
+          {/* Weekday header */}
+          <div className="grid grid-cols-7 gap-1 mb-1">
+            {DOW_LABELS.map((d, i) => (
+              <div key={i} className="text-center text-[9px] text-slate-600 font-medium">{d}</div>
+            ))}
+          </div>
+
+          {/* Day grid */}
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((d, i) => {
+              if (d == null) return <div key={`b${i}`} className="aspect-square" />;
+              const info     = byDay[d];
+              const spend    = info?.spend || 0;
+              const inflow   = info?.inflow || 0;
+              const mag      = Math.max(spend, inflow);
+              const isIncome = inflow > spend;
+              const t        = tier(mag);
+              const bg       = t === 0 ? '#1e293b' : (isIncome ? HEAT_TEAL[t] : HEAT_ROSE[t]);
+              const hasBoth  = spend > 0 && inflow > 0;
+              const dotColor = isIncome ? '#f43f5e' : '#14b8a6';
+              const isToday  = isCurrentMonth && d === now.getDate();
+              const selected = selDay === d;
+              return (
+                <button
+                  key={d}
+                  onClick={() => setSelDay(selected ? null : d)}
+                  className="relative aspect-square rounded-lg flex items-center justify-center transition-all active:scale-95"
+                  style={{
+                    background: bg,
+                    outline: selected ? '2px solid #38bdf8' : isToday ? '1px solid #475569' : 'none',
+                    outlineOffset: selected ? '-2px' : '-1px',
+                  }}
+                  title={mag > 0 ? `${d}: ${fmt(spend)} spent${inflow > 0 ? `, ${fmt(inflow)} in` : ''}` : String(d)}
+                >
+                  <span className={`text-[11px] font-mono ${t >= 2 ? 'text-white' : 'text-slate-400'}`}>{d}</span>
+                  {hasBoth && (
+                    <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full"
+                      style={{ background: dotColor }} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Legend */}
+          <div className="flex items-center justify-between mt-3 text-[9px] text-slate-500">
+            <div className="flex items-center gap-1">
+              <span>less</span>
+              {HEAT_ROSE.map((c, i) => (
+                <span key={i} className="w-3 h-3 rounded" style={{ background: c }} />
+              ))}
+              <span>more spend</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded" style={{ background: HEAT_TEAL[3] }} />
+              <span>income day</span>
+            </div>
+          </div>
+
+          {/* Selected-day detail panel */}
+          {sel && (
+            <div className="mt-3 bg-slate-950/60 rounded-xl border border-slate-800/60 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-white text-xs font-semibold">
+                  {new Date(year, month, selDay).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                </p>
+                <div className="text-right">
+                  {sel.spend > 0 && <span className="text-rose-400 text-[11px] font-mono">{fmt(sel.spend)} spent</span>}
+                  {sel.inflow > 0 && <span className="text-teal-400 text-[11px] font-mono ml-2">{fmt(sel.inflow)} in</span>}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {sel.txs.map((tx, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 text-[11px]">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-slate-200">{tx.type || '—'}</span>
+                      {tx.desc && <span className="text-slate-600 truncate"> · {tx.desc}</span>}
+                    </div>
+                    <span className={`font-mono shrink-0 ${tx.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {tx.amount >= 0 ? '+' : ''}{fmt(tx.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {maxMag === 0 && (
+            <p className="text-slate-600 text-[11px] text-center mt-3">No transactions this month.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Sparkline mini bar chart ─────────────────────────────────────────────────
 
 function Sparkline({ values, color }) {
@@ -1504,6 +1698,7 @@ export default function Budget({ token }) {
         {activeTab === 'entries' && (
           <>
             <TrendsView allAllocTx={allAllocTx} expenses={items} />
+            <SpendingHeatmap allAllocTx={allAllocTx} />
             <AllEntriesView allocTx={allocTx} />
           </>
         )}
