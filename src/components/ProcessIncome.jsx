@@ -386,20 +386,35 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
 
       {/* ── Right panel: account tiles (desktop only) ── */}
       {amount > 0 && accountTiles.length > 0 && (
-        <div className="hidden sm:flex flex-col justify-center gap-3 w-56 shrink-0 self-center">
-          <p className="text-slate-500 text-[10px] uppercase tracking-wider text-center">By Account</p>
-          <div className="grid grid-cols-2 gap-3">
-            {accountTiles.map(a => (
-              <div key={a.name} className={`rounded-2xl p-3 border ${a.style.bg} flex flex-col items-center text-center gap-1`}>
-                <span className="text-2xl">{a.style.icon}</span>
-                <p className={`text-[11px] font-bold ${a.style.color} leading-tight`}>{a.name}</p>
-                <p className="text-white font-bold font-mono tabular-nums text-sm">+{fmt(a.adding)}</p>
-                {a.already > 0 && (
-                  <p className="text-slate-500 font-mono text-[10px] tabular-nums">{fmt(a.already)} prior</p>
-                )}
-                <p className={`font-mono text-[11px] font-semibold tabular-nums ${a.style.color}`}>{fmt(a.adding + a.already)} total</p>
+        <div className="hidden sm:flex flex-col gap-3 w-60 shrink-0 self-center">
+          <div className="rounded-2xl border border-blue-800/50 bg-gradient-to-b from-blue-950/50 to-slate-900 overflow-hidden shadow-xl">
+            <div className="px-4 py-3 border-b border-blue-900/50">
+              <p className="text-blue-300 text-[11px] font-bold uppercase tracking-wider">Move money to</p>
+              <p className="text-slate-500 text-[10px] mt-0.5">physical accounts</p>
+            </div>
+            <div className="divide-y divide-blue-900/30">
+              {accountTiles.map(a => (
+                <div key={a.name} className="px-3 py-2.5 flex items-center gap-2.5">
+                  <span className="text-xl shrink-0">{a.style.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-xs font-bold ${a.style.color} leading-tight`}>{a.name}</p>
+                    {a.already > 0 && (
+                      <p className="text-slate-600 font-mono text-[9px] tabular-nums">{fmt(a.already)} prior</p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-white font-bold font-mono tabular-nums text-sm">+{fmt(a.adding)}</p>
+                    {a.already > 0 && (
+                      <p className={`font-mono text-[10px] font-semibold tabular-nums ${a.style.color}`}>{fmt(a.adding + a.already)}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="px-3 py-2.5 flex items-center justify-between bg-blue-950/30">
+                <span className="text-blue-300 text-xs font-bold">Total</span>
+                <span className="text-white font-extrabold font-mono tabular-nums">{fmt(accountTiles.reduce((s, a) => s + a.adding, 0))}</span>
               </div>
-            ))}
+            </div>
           </div>
         </div>
       )}
@@ -632,6 +647,42 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
 
         {/* Breakdown by account */}
         <div className="overflow-y-auto flex-1 min-h-0 p-4 space-y-3">
+          {/* ── By-account summary: where the money physically moves ── */}
+          {amount > 0 && accountTiles.length > 0 && (
+            <div className="rounded-2xl border border-blue-800/50 bg-gradient-to-b from-blue-950/40 to-slate-900 overflow-hidden shadow-lg">
+              <div className="px-4 py-3 border-b border-blue-900/50 flex items-center justify-between">
+                <div>
+                  <p className="text-blue-300 text-xs font-bold uppercase tracking-wider">Move the money to</p>
+                  <p className="text-slate-500 text-[10px] mt-0.5">physical accounts to fund today</p>
+                </div>
+                <span className="text-blue-400 text-lg">↓</span>
+              </div>
+              <div className="divide-y divide-blue-900/30">
+                {accountTiles.map(a => (
+                  <div key={a.name} className="px-4 py-3 flex items-center gap-3">
+                    <span className="text-2xl shrink-0">{a.style.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-bold ${a.style.color}`}>{a.name}</p>
+                      {a.already > 0 && (
+                        <p className="text-slate-500 text-[10px] font-mono">{fmt(a.already)} already deposited this month</p>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-white font-bold font-mono tabular-nums text-base">+{fmt(a.adding)}</p>
+                      {a.already > 0 && (
+                        <p className={`text-[11px] font-mono tabular-nums ${a.style.color}`}>{fmt(a.adding + a.already)} total</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <div className="px-4 py-3 flex items-center justify-between bg-blue-950/30">
+                  <span className="text-blue-300 text-sm font-bold">Total to move</span>
+                  <span className="text-white font-extrabold font-mono tabular-nums text-base">{fmt(accountTiles.reduce((s, a) => s + a.adding, 0))}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── Where the money goes — flat receipt list ──────── */}
           {amount > 0 && depositPlan.length > 0 && (
             <div className="rounded-2xl border border-emerald-800/40 bg-gradient-to-b from-emerald-950/40 to-slate-900 overflow-hidden">

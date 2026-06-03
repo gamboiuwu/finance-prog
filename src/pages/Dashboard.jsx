@@ -92,7 +92,7 @@ function ProgressBar({ pct, color }) {
 }
 
 // Arc gauge SVG: 240° arc from 8-o'clock (150°) clockwise to 4-o'clock (30°), gap at bottom
-const GAUGE_CX = 60, GAUGE_CY = 60, GAUGE_R = 46;
+const GAUGE_CX = 64, GAUGE_CY = 64, GAUGE_R = 50;
 const GAUGE_START = 150, GAUGE_SWEEP = 240;
 function gaugePoint(deg) {
   const r = deg * Math.PI / 180;
@@ -117,14 +117,24 @@ function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
     <div className={`border rounded-2xl p-4 transition-colors ${tier.cls}`}>
       <button className="w-full text-left" onClick={onToggle}>
         <div className="flex items-center gap-3">
-          <svg width="112" height="88" viewBox="0 0 120 90" className="shrink-0">
-            <path d={bgPath} fill="none" stroke="#1e293b" strokeWidth="9" strokeLinecap="round" />
-            {fgPath && <path d={fgPath} fill="none" stroke={tier.color} strokeWidth="9" strokeLinecap="round" />}
+          <svg width="120" height="100" viewBox="0 0 128 108" className="shrink-0">
+            {/* Glow behind active arc */}
+            {fgPath && <path d={fgPath} fill="none" stroke={tier.color} strokeWidth="18" strokeLinecap="round" strokeOpacity="0.12" />}
+            <path d={bgPath} fill="none" stroke="#1e293b" strokeWidth="10" strokeLinecap="round" />
+            {fgPath && <path d={fgPath} fill="none" stroke={tier.color} strokeWidth="10" strokeLinecap="round" />}
+            {/* tick marks at 25/50/75 */}
+            {[25, 50, 75].map(pct => {
+              const deg = GAUGE_START + (pct / 100) * GAUGE_SWEEP;
+              const outer = gaugePoint(deg);
+              const rad = deg * Math.PI / 180;
+              const inner = { x: +(GAUGE_CX + (GAUGE_R - 9) * Math.cos(rad)).toFixed(2), y: +(GAUGE_CY + (GAUGE_R - 9) * Math.sin(rad)).toFixed(2) };
+              return <line key={pct} x1={outer.x} y1={outer.y} x2={inner.x} y2={inner.y} stroke="#334155" strokeWidth="2" strokeLinecap="round" />;
+            })}
             {/* target marker at 80 */}
-            <circle cx={tgt.x} cy={tgt.y} r="4.5" fill="#f59e0b" />
-            <circle cx={tgt.x} cy={tgt.y} r="2"   fill="rgba(255,255,255,0.5)" />
-            <text x={GAUGE_CX} y={GAUGE_CY + 6}  textAnchor="middle" fill="white"   fontSize="20" fontWeight="bold" fontFamily="system-ui">{score}</text>
-            <text x={GAUGE_CX} y={GAUGE_CY + 19} textAnchor="middle" fill="#64748b" fontSize="9"  fontFamily="system-ui">/100</text>
+            <circle cx={tgt.x} cy={tgt.y} r="5" fill="#f59e0b" />
+            <circle cx={tgt.x} cy={tgt.y} r="2.5" fill="rgba(255,255,255,0.6)" />
+            <text x={GAUGE_CX} y={GAUGE_CY + 7}  textAnchor="middle" fill="white"   fontSize="22" fontWeight="bold" fontFamily="system-ui">{score}</text>
+            <text x={GAUGE_CX} y={GAUGE_CY + 20} textAnchor="middle" fill="#64748b" fontSize="9"  fontFamily="system-ui">/100</text>
           </svg>
           <div className="flex-1 min-w-0">
             <p className="text-white font-bold text-sm">Financial Health</p>
@@ -223,14 +233,16 @@ function TrendChartCard({ data, expanded, onToggle }) {
               <span>6-mo avg net</span>
               <span className={avgNet >= 0 ? 'text-teal-400 font-medium' : 'text-rose-400 font-medium'}>{avgNet >= 0 ? '+' : ''}${avgNet.toFixed(0)}/mo</span>
             </div>
-            <p className={`italic pt-1 ${incDelta > 0 && sptDelta <= 0 ? 'text-emerald-300' : incDelta > 0 ? 'text-teal-300' : sptDelta <= 0 ? 'text-amber-300' : 'text-slate-500'}`}>
+            <p className={`italic pt-1 text-sm ${incDelta > 0 && sptDelta <= 0 ? 'text-emerald-300' : incDelta > 0 ? 'text-teal-300' : sptDelta <= 0 ? 'text-amber-300' : 'text-rose-300'}`}>
               {incDelta > 0 && sptDelta <= 0
-                ? 'Income up, expenses down — great discipline! 🐉'
-                : incDelta > 0
-                  ? 'Income is trending up — keep the momentum going!'
-                  : sptDelta <= 0
-                    ? 'Expenses are down — you\'re making smart calls.'
-                    : 'Income dipped — one strong month flips this chart.'}
+                ? 'Income up, spending down — this is what financial momentum looks like. Keep it up! 🐉'
+                : incDelta > 0 && sptDelta > 0
+                  ? 'Income is growing — now challenge yourself to hold the line on spending too.'
+                  : incDelta < 0 && sptDelta <= 0
+                    ? 'Expenses are trending down — that discipline will pay off. Push income back up!'
+                    : incDelta < 0 && sptDelta > 0
+                      ? "Tough month — but one paycheck can change everything. You've got this."
+                      : 'Staying steady — look for one small win this month to break through.'}
             </p>
           </div>
         </>
@@ -690,18 +702,33 @@ export default function Dashboard({ token }) {
         const n = parseFloat(s.replace(/[$,\s()]/g, '').replace(/^-/, ''));
         return isNaN(n) ? 0 : neg ? -n : n;
       };
+      // Parse a raw date cell (serial number OR M/D/YYYY string) into a JS Date.
+      const parseStmtDate = raw => {
+        const ds = String(raw ?? '');
+        const n = Number(ds);
+        if (!isNaN(n) && n > 1000 && !ds.includes('/')) {
+          return new Date(Math.round((n - 25569) * 86400000));
+        }
+        return new Date(ds);
+      };
+      // Format a date as M/D/YYYY for display.
+      const fmtDate = d => `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
       const txns = data
         .filter(r => r[0])
         .filter(r => {
-          const parts = String(r[0] || '').split('/');
-          return parseInt(parts[0]) === mo && parseInt(parts[2]) === yr;
+          const d = parseStmtDate(r[0]);
+          if (!d || isNaN(d.getTime())) return false;
+          return d.getMonth() + 1 === mo && d.getFullYear() === yr;
         })
-        .map(r => ({
-          date: r[0], type: r[1] || '',
-          amount: parseAmt(r[2]),
-          desc: r[3] || '', account: r[4] || '',
-          done: r[5] === 'TRUE' || r[5] === true,
-        }))
+        .map(r => {
+          const d = parseStmtDate(r[0]);
+          return {
+            date: fmtDate(d), type: r[1] || '',
+            amount: parseAmt(r[2]),
+            desc: r[3] || '', account: r[4] || '',
+            done: r[5] === 'TRUE' || r[5] === true,
+          };
+        })
         .sort((a, b) => {
           const [am, ad] = a.date.split('/').map(Number);
           const [bm, bd] = b.date.split('/').map(Number);
@@ -1226,26 +1253,26 @@ ${stmtTxns.length ? `
         for (let d = 1; d <= daysInMo; d++) cells.push(d);
 
         return (
-          <div className="bg-slate-800 rounded-2xl p-2.5 space-y-2">
+          <div className="bg-slate-800 rounded-2xl p-2 space-y-1.5">
             {/* Calendar header */}
             <div className="flex items-center justify-between">
               <button onClick={() => setCalMonth(prev => {
                 let nm = prev.m - 1, ny = prev.y;
                 if (nm < 0) { nm = 11; ny--; }
                 return { y: ny, m: nm };
-              })} className="w-7 h-7 rounded-lg bg-slate-700 text-slate-300 flex items-center justify-center text-xs hover:bg-slate-600 transition-colors">‹</button>
-              <p className="text-white text-sm font-semibold">{MONTH_NAMES[m]} {y}</p>
+              })} className="w-6 h-6 rounded-lg bg-slate-700 text-slate-300 flex items-center justify-center text-xs hover:bg-slate-600 transition-colors">‹</button>
+              <p className="text-white text-xs font-semibold">{MONTH_NAMES[m]} {y}</p>
               <button onClick={() => setCalMonth(prev => {
                 let nm = prev.m + 1, ny = prev.y;
                 if (nm > 11) { nm = 0; ny++; }
                 return { y: ny, m: nm };
-              })} className="w-7 h-7 rounded-lg bg-slate-700 text-slate-300 flex items-center justify-center text-xs hover:bg-slate-600 transition-colors">›</button>
+              })} className="w-6 h-6 rounded-lg bg-slate-700 text-slate-300 flex items-center justify-center text-xs hover:bg-slate-600 transition-colors">›</button>
             </div>
 
             {/* Day labels */}
             <div className="grid grid-cols-7 gap-0">
               {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
-                <div key={d} className="text-center text-[9px] text-slate-500 uppercase tracking-wider py-0">{d}</div>
+                <div key={d} className="text-center text-[8px] text-slate-600 uppercase tracking-wider">{d}</div>
               ))}
               {cells.map((d, i) => {
                 if (!d) return <div key={`e-${i}`} />;
@@ -1256,15 +1283,11 @@ ${stmtTxns.length ? `
                   <div
                     key={d}
                     onClick={() => events.length ? setSelectedCalDay(isSelected ? null : d) : null}
-                    className={`rounded-lg p-0.5 flex flex-col items-center gap-0.5 ${events.length ? 'cursor-pointer' : ''} ${isSelected ? 'bg-teal-700/60 ring-1 ring-teal-400' : isToday ? 'bg-slate-600' : events.length ? 'bg-teal-900/30' : ''}`}
+                    className={`rounded p-px flex flex-col items-center ${events.length ? 'cursor-pointer' : ''} ${isSelected ? 'bg-teal-700/60 ring-1 ring-teal-400' : isToday ? 'bg-slate-600' : events.length ? 'bg-teal-900/30' : ''}`}
                   >
-                    <span className={`text-[11px] font-medium leading-none pt-0.5 ${isToday && !isSelected ? 'text-white font-bold' : isSelected ? 'text-teal-200 font-bold' : 'text-slate-400'}`}>{d}</span>
+                    <span className={`text-[10px] font-medium leading-tight ${isToday && !isSelected ? 'text-white font-bold' : isSelected ? 'text-teal-200 font-bold' : events.length ? 'text-teal-300' : 'text-slate-500'}`}>{d}</span>
                     {events.length > 0 && (
-                      <div className="flex gap-0.5 flex-wrap justify-center">
-                        {events.slice(0, 3).map((_, ei) => (
-                          <span key={ei} className="w-1 h-1 rounded-full bg-teal-400 inline-block" />
-                        ))}
-                      </div>
+                      <span className="w-1 h-1 rounded-full bg-teal-400 inline-block mt-px" />
                     )}
                   </div>
                 );
@@ -2468,7 +2491,7 @@ ${stmtTxns.length ? `
                     🖨 Save PDF
                   </button>
                 )}
-                {stmtFromClose && (
+                {(stmtFromClose || (!localStorage.getItem(`closed_${closeMonth}_${closeYear}`) && now.getDate() <= 7)) && !stmtLoading && !stmtError && (
                   <button
                     onClick={() => {
                       const ci = stmtTxns.reduce((s, t) => t.amount > 0 ? s + t.amount : s, 0) || pm(current?.['Total Processed Income']);
@@ -2480,7 +2503,7 @@ ${stmtTxns.length ? `
                       setShowMonthClose(false);
                       localStorage.setItem(`closed_${closeMonth}_${closeYear}`, 'true');
                     }}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors"
                   >
                     ✓ Close {closeMonth}
                   </button>
@@ -2547,12 +2570,22 @@ ${stmtTxns.length ? `
 
                 return (
                   <>
+                    {/* ── Empty-state hint when no income has been processed yet ── */}
+                    {totalIncome === 0 && stmtTxns.length === 0 && (
+                      <div className="bg-amber-900/25 border border-amber-700/40 rounded-2xl px-4 py-3 flex items-start gap-3">
+                        <span className="text-amber-400 text-lg shrink-0">ℹ</span>
+                        <div>
+                          <p className="text-amber-200 text-sm font-semibold">No income processed yet for {currentMonth}</p>
+                          <p className="text-amber-400/80 text-xs mt-0.5">Use "Process Income" on the dashboard to log your first deposit. Actuals will appear here once income is recorded.</p>
+                        </div>
+                      </div>
+                    )}
                     {/* ── Summary ─────────────────────────────────── */}
                     <div>
                       <SectionLabel>Overview</SectionLabel>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
-                          { label: 'Income',    val: totalIncome, color: 'text-emerald-400', sub: goal > 0 ? `${((totalIncome/goalAmt)*100).toFixed(0)}% of goal` : null },
+                          { label: 'Income',    val: totalIncome, color: 'text-emerald-400', sub: totalIncome === 0 ? 'no income yet' : goalAmt > 0 ? `${((totalIncome/goalAmt)*100).toFixed(0)}% of goal` : null },
                           { label: 'Spent',     val: totalSpent,  color: totalSpent > totalIncome ? 'text-rose-400' : 'text-white', sub: totalIncome > 0 ? `${((totalSpent/totalIncome)*100).toFixed(0)}% of income` : null },
                           { label: 'Net Saved', val: netSaved,    color: netSaved >= 0 ? 'text-emerald-400' : 'text-rose-400', sub: netSaved >= 0 ? 'surplus' : 'deficit' },
                           { label: 'Goal',      val: goalAmt,     color: 'text-sky-400',     sub: goalAmt > 0 ? `${catRanked.length} categories` : null },
@@ -2700,9 +2733,13 @@ ${stmtTxns.length ? `
                         actual: g.items.reduce((s, e) => s + (parseFloat(e['Actual Spend'] || 0)), 0),
                         color: { '1':'#f43f5e','2':'#f59e0b','3':'#8b5cf6' }[g.p],
                       }));
+                      const noActuals = bvaData.every(d => d.actual === 0);
                       return (
                         <div>
                           <SectionLabel>Budget vs Actual</SectionLabel>
+                          {noActuals && (
+                            <p className="text-slate-500 text-xs italic mb-3">Actuals reflect the "Actual Spend" column in your Monthly Expenses sheet — they will populate as spending is recorded this month.</p>
+                          )}
                           <div className="bg-slate-900 rounded-2xl p-4">
                             <ResponsiveContainer width="100%" height={160}>
                               <BarChart data={bvaData} barCategoryGap="30%">
@@ -2834,6 +2871,29 @@ ${stmtTxns.length ? `
                         </div>
                       )}
                     </div>
+
+                    {/* ── Close month CTA (shown whenever the previous month can still be closed) ── */}
+                    {!stmtFromClose && !localStorage.getItem(`closed_${closeMonth}_${closeYear}`) && now.getDate() <= 7 && (
+                      <div className="bg-indigo-900/30 border border-indigo-700/50 rounded-2xl p-5 space-y-3">
+                        <div>
+                          <p className="text-indigo-200 font-semibold text-sm">Ready to start {currentMonth} fresh?</p>
+                          <p className="text-indigo-400 text-xs mt-0.5">Close out {closeMonth} and reset your budget for the new month.</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const ci = stmtTxns.reduce((s, t) => t.amount > 0 ? s + t.amount : s, 0) || pm(current?.['Total Processed Income']);
+                            const cs = stmtTxns.reduce((s, t) => t.amount < 0 ? s + Math.abs(t.amount) : s, 0) || pm(current?.['Total Spent']);
+                            const cg = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+                            saveStatementArchive(closeMonth, closeYear, ci, cs, cg, stmtTxns);
+                            setShowStatement(false);
+                            localStorage.setItem(`closed_${closeMonth}_${closeYear}`, 'true');
+                          }}
+                          className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm transition-colors"
+                        >
+                          ✓ Close {closeMonth} — Start {currentMonth} Fresh
+                        </button>
+                      </div>
+                    )}
                   </>
                 );
               })()}

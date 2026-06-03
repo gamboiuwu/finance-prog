@@ -313,25 +313,40 @@ export default function DragonBot({ token }) {
           </div>
         )}
 
-        {messages.map((m, i) => (
-          <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-            <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-              m.role === 'user'
-                ? 'bg-emerald-600 text-white rounded-br-md'
-                : m.error
-                  ? 'bg-rose-900/40 border border-rose-800/50 text-rose-200 rounded-bl-md'
-                  : 'bg-slate-800 text-slate-100 rounded-bl-md'
-            }`}>
-              {m.role === 'dragon' ? <div className="space-y-0.5">{renderRich(m.text)}</div> : m.text}
-            </div>
-            {/* Visual windows the dragon generated for this turn */}
-            {m.role === 'dragon' && m.cards?.length > 0 && (
-              <div className="mt-2 w-full space-y-2">
-                {m.cards.map((c, ci) => <DragonCard key={ci} card={c} />)}
+        {messages.map((m, i) => {
+          // Check if this dragon turn has a plan card with a shortfall — if so, offer "Run anyway".
+          const shortfallCard = m.role === 'dragon' && m.cards?.find(
+            c => c.type === 'plan' && c.data?.stillShort > 0
+          );
+          return (
+            <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                m.role === 'user'
+                  ? 'bg-emerald-600 text-white rounded-br-md'
+                  : m.error
+                    ? 'bg-rose-900/40 border border-rose-800/50 text-rose-200 rounded-bl-md'
+                    : 'bg-slate-800 text-slate-100 rounded-bl-md'
+              }`}>
+                {m.role === 'dragon' ? <div className="space-y-0.5">{renderRich(m.text)}</div> : m.text}
               </div>
-            )}
-          </div>
-        ))}
+              {/* Visual windows the dragon generated for this turn */}
+              {m.role === 'dragon' && m.cards?.length > 0 && (
+                <div className="mt-2 w-full space-y-2">
+                  {m.cards.map((c, ci) => <DragonCard key={ci} card={c} />)}
+                </div>
+              )}
+              {/* "Run anyway" — shown when a plan has a shortfall the user wants to override */}
+              {shortfallCard && !busy && (
+                <button
+                  onClick={() => send(`Run anyway — save this plan as-is despite the shortfall of $${shortfallCard.data.stillShort.toFixed(2)}/mo. I understand it's tight and I want to proceed.`)}
+                  className="mt-2 self-start text-xs font-semibold px-3 py-1.5 rounded-xl bg-amber-900/40 border border-amber-700/50 text-amber-300 hover:bg-amber-800/50 transition-colors"
+                >
+                  Run anyway — save this plan despite the shortfall
+                </button>
+              )}
+            </div>
+          );
+        })}
 
         {/* Live streaming reply */}
         {streaming && (

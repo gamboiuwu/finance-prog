@@ -116,9 +116,9 @@ function AllocationDonut({ items, total }) {
               formatter={v => [`$${v.toFixed(2)}`]}
             />
           </PieChart>
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-white font-bold text-xs">{fmt(total)}</span>
-            <span className="text-slate-500 text-[10px]">/ month</span>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none overflow-hidden" style={{ width: 72, left: 29 }}>
+            <span className="text-white font-bold text-[8px] font-mono tabular-nums leading-tight text-center w-full truncate px-1">{fmt(total)}</span>
+            <span className="text-slate-500 text-[7px] leading-tight">/mo</span>
           </div>
         </div>
         <div className="flex-1 space-y-2 min-w-0">
@@ -222,9 +222,9 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50"
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center sm:justify-center justify-center z-50"
          onClick={() => !saving && onClose()}>
-      <div className="modal-sheet bg-slate-900 w-full sm:max-w-lg sm:rounded-2xl rounded-t-3xl p-5 space-y-4 max-h-[88dvh] overflow-y-auto"
+      <div className="modal-sheet bg-slate-900 w-full sm:max-w-lg sm:rounded-2xl rounded-t-3xl p-5 space-y-4 max-h-[88dvh] overflow-y-auto sm:my-auto min-h-0"
            onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-white font-bold">{isNew ? '+ New Budget Item' : 'Edit Budget Item'}</h3>
@@ -715,6 +715,41 @@ function CategoryGroup({ label, items, allocByType }) {
           <div className="flex justify-between text-[10px] text-slate-600 font-mono mt-0.5">
             <span>{pct.toFixed(0)}% funded · {fmt(totalA)}</span>
             <span>{fmt(totalB - totalA)} remaining</span>
+          </div>
+        </div>
+      )}
+
+      {open && label === 'Subscription' && totalB > 0 && (
+        <div className="px-4 pt-3 pb-2 bg-slate-950/30 border-t border-slate-800/40">
+          <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-2">Monthly cost per subscription</p>
+          <div className="space-y-2">
+            {[...items]
+              .sort((a, b) => pm(b['Monthly Allowance ($)']) - pm(a['Monthly Allowance ($)']))
+              .map(item => {
+                const cost = pm(item['Monthly Allowance ($)']);
+                const share = totalB > 0 ? (cost / totalB) * 100 : 0;
+                return (
+                  <div key={item._rowNum} className="flex items-center justify-between gap-3 bg-slate-900/60 rounded-xl px-3 py-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-slate-200 text-xs font-medium truncate">{item['Type'] || '—'}</p>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <div className="flex-1 bg-slate-800 rounded-full h-1 overflow-hidden" style={{ maxWidth: 80 }}>
+                          <div className="h-1 rounded-full bg-slate-500" style={{ width: `${share}%` }} />
+                        </div>
+                        <span className="text-slate-500 text-[9px] font-mono">{share.toFixed(0)}%</span>
+                      </div>
+                    </div>
+                    <span className="text-white font-bold font-mono text-sm tabular-nums shrink-0">{fmt(cost)}</span>
+                  </div>
+                );
+              })}
+          </div>
+          <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-slate-700/60">
+            <div>
+              <span className="text-slate-400 text-xs font-semibold">Total / month</span>
+              <p className="text-slate-600 text-[9px] font-mono mt-0.5">{totalB > 0 ? `≈ ${fmt(totalB * 12)} / year` : ''}</p>
+            </div>
+            <span className="text-white font-bold font-mono text-base tabular-nums">{fmt(totalB)}</span>
           </div>
         </div>
       )}
@@ -1406,6 +1441,7 @@ export default function Budget({ token }) {
                   <p className={`text-lg font-bold font-mono tabular-nums mt-0.5 ${overallPct > 90 ? 'text-rose-400' : overallPct > 70 ? 'text-amber-400' : 'text-white'}`}>
                     {fmt(totalSpent)}
                   </p>
+                  <p className="text-slate-600 text-[9px] mt-0.5 leading-tight">tap a card below to log</p>
                 </div>
                 <div>
                   <p className="text-slate-500 text-[10px] uppercase tracking-wider">Remaining</p>

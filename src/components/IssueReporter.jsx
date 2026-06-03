@@ -178,11 +178,11 @@ export default function IssueReporter({ token }) {
     setCapturing(false);
     if (dataUrl) {
       setRawShot(dataUrl);
-      setMarkerPos({
-        xFrac: Math.max(0, Math.min(1, draft.cursor.x / window.innerWidth)),
-        yFrac: Math.max(0, Math.min(1, draft.cursor.y / window.innerHeight)),
-      });
-      flash('Screenshot attached — click image to move marker');
+      // Don't auto-place the marker: the right-click point is where the menu was
+      // opened, not necessarily the spot the user cares about. Require a deliberate
+      // left-click on the image to set it.
+      setMarkerPos(null);
+      flash('Screenshot attached — left-click the image to mark the spot');
     } else flash('Screenshot skipped or not supported');
   }
 
@@ -197,7 +197,7 @@ export default function IssueReporter({ token }) {
   async function saveIssue() {
     setSaving(true);
     let finalShot = null;
-    if (rawShot && markerPos) finalShot = await buildCompositeShot(rawShot, markerPos);
+    if (rawShot) finalShot = markerPos ? await buildCompositeShot(rawShot, markerPos) : rawShot;
     const issue = { ...draft, comment: comment.trim(), severity, screenshot: finalShot };
     const next = saveIssues([...loadIssues(), issue]);
     setCount(next.length);
@@ -304,7 +304,9 @@ export default function IssueReporter({ token }) {
                   <button onClick={e => { e.stopPropagation(); setRawShot(null); setMarkerPos(null); }}
                     className="absolute top-2 right-2 bg-slate-900/80 text-slate-200 text-xs px-2 py-1 rounded-lg">Remove</button>
                 </div>
-                <p className="text-slate-500 text-[10px] mt-1 text-center">Click image to reposition the marker</p>
+                <p className={`text-[10px] mt-1 text-center ${markerPos ? 'text-slate-500' : 'text-amber-400'}`}>
+                  {markerPos ? 'Click image to reposition the marker' : '👆 Left-click the image to mark where the problem is'}
+                </p>
               </div>
             ) : (
               <button onClick={attachShot}
