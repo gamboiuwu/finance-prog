@@ -171,6 +171,151 @@ function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
   );
 }
 
+// Spending Calendar Heatmap (Task 24) — collapsible monthly grid colored by daily spend
+function SpendingCalendarCard({ allAllocTx, expanded, onToggle }) {
+  const now = new Date();
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-indexed
+  const [selectedDay, setSelectedDay] = useState(null);
+  const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  // Group txns by dateStr for the viewed month
+  const dayMap = {};
+  allAllocTx.forEach(tx => {
+    const [y, m] = tx.dateStr.split('-').map(Number);
+    if (y !== viewYear || m !== viewMonth + 1) return;
+    const key = tx.dateStr;
+    if (!dayMap[key]) dayMap[key] = { spend: 0, income: 0, txns: [] };
+    if (tx.amount > 0) dayMap[key].income += tx.amount;
+    else dayMap[key].spend += Math.abs(tx.amount);
+    dayMap[key].txns.push(tx);
+  });
+
+  const maxSpend = Math.max(1, ...Object.values(dayMap).map(d => d.spend));
+
+  function spendColor(spend, income) {
+    if (spend === 0 && income > 0) return 'bg-teal-800/60';
+    if (spend === 0) return 'bg-slate-800';
+    const pct = spend / maxSpend;
+    if (pct < 0.15) return 'bg-rose-950';
+    if (pct < 0.40) return 'bg-rose-900/80';
+    if (pct < 0.70) return 'bg-rose-700/70';
+    return 'bg-rose-500/80';
+  }
+
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const todayD = now.getFullYear() === viewYear && now.getMonth() === viewMonth ? now.getDate() : -1;
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const prevMonth = () => {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); } else setViewMonth(m => m - 1);
+    setSelectedDay(null);
+  };
+  const nextMonth = () => {
+    const nm = viewMonth === 11 ? 0 : viewMonth + 1;
+    const ny = viewMonth === 11 ? viewYear + 1 : viewYear;
+    if (ny > now.getFullYear() || (ny === now.getFullYear() && nm > now.getMonth())) return;
+    setViewMonth(nm); if (viewMonth === 11) setViewYear(y => y + 1); setSelectedDay(null);
+  };
+  const atMaxMonth = viewYear === now.getFullYear() && viewMonth === now.getMonth();
+
+  const selKey = selectedDay ? `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}` : null;
+  const selData = selKey ? dayMap[selKey] : null;
+
+  return (
+    <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl overflow-hidden">
+      <button onClick={onToggle} className="w-full flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-base">📅</span>
+          <span className="text-white font-semibold text-sm">Spending Calendar</span>
+          {!expanded && (() => {
+            const mo = MN[now.getMonth()];
+            const total = Object.values(dayMap).reduce((s,d) => s + d.spend, 0);
+            return total > 0 ? <span className="text-slate-400 text-xs">{mo} · ${total.toFixed(0)} spent</span> : null;
+          })()}
+        </div>
+        <span className="text-slate-400 text-sm">{expanded ? '▲' : '▼'}</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <button onClick={prevMonth} className="text-slate-400 hover:text-white px-2 py-1 rounded-lg text-sm transition-colors">‹</button>
+            <span className="text-white font-medium text-sm">{MN[viewMonth]} {viewYear}</span>
+            <button onClick={nextMonth} disabled={atMaxMonth} className="text-slate-400 hover:text-white disabled:opacity-30 px-2 py-1 rounded-lg text-sm transition-colors">›</button>
+          </div>
+          <div className="grid grid-cols-7 gap-0.5 text-center">
+            {['S','M','T','W','T','F','S'].map((d,i) => (
+              <div key={i} className="text-slate-600 text-[10px] font-medium py-0.5">{d}</div>
+            ))}
+            {cells.map((day, i) => {
+              if (!day) return <div key={i} />;
+              const key = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+              const data = dayMap[key];
+              const isToday = day === todayD;
+              const isSelected = day === selectedDay;
+              const colorCls = data ? spendColor(data.spend, data.income) : 'bg-slate-800';
+              return (
+                <button
+                  key={i}
+                  onClick={() => setSelectedDay(day === selectedDay ? null : day)}
+                  className={`relative aspect-square rounded flex items-center justify-center text-[11px] font-medium transition-all
+                    ${colorCls}
+                    ${isSelected ? 'ring-2 ring-white/70' : ''}
+                    ${isToday ? 'ring-1 ring-teal-400/60' : ''}
+                    ${data ? 'text-white' : 'text-slate-600'}
+                  `}
+                >
+                  {day}
+                  {data?.income > 0 && data?.spend > 0 && (
+                    <span className="absolute top-0.5 right-0.5 w-1 h-1 rounded-full bg-teal-400" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-1.5 justify-center pt-1">
+            <span className="text-slate-600 text-[10px]">$0</span>
+            {['bg-slate-800','bg-rose-950','bg-rose-900/80','bg-rose-700/70','bg-rose-500/80'].map((c,i) => (
+              <div key={i} className={`w-4 h-2.5 rounded-sm ${c}`} />
+            ))}
+            <span className="text-slate-600 text-[10px]">High</span>
+            <span className="w-4 h-2.5 rounded-sm bg-teal-800/60 ml-2" />
+            <span className="text-teal-600 text-[10px]">Income</span>
+          </div>
+          {selData && (
+            <div className="bg-slate-900 rounded-xl p-3 space-y-2 border border-slate-700/50">
+              <div className="flex justify-between items-center">
+                <p className="text-white text-sm font-semibold">{MN[viewMonth]} {selectedDay}</p>
+                <div className="flex gap-3 text-xs">
+                  {selData.spend > 0 && <span className="text-rose-400">${selData.spend.toFixed(2)} spent</span>}
+                  {selData.income > 0 && <span className="text-teal-400">+${selData.income.toFixed(2)} in</span>}
+                </div>
+              </div>
+              <div className="space-y-1 max-h-36 overflow-y-auto">
+                {selData.txns.map((tx, i) => (
+                  <div key={i} className="flex justify-between items-center text-xs gap-2">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-slate-300 font-medium truncate block">{tx.type}</span>
+                      {tx.desc && <span className="text-slate-500 truncate block">{tx.desc.slice(0,40)}</span>}
+                    </div>
+                    <span className={`font-mono shrink-0 ${tx.amount >= 0 ? 'text-teal-400' : 'text-rose-400'}`}>
+                      {tx.amount >= 0 ? '+' : ''}${Math.abs(tx.amount).toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Collapsible 6-month grouped bar chart: income (teal) vs expenses (rose)
 function TrendChartCard({ data, expanded, onToggle }) {
   const last6    = data.slice(-6);
@@ -297,6 +442,12 @@ export default function Dashboard({ token }) {
   const [noteInput, setNoteInput]           = useState('');
   const [showArchive, setShowArchive]         = useState(false);
   const [archiveEntry, setArchiveEntry]       = useState(null);
+  const [allAllocTx, setAllAllocTx] = useState([]);
+  const [heatmapExpanded, setHeatmapExpanded] = useState(false);
+  const [paydayConfig, setPaydayConfig] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('_fin_payday_config') || 'null') || null; } catch { return null; }
+  });
+  const [showPaydayConfig, setShowPaydayConfig] = useState(false);
   const [qaActions, setQaActions] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('_fin_quickactions') || 'null');
@@ -392,6 +543,21 @@ export default function Dashboard({ token }) {
           setAllocTotals({ income: monthIncome, spent: monthSpent });
           setHasCurrentMonthAllocRows(hasCurrentRows);
           setGasBalance(gasBal);
+          setAllAllocTx(allocData.filter(r => r[0] && r[1]).map(r => {
+            const ds = String(r[0]);
+            const n = Number(ds);
+            let dv;
+            if (!isNaN(n) && n > 1000 && !ds.includes('/')) {
+              dv = new Date(Math.round((n - 25569) * 86400000));
+            } else {
+              dv = new Date(ds);
+            }
+            if (!dv || isNaN(dv.getTime())) return null;
+            const yyyy = dv.getFullYear();
+            const mm = String(dv.getMonth() + 1).padStart(2, '0');
+            const dd = String(dv.getDate()).padStart(2, '0');
+            return { dateStr: `${yyyy}-${mm}-${dd}`, type: String(r[1]), amount: pm(r[2]), desc: r[3] != null ? String(r[3]) : '' };
+          }).filter(Boolean));
 
           // Auto-backfill the previous month's statement into the archive if it
           // isn't there yet (so closed months appear without a manual close).
@@ -735,6 +901,33 @@ export default function Dashboard({ token }) {
     } catch {}
   }
 
+  function getNextPayday(config) {
+    if (!config?.schedule || !config?.startDate) return null;
+    const start = new Date(config.startDate + 'T12:00:00');
+    if (isNaN(start.getTime())) return null;
+    const today = new Date(); today.setHours(0,0,0,0);
+    if (config.schedule === 'monthly') {
+      const d = new Date(today.getFullYear(), today.getMonth(), start.getDate());
+      if (d <= today) d.setMonth(d.getMonth() + 1);
+      return d;
+    }
+    if (config.schedule === 'semimonthly') {
+      const day1 = start.getDate() <= 15 ? start.getDate() : 1;
+      const day2 = day1 + 14 <= 28 ? day1 + 14 : 15;
+      const opts = [
+        new Date(today.getFullYear(), today.getMonth(), day1),
+        new Date(today.getFullYear(), today.getMonth(), day2),
+        new Date(today.getFullYear(), today.getMonth() + 1, day1),
+      ].filter(d => d > today).sort((a,b) => a-b);
+      return opts[0] || null;
+    }
+    // biweekly
+    const elapsed = Math.floor((today - start) / 86400000);
+    const rem = 14 - (elapsed % 14);
+    const d = new Date(today); d.setDate(d.getDate() + (rem === 14 ? 0 : rem));
+    return d > today ? d : new Date(today.getTime() + rem * 86400000);
+  }
+
   function saveStatementArchive(month, year, incomeVal, spentVal, goalVal, txns) {
     try {
       const archive = JSON.parse(localStorage.getItem('_fin_statements') || '{}');
@@ -1016,6 +1209,15 @@ ${stmtTxns.length ? `
         />
       )}
 
+      {/* ── Spending Calendar Heatmap (Task 24) ─────────────── */}
+      {allAllocTx.length > 0 && (
+        <SpendingCalendarCard
+          allAllocTx={allAllocTx}
+          expanded={heatmapExpanded}
+          onToggle={() => setHeatmapExpanded(v => !v)}
+        />
+      )}
+
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex justify-between items-start">
         <div>
@@ -1120,6 +1322,49 @@ ${stmtTxns.length ? `
           </>
         );
       })()}
+
+      {/* ── Payday Tracker chip (Task 20) ──────────────────── */}
+      {paydayConfig && (() => {
+        const nextPay = getNextPayday(paydayConfig);
+        if (!nextPay) return null;
+        const today = new Date(); today.setHours(0,0,0,0);
+        const diff = Math.round((nextPay - today) / 86400000);
+        const chipColor = diff <= 2 ? 'bg-rose-900/40 border-rose-700/40 text-rose-300'
+          : diff <= 6 ? 'bg-amber-900/40 border-amber-700/40 text-amber-300'
+          : 'bg-slate-800 border-slate-700/40 text-teal-300';
+        const label = diff === 0 ? 'Payday today! 🎉'
+          : diff === 1 ? 'Payday tomorrow 💰'
+          : `Payday in ${diff} days 💰`;
+        const now2 = new Date();
+        const daysInMonth = new Date(now2.getFullYear(), now2.getMonth() + 1, 0).getDate();
+        const daysPassed = now2.getDate();
+        const timePct = Math.round((daysPassed / daysInMonth) * 100);
+        const spent = allocTotals.spent || 0;
+        const goal = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0) || 1;
+        const spendPct = Math.round((spent / goal) * 100);
+        const paceWarn = spendPct > timePct + 15;
+        return (
+          <button onClick={() => setShowPaydayConfig(true)}
+            className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl border transition-colors ${chipColor}`}>
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm">{label}</span>
+              {paceWarn && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-700/40 text-amber-300 shrink-0">
+                  ⚠ {spendPct}% spent / {timePct}% elapsed
+                </span>
+              )}
+            </div>
+            <span className="text-slate-500 text-xs shrink-0">⚙</span>
+          </button>
+        );
+      })()}
+
+      {!paydayConfig && (
+        <button onClick={() => setShowPaydayConfig(true)}
+          className="w-full flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-slate-700/50 text-slate-600 hover:text-slate-400 text-xs transition-colors">
+          <span>💰</span><span>Set up payday tracker</span>
+        </button>
+      )}
 
       {/* ── Gas price chip + Log Gas spend ─────────────────── */}
       {gasPrice?.value && (
@@ -1772,6 +2017,7 @@ ${stmtTxns.length ? `
 
       {/* ── Subscriptions modal ─────────────────────────────── */}
       {showSubs && (() => {
+        const _subsExpenses = expenses; // explicit capture prevents minifier closure issues
         function SubsModal() {
           const [subs, setSubs]       = useState(subscriptions);
           const [view, setView]       = useState('list');   // 'list' | 'import' | 'add' | 'edit'
@@ -1782,6 +2028,8 @@ ${stmtTxns.length ? `
           const [editForm, setEditForm]             = useState({ Name: '', 'Start Date': '', Cycle: 'monthly', Amount: '', Notes: '' });
           const [showNotifPicker, setShowNotifPicker] = useState(false);
           const [leadVal, setLeadVal]               = useState(subNotifLead);
+          const [sortByCost, setSortByCost]         = useState(false);
+          const [calWindow, setCalWindow]           = useState(30); // 30 or 90 days
 
           async function reloadSubs() {
             const subRows = await readRange(token, 'Subscriptions!A:E').catch(() => []);
@@ -1851,7 +2099,7 @@ ${stmtTxns.length ? `
 
           // Candidates from Monthly Expenses tagged as Subscription, not yet imported
           const existingNames = new Set(subs.map(s => (s['Name'] || '').toLowerCase()));
-          const candidates = expenses
+          const candidates = _subsExpenses
             .filter(e => e['Account'] === 'Subscription' && (e['Type'] || e['Expense']))
             .map(e => {
               const name = e['Type'] || e['Expense'] || '';
@@ -1987,18 +2235,64 @@ ${stmtTxns.length ? `
                       </div>
                     )}
 
-                    {/* Total monthly cost across all subs */}
+                    {/* Task 13: Upcoming renewals in calWindow + Sort + window toggle */}
+                    {subs.length > 0 && (() => {
+                      const upcomingWin = subs
+                        .map(s => ({ ...s, next: nextRenewal(s['Start Date'], (s['Cycle']||'monthly').toLowerCase()) }))
+                        .filter(s => s.next)
+                        .map(s => ({ ...s, daysLeft: daysUntil(s.next) }))
+                        .filter(s => s.daysLeft !== null && s.daysLeft >= 0 && s.daysLeft <= calWindow)
+                        .sort((a,b) => a.daysLeft - b.daysLeft);
+                      if (!upcomingWin.length) return null;
+                      return (
+                        <div className="bg-slate-900 rounded-2xl p-3 space-y-1.5">
+                          <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Renewing in {calWindow} days</p>
+                          {upcomingWin.map((s, i) => {
+                            const mo = toMonthly(parseFloat(s['Amount']||0), s['Cycle']||'monthly');
+                            return (
+                              <div key={i} className="flex justify-between items-center text-xs">
+                                <span className={`font-medium ${s.daysLeft <= 3 ? 'text-amber-300' : 'text-slate-300'}`}>{s['Name']}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-slate-500 font-mono">${mo.toFixed(2)}/mo</span>
+                                  <span className={`px-1.5 py-0.5 rounded-full font-bold ${s.daysLeft === 0 ? 'bg-rose-900/60 text-rose-300' : s.daysLeft <= 3 ? 'bg-amber-900/60 text-amber-300' : 'bg-slate-800 text-slate-400'}`}>
+                                    {s.daysLeft === 0 ? 'today' : `${s.daysLeft}d`}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+
+                    {subs.length > 0 && (
+                      <div className="flex items-center gap-2 px-1">
+                        <button onClick={() => setSortByCost(v => !v)}
+                          className={`text-xs px-2.5 py-1 rounded-full transition-colors ${sortByCost ? 'bg-teal-700/50 text-teal-300' : 'bg-slate-800 text-slate-500 hover:text-slate-300'}`}>
+                          {sortByCost ? '💲 By cost ✓' : 'Sort by cost'}
+                        </button>
+                        <button onClick={() => setCalWindow(w => w === 30 ? 90 : 30)}
+                          className="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-500 hover:text-slate-300 transition-colors ml-auto">
+                          📅 {calWindow}d window
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Total monthly + annual cost across all subs */}
                     {subs.length > 0 && (() => {
                       const totalMo = subs.reduce((s, sub) => s + toMonthly(sub['Amount'], sub['Cycle']), 0);
                       return (
                         <div className="flex justify-between items-center px-1 text-xs">
                           <span className="text-slate-500">Total / month</span>
-                          <span className="text-teal-300 font-bold font-mono tabular-nums">${totalMo.toFixed(2)}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-slate-600 font-mono tabular-nums">${(totalMo * 12).toFixed(2)}/yr</span>
+                            <span className="text-teal-300 font-bold font-mono tabular-nums">${totalMo.toFixed(2)}/mo</span>
+                          </div>
                         </div>
                       );
                     })()}
 
-                    {subs.map((s, i) => {
+                    {(sortByCost ? [...subs].sort((a,b) => toMonthly(b['Amount'], b['Cycle']) - toMonthly(a['Amount'], a['Cycle'])) : subs).map((s, i) => {
                       const cycle    = (s['Cycle'] || 'monthly').toLowerCase();
                       const next     = nextRenewal(s['Start Date'], cycle);
                       const days     = daysUntil(next);
@@ -2023,6 +2317,7 @@ ${stmtTxns.length ? `
                                   <>
                                     <span className="text-white font-mono text-xs tabular-nums">${moAmt.toFixed(2)}/mo</span>
                                     {isNonMo && <span className="text-slate-500 font-mono text-[10px] tabular-nums">(${amt.toFixed(2)}{cycleAmountLabel(cycle)})</span>}
+                                    <span className="text-slate-600 font-mono text-[10px] tabular-nums">${(moAmt * 12).toFixed(2)}/yr</span>
                                   </>
                                 )}
                               </div>
@@ -3128,6 +3423,61 @@ ${stmtTxns.length ? `
             </div>
           </div>
         );
+      })()}
+
+      {/* ── Payday Config modal (Task 20) ──────────────────── */}
+      {showPaydayConfig && (() => {
+        function PaydayConfigModal() {
+          const [localCfg, setLocalCfg] = useState(() => paydayConfig || { schedule: 'biweekly', startDate: new Date().toISOString().slice(0,10) });
+          function save() {
+            setPaydayConfig(localCfg);
+            localStorage.setItem('_fin_payday_config', JSON.stringify(localCfg));
+            setShowPaydayConfig(false);
+          }
+          function clear() {
+            setPaydayConfig(null);
+            localStorage.removeItem('_fin_payday_config');
+            setShowPaydayConfig(false);
+          }
+          const next = localCfg.startDate ? getNextPayday(localCfg) : null;
+          const diff = next ? Math.round((next - new Date().setHours(0,0,0,0)) / 86400000) : null;
+          return (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50" onClick={() => setShowPaydayConfig(false)}>
+              <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-white font-semibold">💰 Payday Settings</h2>
+                  <button onClick={() => setShowPaydayConfig(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-slate-400 text-xs uppercase tracking-wider block">Pay Schedule</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[['biweekly','Bi-weekly'],['semimonthly','Semi-monthly'],['monthly','Monthly']].map(([val, lbl]) => (
+                      <button key={val} onClick={() => setLocalCfg(c => ({...c, schedule: val}))}
+                        className={`py-2 rounded-xl text-sm font-medium transition-colors ${localCfg.schedule === val ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-slate-400 text-xs uppercase tracking-wider block">Most Recent Payday (anchor date)</label>
+                  <input type="date" value={localCfg.startDate}
+                    onChange={e => setLocalCfg(c => ({...c, startDate: e.target.value}))}
+                    className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+                  />
+                </div>
+                {next && diff !== null && (
+                  <p className="text-teal-400 text-sm text-center">Next payday: {next.toLocaleDateString('en-US', {month:'short',day:'numeric'})} ({diff === 0 ? 'today' : `${diff} day${diff===1?'':'s'}`})</p>
+                )}
+                <div className="flex gap-2">
+                  {paydayConfig && <button onClick={clear} className="text-rose-400 hover:text-rose-300 text-sm px-4 py-2">Clear</button>}
+                  <button onClick={save} className="flex-1 bg-teal-600 hover:bg-teal-500 text-white py-3 rounded-xl font-bold transition-colors">Save</button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        return <PaydayConfigModal />;
       })()}
 
       {/* ── Month Note Drawer ────────────────────────────────── */}
