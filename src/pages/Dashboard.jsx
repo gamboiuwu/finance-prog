@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { readRange, readReportLinks, appendRow, ensureSheetTab, batchUpdateCells, clearRow } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
@@ -297,6 +297,16 @@ export default function Dashboard({ token }) {
   const [noteInput, setNoteInput]           = useState('');
   const [showArchive, setShowArchive]         = useState(false);
   const [archiveEntry, setArchiveEntry]       = useState(null);
+  const [qaActions, setQaActions] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('_fin_quickactions') || 'null');
+      if (Array.isArray(s) && s.length) return s;
+    } catch {}
+    return ['income', 'log', 'month', 'cal'];
+  });
+  const [showQAEdit, setShowQAEdit] = useState(false);
+
+  const billCalRef = useRef(null);
 
   const now = new Date();
   const currentMonth = MONTHS[now.getMonth()];
@@ -1036,6 +1046,81 @@ ${stmtTxns.length ? `
         )}
       </div>
 
+      {/* ── Quick-Actions Strip (Task 29) ─────────────────── */}
+      {(() => {
+        const ALL_QA = [
+          { id: 'income', label: 'Process Income', icon: '💰' },
+          { id: 'log',    label: 'Log Transaction', icon: '📝' },
+          { id: 'month',  label: 'This Month',      icon: '📊' },
+          { id: 'cal',    label: 'Bill Calendar',   icon: '📅' },
+        ];
+        const saveQA = (next) => {
+          setQaActions(next);
+          localStorage.setItem('_fin_quickactions', JSON.stringify(next));
+        };
+        const moveUp = (i) => { if (i === 0) return; const a = [...qaActions]; [a[i-1], a[i]] = [a[i], a[i-1]]; saveQA(a); };
+        const moveDown = (i) => { if (i === qaActions.length - 1) return; const a = [...qaActions]; [a[i], a[i+1]] = [a[i+1], a[i]]; saveQA(a); };
+        const remove = (id) => saveQA(qaActions.filter(x => x !== id));
+        const add = (id) => saveQA([...qaActions, id]);
+        const hidden = ALL_QA.filter(a => !qaActions.includes(a.id));
+        return (
+          <>
+            <div className="flex items-center gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+              {qaActions.map((id, i) => {
+                const def = ALL_QA.find(a => a.id === id);
+                if (!def) return null;
+                const handleClick = () => {
+                  if (showQAEdit) return;
+                  if (id === 'income') setShowIncome(true);
+                  else if (id === 'log') navigate('/transactions');
+                  else if (id === 'month') reportLinks[currentMonth] && navigate(`/month/${reportLinks[currentMonth]}/${currentMonth}`);
+                  else if (id === 'cal') billCalRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                };
+                return (
+                  <div key={id} className="relative flex-none flex items-center gap-1 group">
+                    {showQAEdit && (
+                      <div className="flex flex-col gap-0.5">
+                        <button onClick={() => moveUp(i)} disabled={i === 0}
+                          className="text-slate-500 hover:text-slate-300 disabled:opacity-30 leading-none text-[10px]">▲</button>
+                        <button onClick={() => moveDown(i)} disabled={i === qaActions.length - 1}
+                          className="text-slate-500 hover:text-slate-300 disabled:opacity-30 leading-none text-[10px]">▼</button>
+                      </div>
+                    )}
+                    <button
+                      onClick={handleClick}
+                      className={`flex items-center gap-1.5 text-white text-sm px-3 py-2 rounded-xl transition-colors whitespace-nowrap font-medium
+                        ${showQAEdit ? 'bg-slate-700 cursor-default' : 'bg-slate-800 hover:bg-slate-700 active:bg-slate-600'}`}
+                    >
+                      <span>{def.icon}</span>
+                      <span>{def.label}</span>
+                      {id === 'income' && hasCurrentMonthAllocRows === false && !showQAEdit && (
+                        <span className="w-2 h-2 rounded-full bg-teal-400 shrink-0" />
+                      )}
+                    </button>
+                    {showQAEdit && (
+                      <button onClick={() => remove(id)}
+                        className="w-5 h-5 rounded-full bg-rose-700 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] leading-none -ml-1">✕</button>
+                    )}
+                  </div>
+                );
+              })}
+              {showQAEdit && hidden.map(a => (
+                <button key={a.id} onClick={() => add(a.id)}
+                  className="flex-none flex items-center gap-1.5 text-slate-400 hover:text-white text-sm px-3 py-2 rounded-xl border border-dashed border-slate-600 hover:border-slate-400 transition-colors whitespace-nowrap">
+                  <span>{a.icon}</span>
+                  <span>+ {a.label}</span>
+                </button>
+              ))}
+              <button onClick={() => setShowQAEdit(v => !v)}
+                title={showQAEdit ? 'Done' : 'Customize actions'}
+                className={`flex-none text-sm px-2 py-2 rounded-xl transition-colors ${showQAEdit ? 'bg-blue-600 hover:bg-blue-500 text-white px-3' : 'text-slate-500 hover:text-slate-300'}`}>
+                {showQAEdit ? 'Done' : '⚙'}
+              </button>
+            </div>
+          </>
+        );
+      })()}
+
       {/* ── Gas price chip + Log Gas spend ─────────────────── */}
       {gasPrice?.value && (
         <div className="flex gap-2">
@@ -1196,6 +1281,7 @@ ${stmtTxns.length ? `
       </button>
 
       {/* ── Bill Calendar ────────────────────────────────────── */}
+      <div ref={billCalRef} />
       {(() => {
         const { y, m } = calMonth;
         const firstDay = new Date(y, m, 1).getDay();
