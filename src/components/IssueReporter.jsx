@@ -40,6 +40,9 @@ const CHANGELOG = {
     'Close Month — the statement shows the closing month’s real income and actuals instead of $0.',
     'Business — profit/unit no longer reads $0 when a price cell has a spreadsheet error.',
     'Dragon — can now change budget priorities, and won’t wrongly claim it can’t.',
+    'Ledger (AI) — your Anthropic API key now saves to your private sheet and syncs across devices; the setup screen scrolls so the bottom button is reachable; this month’s estimated usage shows in settings; it asks before using web research; and the dragon face holds still when idle, animating only while active.',
+    'Business — product profit/unit handles errored price cells; the New Product editor has edge margins; the P&L suggests ways to improve profit; the spending-trend chart’s “Spent” label is readable; and time-clock achievements celebrate with confetti.',
+    'Commissions — added a quick link to your antryab.com pricing page in the empty state.',
   ],
 };
 const CHANGELOG_SEEN_KEY = '_fin_changelog_seen';
