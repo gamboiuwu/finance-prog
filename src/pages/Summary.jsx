@@ -238,7 +238,12 @@ function MetricTile({ label, value, sub, detail, color = 'text-white', verify, w
       <div className="flex items-baseline gap-1.5">
         <p className={`text-xl font-bold font-mono tabular-nums tracking-tight ${isOverridden ? 'text-amber-300' : color}`}>{displayVal}</p>
         {!isOverridden && verify !== undefined && (
-          <span className={verify ? 'text-emerald-500 text-[10px]' : 'text-amber-400 text-[10px]'}>{verify ? '✓' : '⚠'}</span>
+          <span
+            title={verify
+              ? 'Matches the value calculated in your sheet'
+              : "Differs from your sheet by more than 2% — tap ℹ for the formula, then check the inputs (a new month may not have reset its sheet value yet)"}
+            className={`cursor-help ${verify ? 'text-emerald-500 text-[10px]' : 'text-amber-400 text-[10px]'}`}
+          >{verify ? '✓' : '⚠'}</span>
         )}
         {isOverridden && <span className="text-amber-600 text-[10px]">edited</span>}
       </div>
