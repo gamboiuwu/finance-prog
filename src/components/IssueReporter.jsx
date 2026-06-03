@@ -35,6 +35,11 @@ const CHANGELOG = {
     'Gas — the regional price range now has a week-by-week history chart.',
     'Dragon — a “Run anyway” option when a plan falls short of a goal.',
     'Issue Reporter — left-click the screenshot to mark the exact spot; resolved issues now clear from your local list automatically.',
+    'Security — your PIN is now shared across all your devices and survives clearing your cache (it lives in your private sheet, not just one device).',
+    'Budget — the gas balance now matches the Summary screen instead of over-counting old deposits.',
+    'Close Month — the statement shows the closing month’s real income and actuals instead of $0.',
+    'Business — profit/unit no longer reads $0 when a price cell has a spreadsheet error.',
+    'Dragon — can now change budget priorities, and won’t wrongly claim it can’t.',
   ],
 };
 const CHANGELOG_SEEN_KEY = '_fin_changelog_seen';

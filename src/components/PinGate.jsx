@@ -22,7 +22,7 @@ function PinDots({ len, total = 4, error }) {
   );
 }
 
-export default function PinGate({ mode, onUnlock, onSignOut }) {
+export default function PinGate({ mode, onUnlock, onSignOut, token }) {
   const [pin, setPin]         = useState('');
   const [confirm, setConfirm] = useState('');
   const [step, setStep]       = useState('enter'); // 'enter' | 'confirm'
@@ -66,7 +66,7 @@ export default function PinGate({ mode, onUnlock, onSignOut }) {
           setStep('enter');
           return;
         }
-        await storePin(entered);
+        await storePin(entered, token);
         onUnlock();
       } else {
         const ok = await verifyPin(entered);

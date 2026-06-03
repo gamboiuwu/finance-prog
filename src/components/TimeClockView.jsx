@@ -90,7 +90,17 @@ function getLevelInfo(xp) {
 function computeProfit(product, qty) {
   if (!product || qty <= 0) return 0;
   const blocks = product.formula || [];
-  let remaining = product.startPrice;
+  let start = parseFloat(product.startPrice);
+  if (!isFinite(start) || start < 0) start = 0;
+  // If the start price is missing or errored (e.g. a #ERROR! cell upstream) but the
+  // formula still carries explicit fixed dollar amounts, fall back to the sum of those
+  // fixed blocks as the implied price — otherwise profit/unit silently reads $0 even
+  // though the formula clearly defines a profit.
+  if (start === 0) {
+    const fixedTotal = blocks.reduce((s, b) => s + (b.type === 'fixed' ? (parseFloat(b.value) || 0) : 0), 0);
+    if (fixedTotal > 0) start = fixedTotal;
+  }
+  let remaining = start;
   let profitAmt = 0;
   blocks.forEach(block => {
     const val = parseFloat(block.value) || 0;

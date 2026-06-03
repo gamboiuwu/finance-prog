@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { getStoredToken, clearToken } from './lib/auth';
-import { isPinSet, isSessionLocked, markUnlocked, clearPin } from './lib/pin';
+import { isPinSet, isSessionLocked, markUnlocked, clearPin, syncPinFromSheet, clearRemotePin } from './lib/pin';
 import Login from './pages/Login';
 import PinGate from './components/PinGate';
+import LoadingSpinner from './components/LoadingSpinner';
 import Dashboard from './pages/Dashboard';
 import Budget from './pages/Budget';
 import Transactions from './pages/Transactions';
@@ -44,6 +45,18 @@ export default function App() {
   const [token, setToken]           = useState(() => getStoredToken());
   const [pinUnlocked, setPinUnlocked] = useState(() => isPinSet() && !isSessionLocked());
   const [showChangePinMenu, setShowChangePinMenu] = useState(false);
+  // Block the create-vs-verify decision until we've checked the shared PIN — but only
+  // when this device has no local PIN cached (the case where we'd wrongly offer "create").
+  const [pinHydrated, setPinHydrated] = useState(() => isPinSet());
+
+  // Pull the shared PIN from the sheet so every device uses the same one (and a
+  // cache-cleared device recovers it instead of being asked to make a new PIN).
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    syncPinFromSheet(token).finally(() => { if (!cancelled) setPinHydrated(true); });
+    return () => { cancelled = true; };
+  }, [token]);
 
   // Re-check lock whenever the tab becomes visible again
   useEffect(() => {
@@ -75,12 +88,17 @@ export default function App() {
 
   function handleRemovePin() {
     clearPin();
+    clearRemotePin(token); // remove it everywhere, not just this device
     setShowChangePinMenu(false);
     setPinUnlocked(true);
   }
 
   // 1. No Google token → show login
   if (!token) return <Login onLogin={setToken} />;
+
+  // 1b. Checking the shared PIN (fresh / cache-cleared device) → brief spinner so we
+  //     don't flash the "create PIN" screen and let it overwrite an existing PIN.
+  if (!pinHydrated) return <LoadingSpinner />;
 
   // 2. PIN not set yet, or session is locked → show PIN gate
   const needsPin = !isPinSet() || !pinUnlocked;
@@ -90,6 +108,7 @@ export default function App() {
         mode={!isPinSet() ? 'create' : 'verify'}
         onUnlock={handlePinUnlocked}
         onSignOut={handleSignOut}
+        token={token}
       />
     );
   }

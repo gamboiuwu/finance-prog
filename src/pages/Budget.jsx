@@ -1166,6 +1166,7 @@ export default function Budget({ token }) {
   const [activeTab, setActiveTab]   = useState('budget');
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
+  const [gasOnHand, setGasOnHand] = useState(null); // authoritative Gas balance from Allocation Summary
   const [editItem, setEditItem]   = useState(null);
   const [isAddNew, setIsAddNew]   = useState(false);
   const [saving, setSaving]       = useState(false);
@@ -1180,11 +1181,20 @@ export default function Budget({ token }) {
     const currentYear  = String(yr);
 
     try {
-      const [expRows, summaryRows, txRows] = await Promise.all([
+      const [expRows, summaryRows, txRows, allocSumRows] = await Promise.all([
         readRange(token, `${SHEETS.MONTHLY_EXPENSES}!A1:T50`),
         readRange(token, `${SHEETS.MONTHLY_SUMMARY}!A1:P13`),
         readRange(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!A:F`, 'UNFORMATTED_VALUE'),
+        readRange(token, 'Allocation Summary!A1:B10', 'UNFORMATTED_VALUE'),
       ]);
+
+      // Authoritative gas balance on hand — the same source the Summary screen reads.
+      // Budget previously re-derived this by summing every gas transaction ever logged,
+      // which overstates the balance when fill-ups aren't logged as negative rows.
+      if (allocSumRows?.length) {
+        const gasRow = allocSumRows.find(r => String(r[0]).trim().toLowerCase() === 'gas');
+        setGasOnHand(gasRow ? (pm(gasRow[1]) || 0) : null);
+      }
 
       if (expRows.length) {
         const [headerRow, ...dataRows] = expRows;
@@ -1311,11 +1321,15 @@ export default function Budget({ token }) {
   const fundingByType = {};
   allocTx.forEach(tx => { if (tx.amount > 0) fundingByType[tx.type] = (fundingByType[tx.type] || 0) + tx.amount; });
 
-  // Gas is special: it uses an ALL-TIME running balance (deposits − fill-ups), not
-  // monthly deposits, and its goal is the live dynamic budget (~$185), not the sheet $120.
-  const gasBalanceAllTime = allAllocTx
-    .filter(tx => String(tx.type).trim().toLowerCase() === 'gas')
-    .reduce((s, tx) => s + tx.amount, 0);
+  // Gas is special: it uses a running balance on hand, not monthly deposits, and its
+  // goal is the live dynamic budget (~$185), not the sheet $120. Prefer the authoritative
+  // Allocation Summary "Gas" row (what the Summary screen shows); only fall back to summing
+  // every gas transaction when that row isn't available.
+  const gasBalanceAllTime = (gasOnHand != null)
+    ? gasOnHand
+    : allAllocTx
+        .filter(tx => String(tx.type).trim().toLowerCase() === 'gas')
+        .reduce((s, tx) => s + tx.amount, 0);
   const isGas = i => String(i['Type'] || '').trim().toLowerCase() === 'gas';
   // Effective goal & funded amount for an item, with gas overrides applied.
   const effGoal = i => (isGas(i) && gasBudget > 0) ? gasBudget : pm(i['Monthly Allowance ($)']);

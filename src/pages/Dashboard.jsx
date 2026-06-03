@@ -294,6 +294,9 @@ export default function Dashboard({ token }) {
   const [stmtFromClose, setStmtFromClose] = useState(false);
   const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0, dueAlerts: [] });
   const [allocTotals, setAllocTotals]   = useState({ income: 0, spent: 0 });
+  // Close-month (previous month) activity derived from its own allocation rows — the
+  // app's ground truth, so the Close-Month modal agrees with the Dashboard tiles.
+  const [closeAlloc, setCloseAlloc]     = useState({ income: 0, spent: 0, byType: {}, hasRows: false });
   const [hasCurrentMonthAllocRows, setHasCurrentMonthAllocRows] = useState(null);
   const [healthScore, setHealthScore]   = useState({ total: 0, signals: [], history: [], loaded: false });
   const [healthExpanded, setHealthExpanded] = useState(false);
@@ -394,6 +397,16 @@ export default function Dashboard({ token }) {
           setAllocTotals({ income: monthIncome, spent: monthSpent });
           setHasCurrentMonthAllocRows(hasCurrentRows);
           setGasBalance(gasBal);
+
+          // Close-month totals from its own rows (ground truth for the Close-Month modal).
+          const cByType = {};
+          closeTxns.forEach(t => { if (t.amount > 0) cByType[t.type] = (cByType[t.type] || 0) + t.amount; });
+          setCloseAlloc({
+            income:  closeTxns.reduce((s, t) => t.amount > 0 ? s + t.amount : s, 0),
+            spent:   closeTxns.reduce((s, t) => t.amount < 0 ? s + Math.abs(t.amount) : s, 0),
+            byType:  cByType,
+            hasRows: closeTxns.length > 0,
+          });
 
           // Auto-backfill the previous month's statement into the archive if it
           // isn't there yet (so closed months appear without a manual close).
@@ -2357,16 +2370,24 @@ ${stmtTxns.length ? `
       {showMonthClose && (() => {
         const totalAllowance  = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
         const closeMonthRow   = allMonths.find(m => m['Month'] === closeMonth);
-        const closeIncome     = pm(closeMonthRow?.['Total Processed Income']);
-        const closeSpent      = pm(closeMonthRow?.['Total Spent']);
+        // Prefer the close month's real allocation activity (ground truth, matching the
+        // Dashboard tiles + auto-archive) and fall back to Monthly Summary only when no
+        // rows were logged for that month — so income/actuals don't read $0 by mistake.
+        const closeIncome     = closeAlloc.hasRows && closeAlloc.income > 0 ? closeAlloc.income : pm(closeMonthRow?.['Total Processed Income']);
+        const closeSpent      = closeAlloc.hasRows && closeAlloc.spent  > 0 ? closeAlloc.spent  : pm(closeMonthRow?.['Total Spent']);
         const closeNet        = closeIncome - closeSpent;
         const coveragePct     = totalAllowance > 0 ? (closeIncome / totalAllowance) * 100 : 0;
+        // Use allocation-derived per-category amounts when the Actual Spend column is empty.
+        const actualColTotal  = expenses.reduce((s, e) => s + pm(e['Actual Spend']), 0);
+        const useAllocActual  = actualColTotal <= 0 && closeAlloc.hasRows;
         const priGroups = ['1','2','3'].map(p => {
           const items = expenses.filter(e => String(e['Priority'] ?? '3') === p && pm(e['Monthly Allowance ($)']) > 0);
           return {
             p, label: { '1':'Essential','2':'Stability','3':'Optional' }[p],
             budget: items.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0),
-            spent:  items.reduce((s, e) => s + pm(e['Actual Spend']), 0),
+            spent:  useAllocActual
+              ? items.reduce((s, e) => s + (closeAlloc.byType[e['Type']] || 0), 0)
+              : items.reduce((s, e) => s + pm(e['Actual Spend']), 0),
           };
         }).filter(g => g.budget > 0);
 
@@ -2442,8 +2463,8 @@ ${stmtTxns.length ? `
               <button
                 onClick={() => {
                   const closeMonthRow = allMonths.find(m => m['Month'] === closeMonth && String(m['Year']) === String(closeYear));
-                  const ci = pm(closeMonthRow?.['Total Processed Income']);
-                  const cs = pm(closeMonthRow?.['Total Spent']);
+                  const ci = closeAlloc.hasRows && closeAlloc.income > 0 ? closeAlloc.income : pm(closeMonthRow?.['Total Processed Income']);
+                  const cs = closeAlloc.hasRows && closeAlloc.spent  > 0 ? closeAlloc.spent  : pm(closeMonthRow?.['Total Spent']);
                   const cg = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
                   saveStatementArchive(closeMonth, closeYear, ci, cs, cg, null);
                   setShowMonthClose(false);
