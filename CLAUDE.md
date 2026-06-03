@@ -124,7 +124,7 @@ src/
 ## Task Tracking
 Maintained in Google Drive doc "Finance Tracker – Updates & Task Plans" (auto-updated by Claude).
 Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTzptqo`
-**Current task doc ID**: `1bM6Jk3qyml6v3BMzfTuJzfDJWanssk9RO7nJubMme8s` (updated 2026-06-02)
+**Current task doc ID**: `1-I5paK6-Ndh9CtL3bOSSWa_tkGYmOz7OxkY_YMsUS-U` (updated 2026-06-03; prev `1bM6Jk3qyml6v3BMzfTuJzfDJWanssk9RO7nJubMme8s`)
 
 ### Task Status
 | # | Task | Status |
@@ -160,6 +160,9 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 | 29 | Dashboard Quick-Actions Row | ✅ COMPLETED + VERIFIED (2026-06-03) |
 | 30 | Weekly Spending Digest Notification | ⏳ Plan written 2026-06-02, awaiting Execute Y/N |
 | 31 | PDF / Print-Ready Monthly Statement | ⏳ Plan written 2026-06-02, awaiting Execute Y/N |
+| 32 | Emergency Fund / Safety-Net Runway Gauge | ⏳ NEW — Plan written 2026-06-03, awaiting Execute Y/N |
+| 33 | "Safe-to-Spend" Daily Allowance | ⏳ NEW — Plan written 2026-06-03, awaiting Execute Y/N |
+| 34 | Spending Anomaly / Unusual-Activity Alerts | ⏳ NEW — Plan written 2026-06-03, awaiting Execute Y/N |
 
 ### Task Plans Summary (for quick reference)
 - **Task 6**: ✅ VERIFIED + DOUBLE-CHECKED (2026-06-02). Nav badge on Budget nav item (Nav.jsx:66-70, readBudgetBadge from `_fin_budget_alert`). Dashboard amber banner (Dashboard.jsx:810+, `budgetAlerts` state). CategoryView "Not yet funded" chip row (Budget.jsx:691-702). All 3 parts confirmed in code.
@@ -188,6 +191,9 @@ Original user task list: Google Doc ID `1Lxeo2bhqoeLjFHPGf5SkvIMeWizC8O1t4wtrUTz
 - **Task 29**: ✅ COMPLETED + VERIFIED (2026-06-03). Horizontal scrollable chip row inserted below month header in Dashboard.jsx. 4 default chips: 💰 Process Income (opens ProcessIncome modal, shows teal dot badge when no alloc rows yet) | 📝 Log Transaction (navigate /transactions) | 📊 This Month (navigate MonthlyDetail) | 📅 Bill Calendar (scrollIntoView via billCalRef). ⚙ gear toggles edit mode: ▲/▼ reorder, ✕ remove, dashed "+" chips to add hidden actions back. Order+visibility persisted to localStorage `_fin_quickactions`. State: `qaActions` (array of IDs), `showQAEdit` (bool). Ref: `billCalRef = useRef(null)` placed on `<div>` before Bill Calendar section. No new API calls.
 - **Task 30 (EXPANDED 2026-06-03)**: Weekly Spending Digest — Trigger: on Dashboard load, check `_fin_digest_config`; fire if `enabled:true` AND today is configured day-of-week AND `lastFired !== today (YYYY-MM-DD)`. Notification line 1: "📊 Week of [Mon DD] — $X allocated ([Y]% of monthly budget)". Line 2: "Top: [Category] ($X)". Appended if P1 unfunded: "⚠ N essential items still unfunded." "This week" = rolling last-7-days from today. In-app fallback card: dismissable teal card below Health Score card, visible for that calendar day only (works even if notifications denied). Stores dismissal in `_fin_digest_config.lastDismissed`. Config UI: "📬 Weekly Digest" toggle + day-of-week picker (Mon–Sun) shown when enabled + "Test Notification" button. Data: reuses `allAllocTx` (already loaded), zero new API calls. localStorage: `_fin_digest_config = { enabled, dayOfWeek, lastFired, lastDismissed }`. Q1: Preferred day of week? Q2: Rolling last-7-days or fixed Mon–Sun week? Q3: Should in-app card include a mini % budget progress bar? Q4: If notifications are blocked, should in-app card still show as fallback?
 - **Task 31**: PDF/Print Monthly Statement — enhance existing `printStatement()` with full layout: income summary, category breakdown (budgeted vs actual), top 5 expenses, health score, month note. `@media print` CSS for clean A4/letter output. "Copy as Plain Text" button. No new API calls — all data already loaded by Dashboard.
+- **Task 32 (NEW 2026-06-03)**: Emergency Fund / Safety-Net Runway Gauge — Dashboard gauge = liquid savings ÷ avg 3-mo essential (P1) burn → "X.X months covered" (rose <1 / amber 1-3 / teal 3-6 / green ≥6). Target default 3mo in `_fin_efund_target`; ⚙ to pick which buckets count. Reads already-loaded data; no new sheet. Q: which buckets = emergency fund? 3 or 6 mo target? gauge only or also Budget chip?
+- **Task 33 (NEW 2026-06-03)**: "Safe-to-Spend" Daily Allowance — Dashboard headline: remaining discretionary (income − committed bills − savings − discretionary spent) ÷ days left = "$X safe today · $Y left." Pace bar (disc% spent vs month% elapsed, amber if ahead). Tap to expand the subtraction breakdown. Derives from Monthly Expenses + Allocation Transactions (loaded); optional `_fin_sts_config`. Q: subtract savings contributions? calendar days vs days-to-payday? headline / chip / both?
+- **Task 34 (NEW 2026-06-03)**: Spending Anomaly Alerts — per-category trailing-3-mo baseline; flag when projected month-end run-rate > baseline×(1+threshold), default 40%. "👀 Unusual activity" banner section (top 3) + opt-in daily push (dedup `_fin_anomaly_sent`). Sensitivity picker (25/40/60%) in `_fin_anomaly_config`. Zero new sheet. Q: default sensitivity? run-rate vs final total? push or in-app only?
 
 ## Dashboard Quick-Actions Strip (Task 29) — COMPLETED + VERIFIED 2026-06-03
 - localStorage key: `_fin_quickactions = ["income","log","month","cal"]` (ordered array of visible action IDs)
