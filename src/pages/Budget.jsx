@@ -1129,8 +1129,8 @@ function TrendsView({ allAllocTx, expenses }) {
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { key: 'budget',     label: 'Budget' },
   { key: 'categories', label: 'Categories' },
+  { key: 'budget',     label: 'Budget' },
   { key: 'entries',    label: 'Entries & Trends' },
 ];
 
@@ -1163,7 +1163,7 @@ export default function Budget({ token }) {
   const [allocTx, setAllocTx]       = useState([]);
   const [allAllocTx, setAllAllocTx] = useState([]);
   const [gasBudget, setGasBudget]   = useState(() => getGasBudget()?.value ?? null);
-  const [activeTab, setActiveTab]   = useState('budget');
+  const [activeTab, setActiveTab]   = useState('categories');
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [gasOnHand, setGasOnHand] = useState(null); // authoritative Gas balance from Allocation Summary

@@ -1280,7 +1280,14 @@ ${stmtTxns.length ? `
 
       {/* ── End-of-month close banner (only after the month has ended) ── */}
       {(() => {
-        const alreadyClosed = localStorage.getItem(`closed_${closeMonth}_${closeYear}`) === 'true';
+        // Treat the month as closed if the boolean flag is set OR an archived
+        // statement exists for it — every close path writes both, so checking
+        // the archive too keeps the banner from lingering after a completed close.
+        const archived = (() => {
+          try { return !!JSON.parse(localStorage.getItem('_fin_statements') || '{}')[`${closeMonth} ${closeYear}`]; }
+          catch { return false; }
+        })();
+        const alreadyClosed = localStorage.getItem(`closed_${closeMonth}_${closeYear}`) === 'true' || archived;
         // Show only in the first 7 days of a new month so the previous month can be closed
         if (now.getDate() > 7 || alreadyClosed) return null;
         return (
@@ -3441,6 +3448,13 @@ ${stmtTxns.length ? `
                     <p className="text-slate-400 text-xs mt-0.5">Closed {new Date(e.closedAt).toLocaleDateString()}</p>
                   </div>
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => printStatement(
+                        { 'Total Processed Income': e.income, 'Total Spent': e.spent, 'Allowance Goal': e.goal },
+                        e.txns || [], [], e.month, e.year,
+                      )}
+                      className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+                    >🖨 Download PDF</button>
                     <button
                       onClick={() => setArchiveEntry(null)}
                       className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
