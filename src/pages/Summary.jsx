@@ -392,6 +392,203 @@ function renderTile(id, c, sv, ov, onEdit) {
   }
 }
 
+// ─── Year (YTD) View ──────────────────────────────────────────────────────────
+// Task 11 — Year-to-Date Budget Summary. Reads Monthly Summary (income/spent per
+// month) + Allocation Transactions (per-category allocations) for the current
+// year. Uses COMPLETED months only (months strictly before the current calendar
+// month) so a stale current-month sheet formula can never skew the totals. Also
+// shows an avg-based year-end projection and best/worst month cards.
+
+const MONTHS_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const CAT_COLORS = {
+  Essentials: '#3b82f6', Discretionary: '#a855f7',
+  Savings: '#10b981', Stability: '#f59e0b', Subscription: '#f43f5e', Other: '#64748b',
+};
+
+// Parse an Allocation Transactions date cell (Google Sheets serial OR string).
+function parseAllocDate(ds) {
+  if (ds === null || ds === undefined || ds === '') return null;
+  const n = Number(ds);
+  if (!isNaN(n) && n > 1000 && !String(ds).includes('/')) {
+    return new Date(Math.round((n - 25569) * 86400000));
+  }
+  const d = new Date(String(ds));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function Sparkline12({ values, color = '#3b82f6' }) {
+  const max = Math.max(...values.map(v => Math.abs(v)), 1);
+  const W = 132, H = 26, n = values.length, bw = W / n;
+  return (
+    <svg width={W} height={H} className="block" aria-hidden="true">
+      {values.map((v, i) => {
+        const h = Math.max(1, (Math.abs(v) / max) * (H - 2));
+        return <rect key={i} x={i * bw + 1} y={H - h} width={Math.max(1, bw - 2)} height={h} rx={1}
+          fill={v < 0 ? '#f43f5e' : color} opacity={v === 0 ? 0.18 : 0.9} />;
+      })}
+    </svg>
+  );
+}
+
+function YearView({ monthlyRows, allocRows, expenses, year, loading }) {
+  const data = useMemo(() => {
+    const nowMonth = new Date().getMonth(); // completed = month indices < nowMonth
+
+    // Monthly Summary rows for this year, restricted to completed months.
+    const yrMonths = monthlyRows
+      .map(m => ({ ...m, _idx: MONTHS_ABBR.findIndex(a => String(m['Month'] || '').startsWith(a)) }))
+      .filter(m => String(m['Year']) === String(year) && m._idx >= 0 && m._idx < nowMonth);
+    const completedCount = yrMonths.length;
+
+    let ytdIncome = 0, ytdSpent = 0, best = null, worst = null;
+    yrMonths.forEach(m => {
+      const inc = pm(m['Total Processed Income']) || 0;
+      const spt = pm(m['Total Spent']) || 0;
+      ytdIncome += inc; ytdSpent += spt;
+      if (!best || inc > best.val) best = { month: m['Month'], val: inc };
+      if (!worst || spt > worst.val) worst = { month: m['Month'], val: spt };
+    });
+
+    // Build category budget + Type→category map from Monthly Expenses.
+    const catBudget = {}, typeToCat = {};
+    expenses.forEach(e => {
+      const cat = e['Expense'] || 'Other';
+      catBudget[cat] = (catBudget[cat] || 0) + (pm(e['Monthly Allowance ($)']) || 0);
+      if (e['Type']) typeToCat[String(e['Type']).trim()] = cat;
+    });
+    const monthlyGoal = Object.values(catBudget).reduce((s, v) => s + v, 0);
+
+    // Sum Allocation Transactions into per-category, per-month buckets (this year).
+    const catMonth = {};
+    (allocRows || []).slice(1).forEach(r => {
+      if (!r || !r[0] || !r[1]) return;
+      const d = parseAllocDate(r[0]);
+      if (!d || d.getFullYear() !== Number(year)) return;
+      const cat = typeToCat[String(r[1]).trim()] || 'Other';
+      if (!catMonth[cat]) catMonth[cat] = Array(12).fill(0);
+      catMonth[cat][d.getMonth()] += pm(r[2]) || 0;
+    });
+
+    const allCats = Array.from(new Set([...Object.keys(catBudget), ...Object.keys(catMonth)]));
+    const cats = allCats.map(cat => {
+      const months = catMonth[cat] || Array(12).fill(0);
+      const allocatedYTD = months.reduce((s, v, i) => (i < nowMonth ? s + v : s), 0);
+      const budgetedYTD = (catBudget[cat] || 0) * completedCount;
+      return { cat, months, allocatedYTD, budgetedYTD, variance: allocatedYTD - budgetedYTD };
+    }).sort((a, b) => b.budgetedYTD - a.budgetedYTD || b.allocatedYTD - a.allocatedYTD);
+
+    const avgIncome = completedCount > 0 ? ytdIncome / completedCount : 0;
+    const avgSpent = completedCount > 0 ? ytdSpent / completedCount : 0;
+
+    return {
+      completedCount, ytdIncome, ytdSpent, ytdNet: ytdIncome - ytdSpent,
+      ytdGoal: monthlyGoal * completedCount, best, worst, cats,
+      projIncome: avgIncome * 12, projSpent: avgSpent * 12, projNet: (avgIncome - avgSpent) * 12,
+    };
+  }, [monthlyRows, allocRows, expenses, year]);
+
+  if (loading)
+    return <div className="px-4 py-10 text-center text-slate-500 text-sm">Loading year-to-date…</div>;
+  if (data.completedCount === 0)
+    return <div className="px-4 py-10 text-center text-slate-500 text-sm">No completed months yet in {year}. Check back once a month has closed.</div>;
+
+  const goalPct = data.ytdGoal > 0 ? Math.min((data.ytdIncome / data.ytdGoal) * 100, 100) : 0;
+  const rawGoalPct = data.ytdGoal > 0 ? (data.ytdIncome / data.ytdGoal) * 100 : 0;
+
+  return (
+    <div className="px-4 space-y-4">
+      <p className="text-slate-500 text-[11px] -mt-1">
+        {year} year-to-date · {data.completedCount} completed month{data.completedCount !== 1 ? 's' : ''} (Jan–{MONTHS_ABBR[Math.max(0, new Date().getMonth() - 1)]})
+      </p>
+
+      {/* YTD income vs goal */}
+      <div className="bg-slate-900 rounded-xl p-4 space-y-2">
+        <div className="flex justify-between items-baseline">
+          <p className="text-slate-500 text-[10px] uppercase tracking-widest">YTD Income vs Goal</p>
+          <p className="text-slate-400 text-[11px] font-mono">{fmt(data.ytdIncome)} <span className="text-slate-600">/ {fmt(data.ytdGoal)}</span></p>
+        </div>
+        <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+          <div className="h-2.5 rounded-full transition-all duration-500"
+            style={{ width: `${goalPct}%`, background: rawGoalPct >= 100 ? '#10b981' : rawGoalPct >= 75 ? '#f59e0b' : '#3b82f6' }} />
+        </div>
+        <p className="text-right text-[11px] font-mono"
+          style={{ color: rawGoalPct >= 100 ? '#10b981' : rawGoalPct >= 75 ? '#f59e0b' : '#3b82f6' }}>
+          {rawGoalPct.toFixed(0)}% of YTD goal
+        </p>
+      </div>
+
+      {/* YTD net + projection */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-slate-900 rounded-xl p-3">
+          <p className="text-slate-500 text-[10px] uppercase tracking-widest leading-tight">YTD Spent</p>
+          <p className="text-xl font-bold font-mono tabular-nums text-rose-400 mt-1">{fmt(data.ytdSpent)}</p>
+        </div>
+        <div className="bg-slate-900 rounded-xl p-3">
+          <p className="text-slate-500 text-[10px] uppercase tracking-widest leading-tight">YTD Net</p>
+          <p className={`text-xl font-bold font-mono tabular-nums mt-1 ${data.ytdNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(data.ytdNet)}</p>
+        </div>
+        <div className="bg-slate-900 rounded-xl p-3">
+          <p className="text-slate-500 text-[10px] uppercase tracking-widest leading-tight">Proj. Net</p>
+          <p className={`text-xl font-bold font-mono tabular-nums mt-1 ${data.projNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(data.projNet)}</p>
+        </div>
+      </div>
+      <p className="text-slate-600 text-[11px] -mt-2">
+        Year-end projection assumes your {data.completedCount}-month average holds: ≈{fmt(data.projIncome)} income, {fmt(data.projSpent)} spent.
+      </p>
+
+      {/* Best / worst month */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-emerald-950/40 border border-emerald-800/40 rounded-xl p-3">
+          <p className="text-emerald-500/80 text-[10px] uppercase tracking-widest">Best Income Month</p>
+          <p className="text-white font-bold text-sm mt-1">{data.best?.month || '—'}</p>
+          <p className="text-emerald-400 font-mono text-sm">{data.best ? fmt(data.best.val) : '—'}</p>
+        </div>
+        <div className="bg-rose-950/40 border border-rose-800/40 rounded-xl p-3">
+          <p className="text-rose-500/80 text-[10px] uppercase tracking-widest">Highest Spend Month</p>
+          <p className="text-white font-bold text-sm mt-1">{data.worst?.month || '—'}</p>
+          <p className="text-rose-400 font-mono text-sm">{data.worst ? fmt(data.worst.val) : '—'}</p>
+        </div>
+      </div>
+
+      {/* Per-category YTD */}
+      <div>
+        <p className="text-slate-500 text-[10px] uppercase tracking-widest mb-2 px-1">YTD by Category</p>
+        <div className="space-y-2">
+          {data.cats.map(({ cat, months, allocatedYTD, budgetedYTD, variance }) => {
+            const over = budgetedYTD > 0 && allocatedYTD > budgetedYTD;
+            const color = CAT_COLORS[cat] || CAT_COLORS.Other;
+            return (
+              <div key={cat} className="bg-slate-900 rounded-xl p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                      <span className="text-white text-sm font-medium truncate">{cat}</span>
+                    </div>
+                    <p className="text-slate-500 text-[11px] font-mono mt-0.5">
+                      {fmt(allocatedYTD)} <span className="text-slate-700">alloc</span>
+                      {budgetedYTD > 0 && <> · {fmt(budgetedYTD)} <span className="text-slate-700">budget</span></>}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <Sparkline12 values={months} color={color} />
+                    {budgetedYTD > 0 && (
+                      <p className={`text-[11px] font-mono mt-0.5 ${over ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {variance >= 0 ? '▲' : '▼'} {fmt(Math.abs(variance))}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -400,6 +597,7 @@ const TABS = [
   { id: 'gas',      label: 'Gas'      },
   { id: 'accounts', label: 'Accounts' },
   { id: 'budget',   label: 'Budget'   },
+  { id: 'year',     label: 'Year'     },
 ];
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -413,6 +611,12 @@ export default function Summary({ token }) {
   const [tab, setTab]             = useState('overview');
   const [livePrice, setLivePrice]   = useState(null);
   const [livePeriod, setLivePeriod] = useState('');
+
+  // Year (YTD) tab — lazy-loaded the first time the tab is opened (Task 11)
+  const [yearMonthlyRows, setYearMonthlyRows] = useState([]);
+  const [yearAllocRows, setYearAllocRows]     = useState([]);
+  const [yearLoaded, setYearLoaded]           = useState(false);
+  const [yearLoading, setYearLoading]         = useState(false);
 
   // Tile order per tab (from localStorage)
   const [tileOrder, setTileOrder] = useState(() => {
@@ -493,6 +697,26 @@ export default function Summary({ token }) {
       return updated;
     });
   }, [livePrice]);
+
+  // Lazy-load Monthly Summary + all Allocation Transactions when the Year tab is
+  // first opened, so the heavier reads never delay the default Overview paint.
+  useEffect(() => {
+    if (tab !== 'year' || yearLoaded || yearLoading || !token) return;
+    setYearLoading(true);
+    Promise.allSettled([
+      readRange(token, 'Monthly Summary!A1:P13'),
+      readRange(token, 'Allocation Transactions!A:F', 'UNFORMATTED_VALUE'),
+    ]).then(([sumRes, allocRes]) => {
+      if (sumRes.status === 'fulfilled' && sumRes.value.length) {
+        const [headers, ...rows] = sumRes.value;
+        setYearMonthlyRows(rows.filter(r => r[0]).map(r =>
+          headers.reduce((o, h, i) => { o[h] = r[i] ?? null; return o; }, {})
+        ));
+      }
+      setYearAllocRows(allocRes.status === 'fulfilled' ? allocRes.value : []);
+      setYearLoaded(true);
+    }).finally(() => setYearLoading(false));
+  }, [tab, yearLoaded, yearLoading, token]);
 
   const sv = useMemo(() => extractSV(svRows), [svRows]);
   const expenses = useMemo(() => {
@@ -608,7 +832,19 @@ export default function Summary({ token }) {
         ))}
       </div>
 
+      {/* Year (YTD) tab renders its own view instead of the tile grid */}
+      {tab === 'year' && (
+        <YearView
+          monthlyRows={yearMonthlyRows}
+          allocRows={yearAllocRows}
+          expenses={expenses}
+          year={c.now.getFullYear()}
+          loading={yearLoading || !yearLoaded}
+        />
+      )}
+
       {/* Tile grid — draggable */}
+      {tab !== 'year' && (
       <div className="px-4">
         <div className="stagger flex flex-wrap gap-2">
           {activeOrder.map((id, idx) => {
@@ -631,8 +867,10 @@ export default function Summary({ token }) {
           })}
         </div>
       </div>
+      )}
 
-      {/* Legend */}
+      {/* Legend (tile tabs only) */}
+      {tab !== 'year' && (
       <div className="mx-4 mt-4 bg-slate-900 rounded-xl px-3 py-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-600">
         <span><span className="text-emerald-500">✓</span> matches sheet</span>
         <span><span className="text-amber-400">⚠</span> &gt;2% diff</span>
@@ -640,6 +878,7 @@ export default function Summary({ token }) {
         <span><span className="text-amber-400">✏</span> tap to override display</span>
         <span className="text-slate-700">drag tiles to reorder · saved per tab</span>
       </div>
+      )}
 
       {/* Edit modal */}
       {editModal && (
