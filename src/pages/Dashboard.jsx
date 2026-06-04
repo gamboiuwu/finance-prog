@@ -437,6 +437,7 @@ export default function Dashboard({ token }) {
   const [stmtTxns, setStmtTxns]         = useState([]);
   const [stmtError, setStmtError]       = useState(null);
   const [stmtFromClose, setStmtFromClose] = useState(false);
+  const [stmtCopied, setStmtCopied]     = useState(false);
   const [budgetAlerts, setBudgetAlerts] = useState({ overCount: 0, needsCount: 0, dueAlerts: [] });
   const [allocTotals, setAllocTotals]   = useState({ income: 0, spent: 0 });
   // Close-month (previous month) activity derived from its own allocation rows — the
@@ -1021,6 +1022,22 @@ export default function Dashboard({ token }) {
 
     const genDate = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
 
+    // Month note for the statement's month (works for both current & closed months).
+    let stmtNote = '';
+    try {
+      const noteKey = `${currentYear}-${MONTHS.indexOf(currentMonth) + 1}`;
+      stmtNote = JSON.parse(localStorage.getItem('_fin_month_notes') || '{}')[noteKey] || '';
+    } catch {}
+
+    // Top 5 spending categories (negative-amount rows only — never income/deposits).
+    const topExpenses = Object.entries(catMap)
+      .map(([type, v]) => ({ type, spend: v.spend }))
+      .filter(e => e.spend > 0)
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 5);
+
+    const healthLine = healthScore.loaded ? `${Math.round(healthScore.total)}/100` : '';
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1048,6 +1065,8 @@ export default function Dashboard({ token }) {
   .pri-head { background: #f0f0f0; font-weight: bold; font-size: 9pt; padding: 5px 8px; color: #333; }
   .footer { margin-top: 28px; padding-top: 10px; border-top: 1px solid #ccc; font-size: 8pt; color: #888; display: flex; justify-content: space-between; }
   .no-data { color: #888; font-style: italic; font-size: 10pt; padding: 12px 0; }
+  .note-callout { background: #f7f5ef; border-left: 3px solid #b8860b; border-radius: 4px; padding: 9px 12px; margin-bottom: 18px; font-size: 10pt; font-style: italic; color: #4a4530; }
+  .note-callout .nl { font-style: normal; font-weight: bold; text-transform: uppercase; letter-spacing: 0.06em; font-size: 8pt; color: #8a7a3a; margin-right: 6px; }
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 </style>
 </head>
@@ -1060,8 +1079,10 @@ export default function Dashboard({ token }) {
   <div class="meta">
     <div>Generated ${genDate}</div>
     <div>Personal Finance Tracker</div>
+    ${healthLine ? `<div>Health Score · <strong>${healthLine}</strong></div>` : ''}
   </div>
 </div>
+${stmtNote ? `<div class="note-callout"><span class="nl">Note</span>${esc(stmtNote)}</div>` : ''}
 
 <div class="summary-grid">
   <div class="summary-box">
@@ -1110,6 +1131,23 @@ ${priGroups.length ? priGroups.map(g => `
   </table><br/>
 `).join('') : '<p class="no-data">No budget items found.</p>'}
 
+${topExpenses.length ? `
+<div class="section-title">Top Expenses</div>
+<table>
+  <thead><tr><th style="width:40px">#</th><th>Category</th><th class="amt">Spent</th><th class="amt">Share of spend</th></tr></thead>
+  <tbody>
+    ${topExpenses.map((e, i) => `
+      <tr>
+        <td style="color:#888">${i + 1}</td>
+        <td>${esc(e.type)}</td>
+        <td class="amt neg">${fmtAmt(e.spend)}</td>
+        <td class="amt" style="color:#666">${spent > 0 ? ((e.spend / spent) * 100).toFixed(0) : '0'}%</td>
+      </tr>
+    `).join('')}
+  </tbody>
+</table>
+` : ''}
+
 <div class="section-title">Transactions — ${currentMonth} ${currentYear}</div>
 ${stmtTxns.length ? `
 <table>
@@ -1145,6 +1183,68 @@ ${stmtTxns.length ? `
     win.document.close();
     win.focus();
     setTimeout(() => win.print(), 600);
+  }
+
+  // Plain-text rendering of the same statement for pasting into email/notes/chat.
+  // Presentation-only: reads already-loaded data, writes nothing back to the sheet.
+  async function copyStatementText(current, stmtTxns, expenses, currentMonth, currentYear) {
+    const f = n => (n == null || isNaN(n)) ? '—' : (n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`);
+    const income = stmtTxns.reduce((s, t) => t.amount > 0 ? s + t.amount : s, 0) || pm(current?.['Total Processed Income']);
+    const spent  = stmtTxns.reduce((s, t) => t.amount < 0 ? s + Math.abs(t.amount) : s, 0) || pm(current?.['Total Spent']);
+    const goal   = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0) || pm(current?.['Allowance Goal']);
+    const net    = income - spent;
+
+    const catMap = {};
+    stmtTxns.forEach(t => {
+      if (!catMap[t.type]) catMap[t.type] = { spend: 0 };
+      if (t.amount < 0) catMap[t.type].spend += Math.abs(t.amount);
+    });
+    const topExpenses = Object.entries(catMap)
+      .map(([type, v]) => ({ type, spend: v.spend }))
+      .filter(e => e.spend > 0).sort((a, b) => b.spend - a.spend).slice(0, 5);
+
+    let stmtNote = '';
+    try {
+      const noteKey = `${currentYear}-${MONTHS.indexOf(currentMonth) + 1}`;
+      stmtNote = JSON.parse(localStorage.getItem('_fin_month_notes') || '{}')[noteKey] || '';
+    } catch {}
+
+    const L = [];
+    L.push(`MONTHLY FINANCE STATEMENT — ${currentMonth} ${currentYear}`);
+    L.push(`Generated ${new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' })}`);
+    if (stmtNote) L.push(`Note: ${stmtNote}`);
+    L.push('');
+    L.push('SUMMARY');
+    L.push(`  Income     ${f(income)}`);
+    L.push(`  Spent      ${f(spent)}`);
+    L.push(`  Net Saved  ${f(net)}`);
+    L.push(`  Goal       ${f(goal)}`);
+    if (healthScore.loaded) L.push(`  Health     ${Math.round(healthScore.total)}/100`);
+    if (topExpenses.length) {
+      L.push('');
+      L.push('TOP EXPENSES');
+      topExpenses.forEach((e, i) => L.push(`  ${i + 1}. ${e.type} — ${f(e.spend)}` + (spent > 0 ? ` (${((e.spend / spent) * 100).toFixed(0)}%)` : '')));
+    }
+    if (stmtTxns.length) {
+      L.push('');
+      L.push(`TRANSACTIONS (${stmtTxns.length})`);
+      stmtTxns.forEach(t => L.push(`  ${t.date}  ${t.type}${t.desc ? ' · ' + t.desc : ''}  ${f(t.amount)}`));
+      L.push(`  Total: ${f(stmtTxns.reduce((s, t) => s + t.amount, 0))}`);
+    }
+    const text = L.join('\n');
+
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback for browsers without clipboard API / insecure context.
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+    }
+    setStmtCopied(true);
+    setTimeout(() => setStmtCopied(false), 2000);
   }
 
   return (
@@ -2885,6 +2985,14 @@ ${stmtTxns.length ? `
                 <p className="text-slate-400 text-xs mt-0.5">{currentMonth} {currentYear}</p>
               </div>
               <div className="flex items-center gap-2">
+                {!stmtLoading && !stmtError && (
+                  <button
+                    onClick={() => copyStatementText(current, stmtTxns, expenses, currentMonth, currentYear)}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-colors"
+                  >
+                    {stmtCopied ? '✓ Copied' : '📋 Copy text'}
+                  </button>
+                )}
                 {!stmtLoading && !stmtError && (
                   <button
                     onClick={() => printStatement(current, stmtTxns, expenses, currentMonth, currentYear)}
