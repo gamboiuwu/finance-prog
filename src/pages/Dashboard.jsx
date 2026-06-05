@@ -396,6 +396,129 @@ function TrendChartCard({ data, expanded, onToggle }) {
   );
 }
 
+// ── Recurring Income Forecast (Task 16) ──────────────────────────────────────
+// Forward-looking 3-month projection so the budget isn't purely backward-looking.
+// Income = mean of the last-6 positive-income months (mirrors the Dragon's last-6
+// convention so figures reconcile across screens), shown as a low/expected/high
+// band rather than one false-precision number. Committed outflows per month =
+// subscriptions due that month (annual bills land only in their anniversary month;
+// monthly/weekly/biweekly use their monthly run-rate) + recurring P1/P2 budget
+// allowances. Reuses chartData / subscriptions / expenses already loaded by the
+// Dashboard — zero new API calls, no new sheet tab, no new localStorage.
+const FORECAST_MONTHS = 3;
+
+// Subscription cash actually due within a given calendar month. Annual bills only
+// hit their anniversary month; recurring cycles contribute their monthly run-rate.
+function subsDueInMonth(subs, monthIndex) {
+  return subs.reduce((sum, s) => {
+    const amt = parseFloat(s['Amount'] || 0) || 0;
+    if (!amt) return sum;
+    const cycle = (s['Cycle'] || 'monthly').toLowerCase();
+    if (cycle === 'annual') {
+      const start = new Date((s['Start Date'] || '') + 'T12:00:00');
+      return sum + (!isNaN(start) && start.getMonth() === monthIndex ? amt : 0);
+    }
+    return sum + toMonthly(amt, cycle);
+  }, 0);
+}
+
+function ForecastCard({ chartData, subscriptions, expenses, expanded, onToggle }) {
+  const last6 = chartData.map(d => d.income).filter(v => v > 0).slice(-6);
+  if (last6.length < 2) return null;                       // need history to project
+  const expected = last6.reduce((s, v) => s + v, 0) / last6.length;
+  const low  = Math.min(...last6);
+  const high = Math.max(...last6);
+
+  // Recurring committed allowances: P1 (essential) + P2 (stability) budget lines.
+  const recurringAllow = expenses
+    .filter(e => ['1', '2'].includes(String(e['Priority'] ?? '3')) && pm(e['Monthly Allowance ($)']) > 0)
+    .reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+
+  const now = new Date();
+  let cumulative = 0;
+  const rows = Array.from({ length: FORECAST_MONTHS }, (_, i) => {
+    const mi = (now.getMonth() + 1 + i) % 12;              // start with NEXT month
+    const outflow = subsDueInMonth(subscriptions, mi) + recurringAllow;
+    const net = expected - outflow;
+    cumulative += net;
+    return {
+      month: MONTHS[mi].slice(0, 3),
+      income: Math.round(expected),
+      outflow: Math.round(outflow),
+      net, cumulative,
+    };
+  });
+  const runway = cumulative;                               // 3-month cumulative net
+
+  return (
+    <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-4">
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white font-bold text-sm">🔮 Income Forecast</p>
+            <p className="text-slate-400 text-xs mt-0.5">Next {FORECAST_MONTHS} months · projected</p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </button>
+      {expanded && (
+        <>
+          {/* Expected income band */}
+          <div className="mt-3 bg-slate-900/60 rounded-xl p-3 flex items-center justify-between">
+            <div>
+              <p className="text-slate-400 text-xs">Expected monthly income</p>
+              <p className="text-teal-300 text-xl font-bold">${expected.toFixed(0)}</p>
+            </div>
+            <div className="text-right text-xs text-slate-500">
+              <p>range based on last {last6.length} mo</p>
+              <p className="text-slate-300">${low.toFixed(0)} – ${high.toFixed(0)}</p>
+            </div>
+          </div>
+
+          {/* Income vs committed outflows */}
+          <div className="mt-3 h-44">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rows} barCategoryGap="25%" barGap={2}>
+                <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis hide />
+                <Tooltip
+                  formatter={(v, name) => [`$${Number(v).toFixed(0)}`, name === 'income' ? 'Est. income' : 'Committed out']}
+                  contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8, color: '#f1f5f9', fontSize: 12 }}
+                />
+                <Bar dataKey="income"  fill="#14b8a6" radius={[3, 3, 0, 0]} name="income" />
+                <Bar dataKey="outflow" fill="#f59e0b" radius={[3, 3, 0, 0]} name="outflow" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex gap-4 mt-1 justify-center text-xs text-slate-400">
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-teal-500 inline-block" />Est. income</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block" />Fixed bills</span>
+          </div>
+
+          {/* Per-month projected net + cumulative runway */}
+          <div className="mt-3 pt-3 border-t border-slate-700 space-y-1 text-xs">
+            {rows.map(r => (
+              <div key={r.month} className="flex justify-between text-slate-400">
+                <span>{r.month}</span>
+                <span className="flex gap-3">
+                  <span>net <span className={r.net >= 0 ? 'text-teal-400' : 'text-rose-400'}>{r.net >= 0 ? '+' : '−'}${Math.abs(r.net).toFixed(0)}</span></span>
+                  <span className="text-slate-500">running <span className={r.cumulative >= 0 ? 'text-teal-400' : 'text-rose-400'}>{r.cumulative >= 0 ? '+' : '−'}${Math.abs(r.cumulative).toFixed(0)}</span></span>
+                </span>
+              </div>
+            ))}
+            <p className={`italic pt-1 text-sm ${runway >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+              {runway >= 0
+                ? `On your recent average you'll clear about $${(runway / FORECAST_MONTHS).toFixed(0)}/mo after fixed bills — roughly $${runway.toFixed(0)} banked over ${FORECAST_MONTHS} months. 🐉`
+                : `Heads up — at your recent average, fixed bills outpace income by about $${Math.abs(runway / FORECAST_MONTHS).toFixed(0)}/mo. Trim a commitment or push income up.`}
+            </p>
+            <p className="text-[10px] text-slate-600 pt-0.5">Estimate from your last {last6.length} months — not a guarantee. Past months stay as recorded.</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -447,6 +570,7 @@ export default function Dashboard({ token }) {
   const [healthScore, setHealthScore]   = useState({ total: 0, signals: [], history: [], loaded: false });
   const [healthExpanded, setHealthExpanded] = useState(false);
   const [trendExpanded, setTrendExpanded]   = useState(false);
+  const [forecastExpanded, setForecastExpanded] = useState(false);
   const [monthNote, setMonthNote] = useState(() => {
     try {
       const d = new Date();
@@ -1353,6 +1477,17 @@ ${stmtTxns.length ? `
           data={chartData}
           expanded={trendExpanded}
           onToggle={() => setTrendExpanded(v => !v)}
+        />
+      )}
+
+      {/* ── Recurring Income Forecast (Task 16) ─────────────── */}
+      {chartData.length >= 2 && (
+        <ForecastCard
+          chartData={chartData}
+          subscriptions={subscriptions}
+          expenses={expenses}
+          expanded={forecastExpanded}
+          onToggle={() => setForecastExpanded(v => !v)}
         />
       )}
 
