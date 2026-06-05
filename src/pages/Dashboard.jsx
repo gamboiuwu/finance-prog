@@ -632,6 +632,11 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
                   </div>
                 ))}
             </div>
+            {/* What you have on hand to cover these essentials right now */}
+            <div className="flex justify-between text-xs mt-2 pt-2 border-t border-slate-700/60">
+              <span className="text-slate-300 font-medium">Buffer available now</span>
+              <span className={`font-mono font-semibold ${savings >= burn ? 'text-teal-300' : 'text-amber-300'}`}>${savings.toFixed(0)}</span>
+            </div>
           </div>
 
           {/* Savings buckets */}
