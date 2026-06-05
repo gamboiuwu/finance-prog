@@ -519,6 +519,145 @@ function ForecastCard({ chartData, subscriptions, expenses, expanded, onToggle }
   );
 }
 
+// ── Emergency Fund / Runway (Task 35) ─────────────────────────────────────────
+// Runway = savings on hand ÷ monthly essential burn.
+//   • Burn  = Σ P1 (essential) + P2 (stability) Monthly-Expenses allowances — the
+//     same set ForecastCard commits to, so the two screens reconcile. Savings
+//     items are never counted as burn.
+//   • Savings on hand = net all-time allocations into Savings-category buckets
+//     (deposits − spends), using the app's signed-amount ledger convention.
+// Target cushion (in months) lives in localStorage `_fin_ef_target` (default 3) —
+// an integer count only, never any financial amount, so nothing sensitive is stored.
+const EF_TARGET_KEY = '_fin_ef_target';
+function getEFTarget() {
+  const n = parseInt(localStorage.getItem(EF_TARGET_KEY) || '3', 10);
+  return [1, 3, 6].includes(n) ? n : 3;
+}
+
+function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
+  const [target, setTarget] = useState(getEFTarget);
+
+  // Monthly essential burn — P1 + P2 allowances, never the Savings category itself.
+  const burnItems = expenses.filter(e =>
+    ['1', '2'].includes(String(e['Priority'] ?? '3')) &&
+    e['Expense'] !== 'Savings' &&
+    pm(e['Monthly Allowance ($)']) > 0
+  );
+  const burn = burnItems.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+
+  // Savings on hand — net all-time allocations into Savings-category buckets.
+  const savingsTypes = new Set(
+    expenses.filter(e => e['Expense'] === 'Savings' && e['Type']).map(e => String(e['Type']))
+  );
+  const bucketBal = {};
+  allAllocTx.forEach(r => {
+    if (savingsTypes.has(r.type)) bucketBal[r.type] = (bucketBal[r.type] || 0) + r.amount;
+  });
+  const savings = Object.values(bucketBal).reduce((s, v) => s + v, 0);
+
+  if (burn <= 0) return null;                        // no essentials defined → can't size a runway
+
+  const runway = savings / burn;                     // months of essentials covered
+  const tier   = runway < 1 ? 'red' : runway < 3 ? 'amber' : 'teal';
+  const color  = tier === 'red' ? 'text-rose-400' : tier === 'amber' ? 'text-amber-300' : 'text-teal-300';
+  const barCol = tier === 'red' ? 'bg-rose-500' : tier === 'amber' ? 'bg-amber-500' : 'bg-teal-500';
+  const pct    = Math.max(0, Math.min(1, runway / target));
+  const shortfall = Math.max(0, burn * target - savings);
+  const buckets = Object.entries(bucketBal).sort((a, b) => b[1] - a[1]);
+
+  function pickTarget(n) { setTarget(n); localStorage.setItem(EF_TARGET_KEY, String(n)); }
+
+  return (
+    <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-4">
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white font-bold text-sm">🛟 Emergency Runway</p>
+            <p className={`text-2xl font-bold mt-0.5 ${color}`}>
+              {runway >= 100 ? '100+' : runway.toFixed(1)}<span className="text-sm font-medium text-slate-400"> months covered</span>
+            </p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+        {/* Progress toward the target cushion */}
+        <div className="mt-2 h-2 w-full bg-slate-900/70 rounded-full overflow-hidden">
+          <div className={`h-full ${barCol} rounded-full transition-all`} style={{ width: `${pct * 100}%` }} />
+        </div>
+        <p className="text-[11px] text-slate-500 mt-1">
+          {shortfall > 0
+            ? `$${shortfall.toFixed(0)} away from a ${target}-month cushion`
+            : `Fully funded — ${target}+ months of essentials banked ✓`}
+        </p>
+      </button>
+
+      {expanded && (
+        <>
+          {/* Savings vs burn */}
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="bg-slate-900/60 rounded-xl p-3">
+              <p className="text-slate-400 text-xs">Savings on hand</p>
+              <p className="text-teal-300 text-lg font-bold">${savings.toFixed(0)}</p>
+            </div>
+            <div className="bg-slate-900/60 rounded-xl p-3">
+              <p className="text-slate-400 text-xs">Monthly essentials</p>
+              <p className="text-rose-300 text-lg font-bold">${burn.toFixed(0)}<span className="text-xs font-medium text-slate-500">/mo</span></p>
+            </div>
+          </div>
+
+          {/* Target picker */}
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-slate-400 text-xs">Target cushion</span>
+            <div className="flex gap-1.5 ml-auto">
+              {[1, 3, 6].map(n => (
+                <button key={n} onClick={() => pickTarget(n)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    target === n ? 'bg-teal-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+                  {n} mo
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Essentials breakdown */}
+          <div className="mt-3 pt-3 border-t border-slate-700">
+            <p className="text-slate-500 text-[11px] uppercase tracking-wide mb-1.5">Essential burn (P1 + P2)</p>
+            <div className="space-y-1 text-xs">
+              {burnItems
+                .slice()
+                .sort((a, b) => pm(b['Monthly Allowance ($)']) - pm(a['Monthly Allowance ($)']))
+                .map((e, i) => (
+                  <div key={i} className="flex justify-between text-slate-400">
+                    <span className="truncate pr-2">{e['Type']}</span>
+                    <span className="text-slate-300 font-mono">${pm(e['Monthly Allowance ($)']).toFixed(0)}</span>
+                  </div>
+                ))}
+            </div>
+          </div>
+
+          {/* Savings buckets */}
+          {buckets.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-slate-700">
+              <p className="text-slate-500 text-[11px] uppercase tracking-wide mb-1.5">Savings buckets</p>
+              <div className="space-y-1 text-xs">
+                {buckets.map(([name, bal]) => (
+                  <div key={name} className="flex justify-between text-slate-400">
+                    <span className="truncate pr-2">{name}</span>
+                    <span className={`font-mono ${bal >= 0 ? 'text-teal-400' : 'text-rose-400'}`}>${bal.toFixed(0)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="text-[10px] text-slate-600 pt-2">
+            Runway = savings ÷ essential monthly burn. Essentials are your P1 + P2 budget lines; savings are net deposits into Savings-category buckets.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -571,6 +710,7 @@ export default function Dashboard({ token }) {
   const [healthExpanded, setHealthExpanded] = useState(false);
   const [trendExpanded, setTrendExpanded]   = useState(false);
   const [forecastExpanded, setForecastExpanded] = useState(false);
+  const [efExpanded, setEfExpanded]             = useState(false);
   const [monthNote, setMonthNote] = useState(() => {
     try {
       const d = new Date();
@@ -1488,6 +1628,16 @@ ${stmtTxns.length ? `
           expenses={expenses}
           expanded={forecastExpanded}
           onToggle={() => setForecastExpanded(v => !v)}
+        />
+      )}
+
+      {/* ── Emergency Fund / Runway Tracker (Task 35) ───────── */}
+      {expenses.length > 0 && allAllocTx.length > 0 && (
+        <EmergencyFundCard
+          expenses={expenses}
+          allAllocTx={allAllocTx}
+          expanded={efExpanded}
+          onToggle={() => setEfExpanded(v => !v)}
         />
       )}
 
