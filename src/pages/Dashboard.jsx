@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { readRange, readReportLinks, appendRow, ensureSheetTab, batchUpdateCells, clearRow } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
@@ -657,6 +657,148 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
           <p className="text-[10px] text-slate-600 pt-2">
             Runway = savings ÷ essential monthly burn. Essentials are your P1 + P2 budget lines; savings are net deposits into Savings-category buckets.
           </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Spending Anomaly Detection (Task 40) ──────────────────────────────────────
+// Read-only watchdog: for each spend category it builds a robust baseline from that
+// category's PRIOR history (median + MAD — median absolute deviation, which a single
+// freak charge can't drag around the way mean/stdev can), then flags any THIS-MONTH
+// spend that is far above the norm or looks like a double-entry. It never edits or
+// deletes a transaction. Dismissed flags are remembered as opaque row hashes in
+// localStorage `_fin_anomaly_seen` — no amounts or descriptions, nothing financial.
+const ANOMALY_SEEN_KEY = '_fin_anomaly_seen';
+const ANOMALY_K = 3;          // flag above median + 3·MAD (≈ well outside normal)
+const ANOMALY_MIN_HISTORY = 5; // need this many prior spends before a category is judged
+const ANOMALY_DUP_DAYS = 3;    // same amount within ±N days ⇒ possible double-entry
+
+function median(nums) {
+  if (!nums.length) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+function getAnomalySeen() {
+  try { return new Set(JSON.parse(localStorage.getItem(ANOMALY_SEEN_KEY) || '[]')); }
+  catch { return new Set(); }
+}
+
+// Pure analysis → array of { hash, type, abs, dateStr, desc, reason }.
+function detectAnomalies(allAllocTx) {
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const spends = allAllocTx
+    .filter(r => r.amount < 0 && r.dateStr)
+    .map(r => ({ ...r, abs: Math.abs(r.amount) }));
+
+  // Group every spend by category so we can baseline each one independently.
+  const byType = {};
+  spends.forEach(s => { (byType[s.type] = byType[s.type] || []).push(s); });
+
+  const flags = [];
+  spends.forEach(s => {
+    if (!s.dateStr.startsWith(curKey)) return;           // only surface THIS month
+    const hash = `${s.dateStr}|${s.type}|${s.abs.toFixed(2)}`;
+    const peers = byType[s.type] || [];
+
+    // 1) Size anomaly vs the category's prior (earlier-dated) history.
+    const prior = peers.filter(p => p.dateStr < s.dateStr).map(p => p.abs);
+    if (prior.length >= ANOMALY_MIN_HISTORY) {
+      const med = median(prior);
+      const mad = median(prior.map(v => Math.abs(v - med)));
+      const threshold = mad > 0 ? med + ANOMALY_K * mad : med * 2; // MAD=0 ⇒ flat history, use 2×
+      if (med > 0 && s.abs > threshold) {
+        const mult = (s.abs / med).toFixed(1);
+        flags.push({ hash, type: s.type, abs: s.abs, dateStr: s.dateStr, desc: s.desc,
+          reason: `${mult}× your typical ${s.type} (~$${med.toFixed(0)})` });
+        return;                                          // one reason per row is enough
+      }
+    }
+
+    // 2) Possible double-entry: same category + same amount within a few days.
+    const dup = peers.find(p =>
+      p !== s && Math.abs(p.abs - s.abs) < 0.5 &&
+      Math.abs(new Date(p.dateStr) - new Date(s.dateStr)) <= ANOMALY_DUP_DAYS * 86400000 &&
+      p.dateStr <= s.dateStr               // flag the later/equal one, keep the first
+    );
+    if (dup) {
+      flags.push({ hash, type: s.type, abs: s.abs, dateStr: s.dateStr, desc: s.desc,
+        reason: `possible double-entry — same as ${dup.dateStr}` });
+    }
+  });
+  return flags;
+}
+
+function AnomalyCard({ allAllocTx }) {
+  const [seen, setSeen] = useState(getAnomalySeen);
+  const [expanded, setExpanded] = useState(false);
+
+  const flags = useMemo(
+    () => detectAnomalies(allAllocTx).filter(f => !seen.has(f.hash)),
+    [allAllocTx, seen]
+  );
+  if (flags.length === 0) return null;
+
+  function dismiss(hash) {
+    const next = new Set(seen); next.add(hash);
+    setSeen(next);
+    localStorage.setItem(ANOMALY_SEEN_KEY, JSON.stringify([...next]));
+  }
+  function dismissAll() {
+    const next = new Set(seen); flags.forEach(f => next.add(f.hash));
+    setSeen(next);
+    localStorage.setItem(ANOMALY_SEEN_KEY, JSON.stringify([...next]));
+  }
+
+  return (
+    <div className="bg-amber-900/30 border border-amber-700/50 rounded-2xl p-4">
+      <button className="w-full text-left" onClick={() => setExpanded(v => !v)}>
+        <div className="flex items-center justify-between">
+          <p className="text-amber-200 font-bold text-sm">
+            🔎 {flags.length} unusual charge{flags.length === 1 ? '' : 's'} this month
+          </p>
+          <span className="text-amber-500/70 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+        {!expanded && (
+          <p className="text-amber-400/70 text-xs mt-0.5">Tap to review — nothing was changed.</p>
+        )}
+      </button>
+
+      {expanded && (
+        <>
+          <div className="mt-3 space-y-2">
+            {flags.map(f => (
+              <div key={f.hash} className="bg-slate-900/50 rounded-xl p-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-white font-semibold text-sm truncate">{f.type}</span>
+                    <span className="text-rose-300 font-mono text-sm shrink-0">${f.abs.toFixed(2)}</span>
+                  </div>
+                  <p className="text-amber-300/80 text-xs mt-0.5">{f.reason}</p>
+                  <p className="text-slate-500 text-[11px] mt-0.5">
+                    {f.dateStr}{f.desc ? ` · ${f.desc.slice(0, 40)}` : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => dismiss(f.hash)}
+                  className="text-slate-400 hover:text-slate-200 text-xs shrink-0 px-2 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-600"
+                  title="Dismiss — looks fine"
+                >Dismiss</button>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between mt-3 pt-2 border-t border-amber-700/40">
+            <p className="text-[10px] text-slate-500">
+              Flagged at {ANOMALY_K}× the category norm or as a possible duplicate. Read-only — verify against your records.
+            </p>
+            <button onClick={dismissAll} className="text-amber-400/80 hover:text-amber-200 text-xs shrink-0 ml-3">
+              Dismiss all
+            </button>
+          </div>
         </>
       )}
     </div>
@@ -1603,6 +1745,11 @@ ${stmtTxns.length ? `
           </div>
           <span className="text-amber-500 text-xs shrink-0 font-medium">View Budget →</span>
         </button>
+      )}
+
+      {/* ── Spending Anomaly Detection (Task 40) ────────────── */}
+      {allAllocTx.length > 0 && (
+        <AnomalyCard allAllocTx={allAllocTx} />
       )}
 
       {/* ── Financial Health Score ─────────────────────────── */}
