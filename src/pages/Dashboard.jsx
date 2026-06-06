@@ -663,6 +663,152 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
   );
 }
 
+// ── Spending Anomaly Detection (Task 40) ───────────────────────────────────
+// Read-only watchdog: flags this-month spends that are unusually large for their
+// category, or look like accidental double-entries. Never edits/deletes a row.
+//   • Size baseline is robust (median + k·MAD, not mean/stdev) so one past spike
+//     doesn't desensitise the whole category. A category is only judged once it
+//     has ≥ ANOMALY_MIN_HISTORY prior spends, so brand-new categories stay quiet.
+//   • Near-duplicate = same Type + same amount within 3 days (possible mis-tap).
+// Dismissals live in localStorage `_fin_anomaly_seen` as opaque row hashes
+// (Type|date|amount) — no standalone financial figure is stored, just a key.
+const ANOMALY_KEY = '_fin_anomaly_seen';
+const ANOMALY_K = 3;             // robustness multiplier on scaled MAD
+const ANOMALY_MIN_HISTORY = 5;   // prior spends a category needs before it's judged
+
+function median(arr) {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function getAnomalySeen() {
+  try { const a = JSON.parse(localStorage.getItem(ANOMALY_KEY) || '[]'); return Array.isArray(a) ? a : []; }
+  catch { return []; }
+}
+
+// Pure: returns flagged anomalies for the current calendar month, newest first.
+function detectAnomalies(allAllocTx) {
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  // Spends only: negative rows, recorded as positive magnitudes.
+  const spends = allAllocTx
+    .filter(r => r.amount < 0)
+    .map(r => ({ type: r.type, amount: Math.abs(r.amount), dateStr: r.dateStr, desc: r.desc }));
+  const byType = {};
+  spends.forEach(s => { (byType[s.type] ||= []).push(s); });
+  const curMonth = spends.filter(s => s.dateStr.slice(0, 7) === curKey);
+
+  const flags = [];
+  const flagged = new Set();
+
+  // 1) Size anomalies vs the category's trailing baseline (prior months only).
+  curMonth.forEach(s => {
+    const hist = (byType[s.type] || []).filter(h => h.dateStr.slice(0, 7) !== curKey);
+    if (hist.length < ANOMALY_MIN_HISTORY) return;
+    const amts = hist.map(h => h.amount);
+    const med = median(amts);
+    if (med <= 0) return;
+    let scaled = 1.4826 * median(amts.map(a => Math.abs(a - med)));
+    if (scaled < med * 0.10) scaled = med * 0.10;   // floor: near-constant history isn't hypersensitive
+    const threshold = med + ANOMALY_K * scaled;
+    if (s.amount > threshold && s.amount >= med * 1.5) {
+      const hash = `${s.type}|${s.dateStr}|${s.amount.toFixed(2)}`;
+      flagged.add(hash);
+      flags.push({
+        hash, type: s.type, amount: s.amount, dateStr: s.dateStr, desc: s.desc, kind: 'size',
+        reason: `${(s.amount / med).toFixed(1)}× your typical ${s.type} spend (~$${med.toFixed(0)})`,
+      });
+    }
+  });
+
+  // 2) Near-duplicate charges this month (same Type + amount within 3 days).
+  for (let i = 0; i < curMonth.length; i++) {
+    for (let j = i + 1; j < curMonth.length; j++) {
+      const a = curMonth[i], b = curMonth[j];
+      if (a.type !== b.type || Math.abs(a.amount - b.amount) > 0.01) continue;
+      const dd = Math.abs((new Date(a.dateStr) - new Date(b.dateStr)) / 86400000);
+      if (dd > 3) continue;
+      const later = new Date(a.dateStr) >= new Date(b.dateStr) ? a : b;
+      const hash = `${later.type}|${later.dateStr}|${later.amount.toFixed(2)}`;
+      if (flagged.has(hash)) continue;
+      flagged.add(hash);
+      flags.push({
+        hash, type: later.type, amount: later.amount, dateStr: later.dateStr, desc: later.desc, kind: 'dup',
+        reason: `Possible duplicate — same $${later.amount.toFixed(2)} ${later.type} charge within 3 days`,
+      });
+    }
+  }
+
+  flags.sort((a, b) => b.dateStr.localeCompare(a.dateStr));
+  return flags;
+}
+
+function AnomalyCard({ allAllocTx, expanded, onToggle }) {
+  const [seen, setSeen] = useState(getAnomalySeen);
+  const flags = detectAnomalies(allAllocTx).filter(f => !seen.includes(f.hash));
+  if (flags.length === 0) return null;
+
+  function dismiss(hash) {
+    const next = [...seen, hash];
+    setSeen(next);
+    localStorage.setItem(ANOMALY_KEY, JSON.stringify(next.slice(-200)));   // cap stored keys
+  }
+
+  const fmtD = (ds) => { const [, m, d] = ds.split('-'); return `${parseInt(m, 10)}/${parseInt(d, 10)}`; };
+
+  return (
+    <div className="bg-slate-800 border border-amber-700/40 rounded-2xl p-4">
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white font-bold text-sm">🔎 Unusual Charges</p>
+            <p className="text-amber-300 text-2xl font-bold mt-0.5">
+              {flags.length}<span className="text-sm font-medium text-slate-400"> flagged this month</span>
+            </p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+        {!expanded && (
+          <p className="text-[11px] text-slate-500 mt-1 truncate">
+            {flags[0].type} · ${flags[0].amount.toFixed(2)} — {flags[0].reason}
+          </p>
+        )}
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-2">
+          {flags.map(f => (
+            <div key={f.hash} className="bg-slate-900/60 rounded-xl p-3 flex items-start gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-white text-sm font-medium truncate">{f.type}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
+                    f.kind === 'dup' ? 'bg-indigo-900/70 text-indigo-300' : 'bg-amber-900/70 text-amber-300'}`}>
+                    {f.kind === 'dup' ? 'duplicate?' : 'large'}
+                  </span>
+                  <span className="text-rose-300 font-mono text-sm ml-auto shrink-0">${f.amount.toFixed(2)}</span>
+                </div>
+                <p className="text-slate-400 text-xs mt-0.5">{f.reason}</p>
+                {f.desc && <p className="text-slate-600 text-[11px] truncate">{f.desc.slice(0, 50)}</p>}
+                <p className="text-slate-600 text-[10px] mt-0.5">{fmtD(f.dateStr)}</p>
+              </div>
+              <button
+                onClick={() => dismiss(f.hash)}
+                className="text-slate-500 hover:text-slate-300 text-xs shrink-0 px-1.5 py-0.5 rounded-lg hover:bg-slate-700 transition-colors"
+                title="Dismiss — looks fine"
+              >✕</button>
+            </div>
+          ))}
+          <p className="text-[10px] text-slate-600 pt-1">
+            Read-only — flags large or repeated charges vs each category's history. Dismiss anything expected; it won't reappear.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -729,6 +875,7 @@ export default function Dashboard({ token }) {
   const [archiveEntry, setArchiveEntry]       = useState(null);
   const [allAllocTx, setAllAllocTx] = useState([]);
   const [heatmapExpanded, setHeatmapExpanded] = useState(false);
+  const [anomalyExpanded, setAnomalyExpanded] = useState(false);
   const [paydayConfig, setPaydayConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_payday_config') || 'null') || null; } catch { return null; }
   });
@@ -1643,6 +1790,15 @@ ${stmtTxns.length ? `
           allAllocTx={allAllocTx}
           expanded={efExpanded}
           onToggle={() => setEfExpanded(v => !v)}
+        />
+      )}
+
+      {/* ── Spending Anomaly Detection (Task 40) ────────────── */}
+      {allAllocTx.length > 0 && (
+        <AnomalyCard
+          allAllocTx={allAllocTx}
+          expanded={anomalyExpanded}
+          onToggle={() => setAnomalyExpanded(v => !v)}
         />
       )}
 
