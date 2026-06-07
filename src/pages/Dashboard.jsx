@@ -6,7 +6,7 @@ import { computeGasBudget, saveGasBudget, getGasBudget } from '../lib/gasBudget'
 import { SHEETS, MONTHS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ProcessIncome from '../components/ProcessIncome';
-import { ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
 
 function pm(val) {
   if (!val && val !== 0) return 0;
@@ -809,6 +809,193 @@ function AnomalyCard({ allAllocTx, expanded, onToggle }) {
   );
 }
 
+// ── Savings-Rate Trend & 50/30/20 Budget Check (Task 42) ──────────────────────
+// Read-only: buckets each month's allocation DEPOSITS into Needs / Wants / Savings
+// using the type→category map from Monthly Expenses, benchmarks the latest mix
+// against the classic 50/30/20 rule, and charts the 6-month savings-rate trend.
+//   • Needs   = Essentials + Stability   (P1/P2 fallback when Expense is blank)
+//   • Wants   = Discretionary + Subscription (P3 fallback) · unmapped types → Wants
+//   • Savings = Expense === 'Savings'
+//   • Income basis = that month's total deposits, so the three shares always sum
+//     to 100% (a clean stacked-to-full bar) and reconcile with processed income.
+// Pure presentation — zero new API calls, no new sheet tab, no localStorage.
+const MIX_TARGET = { needs: 50, wants: 30, savings: 20 };
+const MIX_COLORS = { needs: '#0ea5e9', wants: '#f59e0b', savings: '#10b981' };
+
+function mixMonthLabel(key) {
+  const m = parseInt(key.slice(5, 7), 10) - 1;
+  return MONTHS[m] ? MONTHS[m].slice(0, 3) : key.slice(5);
+}
+
+// type(lowercased) → 'needs' | 'wants' | 'savings'. Savings always wins.
+function buildMixMap(expenses) {
+  const map = {};
+  expenses.forEach(e => {
+    const type = String(e['Type'] || '').trim().toLowerCase();
+    if (!type) return;
+    let cat;
+    if (e['Expense'] === 'Savings') cat = 'savings';
+    else if (e['Expense'] === 'Essentials' || e['Expense'] === 'Stability') cat = 'needs';
+    else if (e['Expense'] === 'Discretionary' || e['Expense'] === 'Subscription') cat = 'wants';
+    else cat = ['1', '2'].includes(String(e['Priority'] ?? '3')) ? 'needs' : 'wants';
+    map[type] = cat;
+  });
+  return map;
+}
+
+// Pure: group positive deposits by YYYY-MM, bucket by category, return last-6
+// months (chronological) with absolute $ and percentage shares.
+function computeBudgetMix(allAllocTx, expenses) {
+  const mixMap = buildMixMap(expenses);
+  const byMonth = {};
+  allAllocTx.forEach(r => {
+    if (r.amount <= 0) return;                                  // deposits only
+    const key = (r.dateStr || '').slice(0, 7);
+    if (key.length !== 7) return;
+    const cat = mixMap[String(r.type || '').trim().toLowerCase()] || 'wants';
+    const m = byMonth[key] || (byMonth[key] = { key, needs: 0, wants: 0, savings: 0 });
+    m[cat] += r.amount;
+  });
+  return Object.values(byMonth)
+    .map(m => {
+      const total = m.needs + m.wants + m.savings;
+      return {
+        ...m, total, label: mixMonthLabel(m.key),
+        needsPct:   total > 0 ? (m.needs / total) * 100 : 0,
+        wantsPct:   total > 0 ? (m.wants / total) * 100 : 0,
+        savingsPct: total > 0 ? (m.savings / total) * 100 : 0,
+      };
+    })
+    .filter(m => m.total > 0)
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .slice(-6);
+}
+
+// Tiny inline savings-rate sparkline (no extra deps; scales 0..max).
+function MixSparkline({ values }) {
+  if (values.length < 2) return null;
+  const w = 96, h = 26, max = Math.max(...values, MIX_TARGET.savings, 1);
+  const step = w / (values.length - 1);
+  const pts = values.map((v, i) => `${(i * step).toFixed(1)},${(h - (v / max) * h).toFixed(1)}`).join(' ');
+  const targetY = (h - (MIX_TARGET.savings / max) * h).toFixed(1);
+  return (
+    <svg width={w} height={h} className="overflow-visible">
+      <line x1="0" y1={targetY} x2={w} y2={targetY} stroke="#475569" strokeDasharray="3 3" strokeWidth="1" />
+      <polyline points={pts} fill="none" stroke={MIX_COLORS.savings} strokeWidth="2"
+        strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function BudgetMixCard({ allAllocTx, expenses, expanded, onToggle }) {
+  const months = computeBudgetMix(allAllocTx, expenses);
+  if (months.length < 1) return null;
+  const latest = months[months.length - 1];
+
+  // Within-target chips (small grace so e.g. 50.2% still reads green).
+  const needsOk   = latest.needsPct   <= MIX_TARGET.needs + 1;
+  const wantsOk   = latest.wantsPct   <= MIX_TARGET.wants + 1;
+  const savingsOk = latest.savingsPct >= MIX_TARGET.savings - 1;
+
+  // Savings-rate trend: earliest vs latest month in the window.
+  const savingsSeries = months.map(m => m.savingsPct);
+  const trendDelta = savingsSeries.length >= 2
+    ? savingsSeries[savingsSeries.length - 1] - savingsSeries[0] : 0;
+  const trendUp = trendDelta >= 0;
+
+  const chip = (label, val, ok, target) => (
+    <div className={`flex-1 rounded-xl px-2 py-2 text-center ${ok ? 'bg-emerald-900/30' : 'bg-amber-900/30'}`}>
+      <p className={`text-base font-bold ${ok ? 'text-emerald-300' : 'text-amber-300'}`}>{val.toFixed(0)}%</p>
+      <p className="text-[10px] text-slate-400 leading-tight">{label}</p>
+      <p className="text-[9px] text-slate-600">target {target}%</p>
+    </div>
+  );
+
+  return (
+    <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-4">
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white font-bold text-sm">⚖️ Budget Balance</p>
+            <p className="text-slate-400 text-xs mt-0.5">
+              {latest.needsPct.toFixed(0)}% needs · {latest.wantsPct.toFixed(0)}% wants · {latest.savingsPct.toFixed(0)}% savings
+            </p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+        {/* Collapsed: this-month split bar so the mix reads at a glance */}
+        <div className="mt-2 h-2.5 w-full rounded-full overflow-hidden flex bg-slate-900/70">
+          <div style={{ width: `${latest.needsPct}%`,   background: MIX_COLORS.needs }} />
+          <div style={{ width: `${latest.wantsPct}%`,   background: MIX_COLORS.wants }} />
+          <div style={{ width: `${latest.savingsPct}%`, background: MIX_COLORS.savings }} />
+        </div>
+      </button>
+
+      {expanded && (
+        <>
+          {/* Target chips vs the 50/30/20 rule */}
+          <div className="mt-3 flex gap-2">
+            {chip('Needs',   latest.needsPct,   needsOk,   MIX_TARGET.needs)}
+            {chip('Wants',   latest.wantsPct,   wantsOk,   MIX_TARGET.wants)}
+            {chip('Savings', latest.savingsPct, savingsOk, MIX_TARGET.savings)}
+          </div>
+
+          {/* 6-month stacked-% bars with 50% and 80% guide lines */}
+          {months.length >= 2 && (
+            <div className="mt-3 h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={months} barCategoryGap="22%" stackOffset="expand">
+                  <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis hide domain={[0, 100]} />
+                  <Tooltip
+                    formatter={(v, name) => [`${Number(v).toFixed(0)}%`, name]}
+                    contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8, color: '#f1f5f9', fontSize: 12 }}
+                  />
+                  <ReferenceLine y={0.50} stroke="#64748b" strokeDasharray="4 3" ifOverflow="extendDomain" />
+                  <ReferenceLine y={0.80} stroke="#64748b" strokeDasharray="4 3" ifOverflow="extendDomain" />
+                  <Bar dataKey="needsPct"   stackId="m" fill={MIX_COLORS.needs}   name="Needs" />
+                  <Bar dataKey="wantsPct"   stackId="m" fill={MIX_COLORS.wants}   name="Wants" />
+                  <Bar dataKey="savingsPct" stackId="m" fill={MIX_COLORS.savings} name="Savings" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <div className="flex gap-4 mt-1 justify-center text-xs text-slate-400">
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: MIX_COLORS.needs }} />Needs</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: MIX_COLORS.wants }} />Wants</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: MIX_COLORS.savings }} />Savings</span>
+          </div>
+
+          {/* Savings-rate trend */}
+          <div className="mt-3 pt-3 border-t border-slate-700 flex items-center justify-between">
+            <div>
+              <p className="text-slate-400 text-xs">Savings rate</p>
+              <p className="text-emerald-300 text-lg font-bold">{latest.savingsPct.toFixed(0)}%</p>
+              {savingsSeries.length >= 2 && (
+                <p className="text-[11px] text-slate-500">
+                  {trendUp ? '▲' : '▼'} {Math.abs(trendDelta).toFixed(0)} pts over {months.length} mo
+                </p>
+              )}
+            </div>
+            <MixSparkline values={savingsSeries} />
+          </div>
+
+          <p className={`italic pt-2 text-sm ${savingsOk && needsOk ? 'text-emerald-300' : 'text-amber-300'}`}>
+            {savingsOk && needsOk
+              ? `Nicely balanced — you're saving ${latest.savingsPct.toFixed(0)}% and keeping needs under half. 🐉`
+              : !savingsOk
+                ? `You're saving ${latest.savingsPct.toFixed(0)}% — the 50/30/20 rule aims for 20%+. Even a few points more compounds.`
+                : `Needs are ${latest.needsPct.toFixed(0)}% of your money (target ≤50%). Trimming a fixed bill frees room to save.`}
+          </p>
+          <p className="text-[10px] text-slate-600 pt-0.5">
+            Mix from this month's deposits, bucketed by each item's budget category. The 50/30/20 rule is a guideline, not a mandate.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -876,6 +1063,7 @@ export default function Dashboard({ token }) {
   const [allAllocTx, setAllAllocTx] = useState([]);
   const [heatmapExpanded, setHeatmapExpanded] = useState(false);
   const [anomalyExpanded, setAnomalyExpanded] = useState(false);
+  const [mixExpanded, setMixExpanded]         = useState(false);
   const [paydayConfig, setPaydayConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_payday_config') || 'null') || null; } catch { return null; }
   });
@@ -1799,6 +1987,16 @@ ${stmtTxns.length ? `
           allAllocTx={allAllocTx}
           expanded={anomalyExpanded}
           onToggle={() => setAnomalyExpanded(v => !v)}
+        />
+      )}
+
+      {/* ── Savings-Rate Trend & 50/30/20 Check (Task 42) ───── */}
+      {allAllocTx.length > 0 && expenses.length > 0 && (
+        <BudgetMixCard
+          allAllocTx={allAllocTx}
+          expenses={expenses}
+          expanded={mixExpanded}
+          onToggle={() => setMixExpanded(v => !v)}
         />
       )}
 
