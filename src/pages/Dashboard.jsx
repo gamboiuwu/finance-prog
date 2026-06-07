@@ -996,6 +996,124 @@ function BudgetMixCard({ allAllocTx, expenses, expanded, onToggle }) {
   );
 }
 
+// ── Safe-to-Spend Today (Task 44) ──────────────────────────────────────────
+// One unified daily number: after this month's bills and savings are covered,
+// how much is genuinely free to spend — spread across the days left.
+//   free = (income in − already spent) − unpaid essentials − unmet savings
+//   • Essentials = P1 + P2 non-Savings allowances (the same set EmergencyFund /
+//     ForecastCard reserve, so the cards reconcile). We reserve only the UNPAID
+//     portion (allowance − already-spent on that line this month), so a bill
+//     you've already paid is never double-counted.
+//   • Savings    = Expense='Savings' allowances; reserve the UNMET portion
+//     (allowance − already-funded into that bucket this month).
+//   • Discretionary spends already made live inside `spent`, so they shrink the
+//     free pot automatically.
+// Pure presentation over already-loaded state — zero new API calls, no storage.
+function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, expanded, onToggle }) {
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  // Current-month per-Type sums: spent (abs of negatives) + funded (positives).
+  const spentByType = {};
+  const fundedByType = {};
+  allAllocTx.forEach(r => {
+    if (r.dateStr.slice(0, 7) !== curKey) return;
+    if (r.amount < 0) spentByType[r.type]  = (spentByType[r.type]  || 0) + Math.abs(r.amount);
+    else              fundedByType[r.type] = (fundedByType[r.type] || 0) + r.amount;
+  });
+
+  // Unpaid essentials (P1+P2, non-Savings): allowance still owed after what's paid.
+  const essRows = expenses
+    .filter(e => ['1', '2'].includes(String(e['Priority'] ?? '3')) &&
+      e['Expense'] !== 'Savings' && pm(e['Monthly Allowance ($)']) > 0)
+    .map(e => {
+      const allow = pm(e['Monthly Allowance ($)']);
+      const paid  = spentByType[String(e['Type'])] || 0;
+      return { type: String(e['Type']), owed: Math.max(0, allow - paid) };
+    });
+  const owedEssentials = essRows.reduce((s, r) => s + r.owed, 0);
+
+  // Unmet savings targets: allowance still un-funded into that bucket this month.
+  const savRows = expenses
+    .filter(e => e['Expense'] === 'Savings' && pm(e['Monthly Allowance ($)']) > 0)
+    .map(e => {
+      const allow = pm(e['Monthly Allowance ($)']);
+      const saved = fundedByType[String(e['Type'])] || 0;
+      return { type: String(e['Type']), unmet: Math.max(0, allow - saved) };
+    });
+  const unmetSavings = savRows.reduce((s, r) => s + r.unmet, 0);
+
+  const net    = income - spent;                          // cash this month after spends
+  const free   = net - owedEssentials - unmetSavings;     // genuinely uncommitted
+  const perDay = daysLeftIncl > 0 ? Math.max(0, free) / daysLeftIncl : 0;
+
+  // Tier: rose when nothing's free, amber when ≤15% of remaining cash is free,
+  // teal when comfortable. Dimensionless, so it reads sensibly at any income.
+  const tightRatio = net > 0 ? free / net : (free > 0 ? 1 : 0);
+  const tier  = free <= 0 ? 'red' : tightRatio < 0.15 ? 'amber' : 'teal';
+  const color = tier === 'red' ? 'text-rose-400' : tier === 'amber' ? 'text-amber-300' : 'text-emerald-400';
+
+  return (
+    <div className={`rounded-2xl p-4 border ${
+      tier === 'red'    ? 'bg-rose-950/40 border-rose-800/50'
+      : tier === 'amber' ? 'bg-amber-950/30 border-amber-800/40'
+      : 'bg-gradient-to-br from-emerald-950/50 to-slate-800 border-emerald-800/40'}`}>
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className={`text-[11px] font-bold uppercase tracking-wider ${
+              tier === 'red' ? 'text-rose-300/90' : tier === 'amber' ? 'text-amber-300/90' : 'text-emerald-300/90'}`}>
+              ✅ Safe to spend today
+            </p>
+            <p className={`text-3xl font-black font-broske mt-1 tabular-nums ${color}`}>
+              {fmt(perDay)}<span className="text-slate-500 text-sm font-bold"> /day</span>
+            </p>
+            <p className="text-slate-400 text-xs mt-1.5">
+              {free <= 0
+                ? <>Everything left is already spoken for by bills &amp; savings — hold off if you can</>
+                : <><span className="text-slate-200 font-semibold">{fmt(free)}</span> free ÷ <span className="text-slate-200 font-semibold">{daysLeftIncl}</span> {daysLeftIncl === 1 ? 'day' : 'days'} left this month</>}
+            </p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-slate-700/60 text-xs space-y-1.5">
+          <div className="flex justify-between text-slate-400"><span>Money in this month</span><span className="font-mono text-teal-300">${income.toFixed(0)}</span></div>
+          <div className="flex justify-between text-slate-400"><span>− Already spent</span><span className="font-mono text-slate-300">${spent.toFixed(0)}</span></div>
+          <div className="flex justify-between text-slate-400"><span>− Bills still owed</span><span className="font-mono text-amber-300">${owedEssentials.toFixed(0)}</span></div>
+          <div className="flex justify-between text-slate-400"><span>− Savings still to set aside</span><span className="font-mono text-sky-300">${unmetSavings.toFixed(0)}</span></div>
+          <div className="flex justify-between pt-1.5 border-t border-slate-700/60">
+            <span className="text-slate-200 font-semibold">= Free for the rest of the month</span>
+            <span className={`font-mono font-semibold ${free > 0 ? 'text-emerald-300' : 'text-rose-300'}`}>${free.toFixed(0)}</span>
+          </div>
+
+          {essRows.some(r => r.owed > 0) && (
+            <div className="mt-3 pt-2 border-t border-slate-700/60">
+              <p className="text-slate-500 text-[11px] uppercase tracking-wide mb-1">Bills not yet covered</p>
+              {essRows.filter(r => r.owed > 0).sort((a, b) => b.owed - a.owed).map(r => (
+                <div key={r.type} className="flex justify-between text-slate-400"><span className="truncate pr-2">{r.type}</span><span className="font-mono text-amber-300">${r.owed.toFixed(0)}</span></div>
+              ))}
+            </div>
+          )}
+          {savRows.some(r => r.unmet > 0) && (
+            <div className="mt-3 pt-2 border-t border-slate-700/60">
+              <p className="text-slate-500 text-[11px] uppercase tracking-wide mb-1">Savings still to fund</p>
+              {savRows.filter(r => r.unmet > 0).sort((a, b) => b.unmet - a.unmet).map(r => (
+                <div key={r.type} className="flex justify-between text-slate-400"><span className="truncate pr-2">{r.type}</span><span className="font-mono text-sky-300">${r.unmet.toFixed(0)}</span></div>
+              ))}
+            </div>
+          )}
+
+          <p className="text-[10px] text-slate-600 pt-2">
+            Free = money in − spent − unpaid essentials (P1+P2) − unmet savings, split across the {daysLeftIncl} day{daysLeftIncl === 1 ? '' : 's'} left. Already-paid bills aren't double-counted.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -1064,6 +1182,7 @@ export default function Dashboard({ token }) {
   const [heatmapExpanded, setHeatmapExpanded] = useState(false);
   const [anomalyExpanded, setAnomalyExpanded] = useState(false);
   const [mixExpanded, setMixExpanded]         = useState(false);
+  const [safeExpanded, setSafeExpanded]       = useState(false);
   const [paydayConfig, setPaydayConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_payday_config') || 'null') || null; } catch { return null; }
   });
@@ -1948,6 +2067,19 @@ ${stmtTxns.length ? `
           history={healthScore.history}
           expanded={healthExpanded}
           onToggle={() => setHealthExpanded(v => !v)}
+        />
+      )}
+
+      {/* ── Safe-to-Spend Today (Task 44) ───────────────────── */}
+      {expenses.length > 0 && income > 0 && (
+        <SafeToSpendCard
+          income={income}
+          spent={spent}
+          expenses={expenses}
+          allAllocTx={allAllocTx}
+          daysLeftIncl={daysLeftIncl}
+          expanded={safeExpanded}
+          onToggle={() => setSafeExpanded(v => !v)}
         />
       )}
 
