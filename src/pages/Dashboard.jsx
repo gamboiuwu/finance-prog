@@ -1114,6 +1114,116 @@ function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, ex
   );
 }
 
+// ── Every Dollar Assigned (Task 47) ─────────────────────────────────────────
+// Zero-based / cash-envelope discipline: income − Σ allowances should net to $0.
+//   • assigned = Σ Monthly Allowance ($) across every budget item (the plan total)
+//   • gap = income − assigned →  + left to assign (sky) / − over-assigned (rose)
+// A 3-segment bar shows where the assigned dollars go (needs/wants/savings via the
+// same buildMixMap mapping Task 42 uses, so the two cards agree). Reconciles with
+// the Health-Score "allocation completeness" signal — both weigh assigned-vs-income.
+// Income basis = this month's processed deposits (the Dashboard's ground-truth
+// `income`), so it agrees with every other current-month figure.
+// Pure derived view — zero new API calls, no sheet tab, no localStorage.
+function buildAssignedMix(expenses) {
+  const mixMap = buildMixMap(expenses);
+  const tiers = { needs: 0, wants: 0, savings: 0 };
+  expenses.forEach(e => {
+    const allow = pm(e['Monthly Allowance ($)']);
+    if (allow <= 0) return;
+    tiers[mixMap[String(e['Type'] || '').trim().toLowerCase()] || 'wants'] += allow;
+  });
+  return tiers;
+}
+
+function EveryDollarCard({ income, expenses, expanded, onToggle }) {
+  const assigned = expenses.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+  if (assigned <= 0 || income <= 0) return null;
+  const gap = income - assigned;             // + unassigned / − over-assigned
+  const balanced = Math.abs(gap) < 1;        // within a dollar = effectively zero
+  const tiers = buildAssignedMix(expenses);
+
+  // Bar widths as a share of income; the leftover (gap>0) shows as "unassigned".
+  // When over-assigned, normalise to the assigned total so the bar reads full.
+  const basis = gap >= 0 ? income : assigned;
+  const pct = v => basis > 0 ? Math.min(100, (v / basis) * 100) : 0;
+  const unassignedPct = gap > 0 ? pct(gap) : 0;
+
+  // Surplus suggestion: the savings bucket with the largest allowance is the
+  // natural place to park unassigned money so it doesn't drift.
+  const parkInto = expenses
+    .filter(e => e['Expense'] === 'Savings' && pm(e['Monthly Allowance ($)']) > 0)
+    .sort((a, b) => pm(b['Monthly Allowance ($)']) - pm(a['Monthly Allowance ($)']))[0]?.['Type'];
+
+  const tier = balanced ? 'teal' : gap > 0 ? 'sky' : 'rose';
+  const headColor = tier === 'rose' ? 'text-rose-400' : tier === 'sky' ? 'text-sky-300' : 'text-emerald-400';
+
+  return (
+    <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-4">
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white font-bold text-sm">🧮 Every Dollar Assigned</p>
+            <p className={`text-xl font-black mt-0.5 tabular-nums ${headColor}`}>
+              {balanced
+                ? 'All assigned ✓'
+                : gap > 0
+                  ? <>{fmt(gap)} <span className="text-slate-500 text-xs font-bold">left to assign</span></>
+                  : <>{fmt(Math.abs(gap))} <span className="text-slate-500 text-xs font-bold">over-assigned</span></>}
+            </p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+        {/* Where the assigned dollars go, as a share of income */}
+        <div className="mt-2 h-2.5 w-full rounded-full overflow-hidden flex bg-slate-900/70">
+          <div style={{ width: `${pct(tiers.needs)}%`,   background: MIX_COLORS.needs }} />
+          <div style={{ width: `${pct(tiers.wants)}%`,   background: MIX_COLORS.wants }} />
+          <div style={{ width: `${pct(tiers.savings)}%`, background: MIX_COLORS.savings }} />
+          {unassignedPct > 0 && <div style={{ width: `${unassignedPct}%` }} className="bg-slate-600/50" />}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-slate-700/60 text-xs space-y-1.5">
+          <div className="flex justify-between text-slate-400"><span>Income this month</span><span className="font-mono text-teal-300">${income.toFixed(0)}</span></div>
+          <div className="flex justify-between text-slate-400"><span>− Assigned to categories</span><span className="font-mono text-slate-300">${assigned.toFixed(0)}</span></div>
+          <div className="flex justify-between pt-1.5 border-t border-slate-700/60">
+            <span className="text-slate-200 font-semibold">{gap >= 0 ? '= Left to assign' : '= Over-assigned'}</span>
+            <span className={`font-mono font-semibold ${gap < 0 ? 'text-rose-300' : balanced ? 'text-emerald-300' : 'text-sky-300'}`}>${Math.abs(gap).toFixed(0)}</span>
+          </div>
+
+          {/* Per-tier assigned breakdown */}
+          <div className="mt-3 pt-2 border-t border-slate-700/60 space-y-1">
+            <p className="text-slate-500 text-[11px] uppercase tracking-wide mb-1">Where it's assigned</p>
+            {[['Needs', tiers.needs, MIX_COLORS.needs], ['Wants', tiers.wants, MIX_COLORS.wants], ['Savings', tiers.savings, MIX_COLORS.savings]].map(([label, val, color]) => (
+              <div key={label} className="flex justify-between text-slate-400">
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: color }} />{label}</span>
+                <span className="font-mono text-slate-300">${val.toFixed(0)} <span className="text-slate-600">· {((val / income) * 100).toFixed(0)}%</span></span>
+              </div>
+            ))}
+            {gap > 0 && (
+              <div className="flex justify-between text-slate-400">
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-slate-600/50" />Unassigned</span>
+                <span className="font-mono text-slate-300">${gap.toFixed(0)}</span>
+              </div>
+            )}
+          </div>
+
+          <p className={`italic pt-2 text-sm ${balanced ? 'text-emerald-300' : gap > 0 ? 'text-sky-300' : 'text-rose-300'}`}>
+            {balanced
+              ? "Every dollar has a job — that's textbook zero-based budgeting. 🐉"
+              : gap > 0
+                ? <>You have <span className="font-semibold">{fmt(gap)}</span> drifting unassigned.{parkInto ? <> Park it in <span className="font-semibold">{parkInto}</span> so it doesn't slip into impulse spends.</> : ' Give it a job — savings or a goal.'}</>
+                : <>Your plan promises <span className="font-semibold">{fmt(Math.abs(gap))}</span> more than you earned this month — trim a category or it runs short.</>}
+          </p>
+          <p className="text-[10px] text-slate-600 pt-0.5">
+            Assigned = sum of every category's Monthly Allowance. Income = this month's processed deposits. Goal: gap = $0.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -1183,6 +1293,7 @@ export default function Dashboard({ token }) {
   const [anomalyExpanded, setAnomalyExpanded] = useState(false);
   const [mixExpanded, setMixExpanded]         = useState(false);
   const [safeExpanded, setSafeExpanded]       = useState(false);
+  const [everyDollarExpanded, setEveryDollarExpanded] = useState(false);
   const [paydayConfig, setPaydayConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_payday_config') || 'null') || null; } catch { return null; }
   });
@@ -2129,6 +2240,16 @@ ${stmtTxns.length ? `
           expenses={expenses}
           expanded={mixExpanded}
           onToggle={() => setMixExpanded(v => !v)}
+        />
+      )}
+
+      {/* ── Every Dollar Assigned (Task 47) ─────────────────── */}
+      {expenses.length > 0 && income > 0 && (
+        <EveryDollarCard
+          income={income}
+          expenses={expenses}
+          expanded={everyDollarExpanded}
+          onToggle={() => setEveryDollarExpanded(v => !v)}
         />
       )}
 
