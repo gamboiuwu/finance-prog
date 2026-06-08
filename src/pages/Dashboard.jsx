@@ -1114,6 +1114,126 @@ function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, ex
   );
 }
 
+// ── Cash Envelope / Every Dollar Assigned (Task 47) ─────────────────────────
+// Zero-based budgeting discipline: every dollar of income should have a job.
+//   assigned = Σ all Monthly Allowance ($)        (what the plan promises)
+//   gap      = income − assigned                  (>0 unassigned, <0 over-promised)
+// The 3-segment bar shows how the *assigned* dollars split across
+// needs / wants / savings (reuses buildMixMap, so it agrees with Budget Balance).
+// For a surplus we point at the most under-funded savings bucket so the leftover
+// has an obvious home. Pure derived view — no writes, no new storage/API.
+function computeEnvelope(income, expenses, allAllocTx) {
+  const mixMap = buildMixMap(expenses);
+  const segs = { needs: 0, wants: 0, savings: 0 };
+  let assigned = 0;
+  expenses.forEach(e => {
+    const allow = pm(e['Monthly Allowance ($)']);
+    if (allow <= 0) return;
+    assigned += allow;
+    const cat = mixMap[String(e['Type'] || '').trim().toLowerCase()] || 'wants';
+    segs[cat] += allow;
+  });
+
+  // Current-month funding per Type (positive deposits) → find the savings bucket
+  // furthest from its allowance, to suggest a home for any surplus.
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const fundedByType = {};
+  allAllocTx.forEach(r => {
+    if (r.dateStr.slice(0, 7) !== curKey || r.amount <= 0) return;
+    fundedByType[r.type] = (fundedByType[r.type] || 0) + r.amount;
+  });
+  let suggest = null;
+  expenses
+    .filter(e => e['Expense'] === 'Savings' && pm(e['Monthly Allowance ($)']) > 0)
+    .forEach(e => {
+      const short = pm(e['Monthly Allowance ($)']) - (fundedByType[String(e['Type'])] || 0);
+      if (short > 0 && (!suggest || short > suggest.short)) suggest = { type: String(e['Type']), short };
+    });
+
+  return { assigned, gap: income - assigned, segs, suggest };
+}
+
+function EnvelopeCard({ income, expenses, allAllocTx, expanded, onToggle }) {
+  const { assigned, gap, segs, suggest } = computeEnvelope(income, expenses, allAllocTx);
+  if (assigned <= 0) return null;
+
+  const balanced = Math.abs(gap) < 1;   // |gap| < $1 reads as a clean zero-based plan
+  const surplus  = gap >= 1;            // money still to assign (prompt to save it)
+  const over     = gap <= -1;           // plan promises more than you earn (risk)
+
+  const total = segs.needs + segs.wants + segs.savings;
+  const pctOf = v => (total > 0 ? (v / total) * 100 : 0);
+
+  const headline = balanced
+    ? 'Every dollar assigned ✓'
+    : surplus ? `${fmt(gap)} left to assign` : `${fmt(Math.abs(gap))} over-assigned`;
+  const headColor = balanced ? 'text-emerald-400' : surplus ? 'text-teal-300' : 'text-rose-400';
+
+  return (
+    <div className={`rounded-2xl p-4 border ${
+      over ? 'bg-rose-950/30 border-rose-800/40'
+      : balanced ? 'bg-emerald-950/30 border-emerald-800/40'
+      : 'bg-slate-800 border-slate-700/60'}`}>
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-white font-bold text-sm">🧮 Every Dollar Assigned</p>
+            <p className={`text-xl font-black mt-0.5 tabular-nums ${headColor}`}>{headline}</p>
+            <p className="text-slate-400 text-xs mt-0.5">
+              {fmt(assigned)} assigned of {fmt(income)} earned
+            </p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+        {/* Collapsed: where the assigned dollars go (needs / wants / savings) */}
+        <div className="mt-2 h-2.5 w-full rounded-full overflow-hidden flex bg-slate-900/70">
+          <div style={{ width: `${pctOf(segs.needs)}%`,   background: MIX_COLORS.needs }} />
+          <div style={{ width: `${pctOf(segs.wants)}%`,   background: MIX_COLORS.wants }} />
+          <div style={{ width: `${pctOf(segs.savings)}%`, background: MIX_COLORS.savings }} />
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-slate-700/60 text-xs space-y-1.5">
+          <div className="flex justify-between text-slate-400"><span>Income this month</span><span className="font-mono text-teal-300">${income.toFixed(0)}</span></div>
+          <div className="flex justify-between text-slate-400"><span>− Assigned to categories</span><span className="font-mono text-slate-300">${assigned.toFixed(0)}</span></div>
+          <div className="flex justify-between pt-1.5 border-t border-slate-700/60">
+            <span className="text-slate-200 font-semibold">{surplus ? '= Left to assign' : over ? '= Over-assigned' : '= Balanced'}</span>
+            <span className={`font-mono font-semibold ${over ? 'text-rose-300' : surplus ? 'text-teal-300' : 'text-emerald-300'}`}>
+              ${Math.abs(gap).toFixed(0)}
+            </span>
+          </div>
+
+          {/* Per-tier assigned breakdown (reconciles with Budget Balance) */}
+          <div className="mt-3 pt-2 border-t border-slate-700/60 space-y-1">
+            <p className="text-slate-500 text-[11px] uppercase tracking-wide mb-1">Assigned dollars go to</p>
+            {[['Needs', segs.needs, MIX_COLORS.needs], ['Wants', segs.wants, MIX_COLORS.wants], ['Savings', segs.savings, MIX_COLORS.savings]].map(([label, val, col]) => (
+              <div key={label} className="flex justify-between items-center text-slate-400">
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: col }} />{label}</span>
+                <span className="font-mono text-slate-300">${val.toFixed(0)} · {pctOf(val).toFixed(0)}%</span>
+              </div>
+            ))}
+          </div>
+
+          <p className={`italic pt-2 text-sm ${over ? 'text-rose-300' : surplus ? 'text-teal-300' : 'text-emerald-300'}`}>
+            {balanced
+              ? 'Every dollar has a job — textbook zero-based budgeting. 🐉'
+              : over
+                ? `Your plan assigns ${fmt(Math.abs(gap))} more than you've earned — trim a category or add income so the plan balances.`
+                : suggest
+                  ? `${fmt(gap)} is still unassigned. Parking it in "${suggest.type}" (${fmt(suggest.short)} short) would put it to work.`
+                  : `${fmt(gap)} is still unassigned — give it a job (savings or a goal) so it doesn't drift into impulse spends.`}
+          </p>
+          <p className="text-[10px] text-slate-600 pt-0.5">
+            Assigned = sum of every category's monthly allowance. Zero-based budgeting aims for income − assigned = $0.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -1183,6 +1303,7 @@ export default function Dashboard({ token }) {
   const [anomalyExpanded, setAnomalyExpanded] = useState(false);
   const [mixExpanded, setMixExpanded]         = useState(false);
   const [safeExpanded, setSafeExpanded]       = useState(false);
+  const [envelopeExpanded, setEnvelopeExpanded] = useState(false);
   const [paydayConfig, setPaydayConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_payday_config') || 'null') || null; } catch { return null; }
   });
@@ -2080,6 +2201,17 @@ ${stmtTxns.length ? `
           daysLeftIncl={daysLeftIncl}
           expanded={safeExpanded}
           onToggle={() => setSafeExpanded(v => !v)}
+        />
+      )}
+
+      {/* ── Every Dollar Assigned / Zero-Based Check (Task 47) ─ */}
+      {expenses.length > 0 && income > 0 && (
+        <EnvelopeCard
+          income={income}
+          expenses={expenses}
+          allAllocTx={allAllocTx}
+          expanded={envelopeExpanded}
+          onToggle={() => setEnvelopeExpanded(v => !v)}
         />
       )}
 
