@@ -73,6 +73,33 @@ function daysUntil(date) {
   return Math.round((d - today) / 86400000);
 }
 
+// Task 13 — Subscription cost trend. Stores a monthly snapshot of the total
+// monthly subscription run-rate so we can show whether subscription spend is
+// growing. localStorage `_fin_sub_total_history = { "YYYY-MM": totalMonthly }`.
+// Pure presentation/local-only — no financial data leaves the device.
+const SUB_TOTAL_KEY = '_fin_sub_total_history';
+function getSubTotalHistory() {
+  try { return JSON.parse(localStorage.getItem(SUB_TOTAL_KEY) || '{}'); }
+  catch { return {}; }
+}
+// Record current month's total once (overwrites the current-month bucket so it
+// always reflects the latest figure); keeps the most recent 12 months.
+function recordSubTotal(totalMonthly) {
+  try {
+    const now = new Date();
+    const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const hist = getSubTotalHistory();
+    const rounded = Math.round(totalMonthly * 100) / 100;
+    if (hist[key] === rounded) return hist;
+    hist[key] = rounded;
+    const trimmed = Object.fromEntries(
+      Object.entries(hist).sort(([a], [b]) => a.localeCompare(b)).slice(-12)
+    );
+    localStorage.setItem(SUB_TOTAL_KEY, JSON.stringify(trimmed));
+    return trimmed;
+  } catch { return getSubTotalHistory(); }
+}
+
 function StatCard({ label, value, sub, color = 'text-white' }) {
   return (
     <div className="bg-slate-800 rounded-2xl p-4 flex flex-col gap-1">
@@ -2949,6 +2976,15 @@ ${stmtTxns.length ? `
           const [leadVal, setLeadVal]               = useState(subNotifLead);
           const [sortByCost, setSortByCost]         = useState(false);
           const [calWindow, setCalWindow]           = useState(30); // 30 or 90 days
+          const [subTotalHist, setSubTotalHist]     = useState(getSubTotalHistory);
+
+          // Task 13(d) — snapshot this month's total monthly subscription cost
+          // so the MoM trend can show whether subscription spend is growing.
+          useEffect(() => {
+            if (!subs.length) return;
+            const totalMo = subs.reduce((s, sub) => s + toMonthly(sub['Amount'], sub['Cycle']), 0);
+            setSubTotalHist(recordSubTotal(totalMo));
+          }, [subs]);
 
           async function reloadSubs() {
             const subRows = await readRange(token, 'Subscriptions!A:E').catch(() => []);
@@ -3197,16 +3233,65 @@ ${stmtTxns.length ? `
                       </div>
                     )}
 
-                    {/* Total monthly + annual cost across all subs */}
+                    {/* Total monthly + annual cost across all subs + MoM trend (Task 13d) */}
                     {subs.length > 0 && (() => {
                       const totalMo = subs.reduce((s, sub) => s + toMonthly(sub['Amount'], sub['Cycle']), 0);
+                      // Prior month's recorded total (most recent snapshot before the current month)
+                      const now = new Date();
+                      const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                      const months = Object.keys(subTotalHist).sort();
+                      const prevKeys = months.filter(k => k < curKey);
+                      const prevTotal = prevKeys.length ? subTotalHist[prevKeys[prevKeys.length - 1]] : null;
+                      const delta = prevTotal != null ? totalMo - prevTotal : null;
+                      // Tiny sparkline of the last few recorded months (incl. current)
+                      const spark = months.map(k => subTotalHist[k]).slice(-6);
+                      const sparkMax = Math.max(...spark, totalMo, 0.01);
                       return (
-                        <div className="flex justify-between items-center px-1 text-xs">
-                          <span className="text-slate-500">Total / month</span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-slate-600 font-mono tabular-nums">${(totalMo * 12).toFixed(2)}/yr</span>
-                            <span className="text-teal-300 font-bold font-mono tabular-nums">${totalMo.toFixed(2)}/mo</span>
+                        <div className="px-1 space-y-1.5">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-slate-500">Total / month</span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-slate-600 font-mono tabular-nums">${(totalMo * 12).toFixed(2)}/yr</span>
+                              <span className="text-teal-300 font-bold font-mono tabular-nums">${totalMo.toFixed(2)}/mo</span>
+                            </div>
                           </div>
+                          {delta != null && Math.abs(delta) >= 0.01 && (
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-slate-600">vs last month</span>
+                              <span className={`font-mono tabular-nums font-semibold ${delta > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                {delta > 0 ? '▲' : '▼'} ${Math.abs(delta).toFixed(2)}/mo
+                              </span>
+                            </div>
+                          )}
+                          {spark.length >= 2 && (
+                            <div className="flex items-end gap-0.5 h-6 pt-0.5">
+                              {spark.map((v, i) => (
+                                <div key={i} className="flex-1 bg-teal-700/60 rounded-sm"
+                                  style={{ height: `${Math.max(8, (v / sparkMax) * 100)}%` }}
+                                  title={`$${v.toFixed(2)}/mo`} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Task 13 (Q1) — trim tip: smallest active subscription is the easiest cut */}
+                    {subs.filter(s => parseFloat(s['Amount'] || 0) > 0).length >= 2 && (() => {
+                      const priced = subs
+                        .map(s => ({ s, mo: toMonthly(s['Amount'], s['Cycle']) }))
+                        .filter(x => x.mo > 0)
+                        .sort((a, b) => a.mo - b.mo);
+                      const cheapest = priced[0];
+                      if (!cheapest) return null;
+                      return (
+                        <div className="bg-amber-900/20 border border-amber-800/40 rounded-2xl px-3 py-2.5 flex items-start gap-2">
+                          <span className="text-base leading-none mt-0.5">💡</span>
+                          <p className="text-amber-200/90 text-xs leading-snug">
+                            <span className="font-semibold">Quick trim:</span> cancelling your smallest subscription{' '}
+                            <span className="font-semibold">{cheapest.s['Name']}</span> (${cheapest.mo.toFixed(2)}/mo) would save{' '}
+                            <span className="font-bold font-mono">${(cheapest.mo * 12).toFixed(2)}/yr</span>.
+                          </p>
                         </div>
                       );
                     })()}
