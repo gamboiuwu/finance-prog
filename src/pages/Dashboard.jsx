@@ -1114,6 +1114,124 @@ function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, ex
   );
 }
 
+// ── Cash Envelope / "Every Dollar Assigned" Check (Task 47) ─────────────────
+// Zero-based-budgeting discipline tile: income minus the sum of every category's
+// Monthly Allowance should land at exactly $0 — every dollar given a job.
+//   • assigned = Σ all `Monthly Allowance ($)` across Monthly Expenses
+//   • gap = income − assigned   (+ = unassigned drifting money · − = over-promised)
+//   • The split bar shows where the assigned dollars go (needs/wants/savings via
+//     the same buildMixMap used by Task 42), as a share of income; any positive
+//     gap shows as a grey "unassigned" remainder so the to-zero job is visible.
+// Reconciles with the Health-Score "allocation completeness" signal (both measure
+// assigned-vs-income). Pure derived view — zero new API calls, no localStorage.
+function computeEnvelope(income, expenses) {
+  const mixMap = buildMixMap(expenses);
+  const tiers = { needs: 0, wants: 0, savings: 0 };
+  const savingsItems = [];
+  let assigned = 0;
+  expenses.forEach(e => {
+    const allow = pm(e['Monthly Allowance ($)']);
+    if (allow <= 0) return;
+    assigned += allow;
+    const cat = mixMap[String(e['Type'] || '').trim().toLowerCase()] || 'wants';
+    tiers[cat] += allow;
+    if (cat === 'savings') savingsItems.push({ type: String(e['Type']), allow });
+  });
+  const gap = income - assigned;                          // + unassigned · − over-assigned
+  return { assigned, gap, tiers, savingsItems };
+}
+
+function EveryDollarCard({ income, expenses, expanded, onToggle }) {
+  const { assigned, gap, tiers, savingsItems } = computeEnvelope(income, expenses);
+  if (assigned <= 0) return null;
+
+  const EPS = 1;                                          // within $1 reads as "balanced"
+  const state = gap > EPS ? 'under' : gap < -EPS ? 'over' : 'zero';
+  const headColor = state === 'over' ? 'text-rose-400' : state === 'under' ? 'text-teal-300' : 'text-emerald-400';
+
+  // Split bar: tier widths as a share of whichever is larger (income vs assigned),
+  // so an over-assigned plan fills past income and a surplus leaves a grey gap.
+  const base = Math.max(income, assigned, 1);
+  const seg = (v) => `${(v / base) * 100}%`;
+  const unassignedPct = gap > 0 ? (gap / base) * 100 : 0;
+
+  // Surplus parking suggestion: largest savings bucket by allowance (else any goal).
+  const topSavings = savingsItems.slice().sort((a, b) => b.allow - a.allow)[0];
+
+  const tierRow = (label, val, color) => (
+    <div className="flex justify-between text-slate-400">
+      <span className="flex items-center gap-1.5">
+        <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: color }} />{label}
+      </span>
+      <span className="font-mono text-slate-300">${val.toFixed(0)}</span>
+    </div>
+  );
+
+  return (
+    <div className={`rounded-2xl p-4 border ${
+      state === 'over'  ? 'bg-rose-950/40 border-rose-800/50'
+      : state === 'zero' ? 'bg-gradient-to-br from-emerald-950/50 to-slate-800 border-emerald-800/40'
+      : 'bg-slate-800 border-slate-700/60'}`}>
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-white font-bold text-sm">🧮 Every Dollar Assigned</p>
+            <p className={`text-2xl font-bold mt-0.5 tabular-nums ${headColor}`}>
+              {state === 'zero'
+                ? <>All assigned ✓</>
+                : <>{fmt(Math.abs(gap))}<span className="text-sm font-medium text-slate-400">
+                    {state === 'under' ? ' left to assign' : ' over-assigned'}</span></>}
+            </p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+        {/* Split bar: needs / wants / savings of income, grey = still unassigned */}
+        <div className="mt-2 h-2.5 w-full rounded-full overflow-hidden flex bg-slate-900/70">
+          <div style={{ width: seg(tiers.needs),   background: MIX_COLORS.needs }} />
+          <div style={{ width: seg(tiers.wants),   background: MIX_COLORS.wants }} />
+          <div style={{ width: seg(tiers.savings), background: MIX_COLORS.savings }} />
+          {unassignedPct > 0 && <div style={{ width: `${unassignedPct}%`, background: '#475569' }} />}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-slate-700/60 text-xs space-y-1.5">
+          <div className="flex justify-between text-slate-400"><span>Income this month</span><span className="font-mono text-teal-300">${income.toFixed(0)}</span></div>
+          <div className="flex justify-between text-slate-400"><span>− Assigned to categories</span><span className="font-mono text-slate-300">${assigned.toFixed(0)}</span></div>
+          <div className="flex justify-between pt-1.5 border-t border-slate-700/60">
+            <span className="text-slate-200 font-semibold">
+              {state === 'under' ? '= Left to assign' : state === 'over' ? '= Over-assigned' : '= Balanced'}
+            </span>
+            <span className={`font-mono font-semibold ${state === 'over' ? 'text-rose-300' : state === 'under' ? 'text-teal-300' : 'text-emerald-300'}`}>
+              ${gap.toFixed(0)}
+            </span>
+          </div>
+
+          <div className="mt-3 pt-2 border-t border-slate-700/60">
+            <p className="text-slate-500 text-[11px] uppercase tracking-wide mb-1">Where assigned dollars go</p>
+            {tierRow('Needs',   tiers.needs,   MIX_COLORS.needs)}
+            {tierRow('Wants',   tiers.wants,   MIX_COLORS.wants)}
+            {tierRow('Savings', tiers.savings, MIX_COLORS.savings)}
+          </div>
+
+          <p className={`italic pt-2 text-sm ${state === 'over' ? 'text-rose-300' : state === 'under' ? 'text-teal-300' : 'text-emerald-300'}`}>
+            {state === 'over'
+              ? `Your plan promises ${fmt(Math.abs(gap))} more than you earned — trim a category or two so the budget balances.`
+              : state === 'under'
+                ? topSavings
+                  ? `You've got ${fmt(gap)} unassigned — give it a job, e.g. park it in ${topSavings.type}.`
+                  : `You've got ${fmt(gap)} unassigned — give it a job (a savings bucket or goal).`
+                : `Every dollar has a job — that's textbook zero-based budgeting. 🐉`}
+          </p>
+          <p className="text-[10px] text-slate-600 pt-0.5">
+            Zero-based goal: income − all allowances = $0. A surplus is money drifting toward impulse spends; a shortfall is an over-promised plan.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -1183,6 +1301,7 @@ export default function Dashboard({ token }) {
   const [anomalyExpanded, setAnomalyExpanded] = useState(false);
   const [mixExpanded, setMixExpanded]         = useState(false);
   const [safeExpanded, setSafeExpanded]       = useState(false);
+  const [envelopeExpanded, setEnvelopeExpanded] = useState(false);
   const [paydayConfig, setPaydayConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_payday_config') || 'null') || null; } catch { return null; }
   });
@@ -2129,6 +2248,16 @@ ${stmtTxns.length ? `
           expenses={expenses}
           expanded={mixExpanded}
           onToggle={() => setMixExpanded(v => !v)}
+        />
+      )}
+
+      {/* ── Every Dollar Assigned / Cash Envelope (Task 47) ─── */}
+      {expenses.length > 0 && income > 0 && (
+        <EveryDollarCard
+          income={income}
+          expenses={expenses}
+          expanded={envelopeExpanded}
+          onToggle={() => setEnvelopeExpanded(v => !v)}
         />
       )}
 
