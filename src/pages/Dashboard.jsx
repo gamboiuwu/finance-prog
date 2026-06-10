@@ -2949,6 +2949,7 @@ ${stmtTxns.length ? `
           const [leadVal, setLeadVal]               = useState(subNotifLead);
           const [sortByCost, setSortByCost]         = useState(false);
           const [calWindow, setCalWindow]           = useState(30); // 30 or 90 days
+          const [showInsights, setShowInsights]     = useState(false); // Task 13: cost-optimization insights panel
 
           async function reloadSubs() {
             const subRows = await readRange(token, 'Subscriptions!A:E').catch(() => []);
@@ -3207,6 +3208,88 @@ ${stmtTxns.length ? `
                             <span className="text-slate-600 font-mono tabular-nums">${(totalMo * 12).toFixed(2)}/yr</span>
                             <span className="text-teal-300 font-bold font-mono tabular-nums">${totalMo.toFixed(2)}/mo</span>
                           </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ── Cost Optimization Insights (Task 13) — collapsible, read-only ── */}
+                    {subs.length > 0 && (() => {
+                      const withCost = subs
+                        .map(s => ({ name: s['Name'] || '—', cycle: (s['Cycle'] || 'monthly').toLowerCase(), mo: toMonthly(s['Amount'], s['Cycle']) }))
+                        .filter(s => s.mo > 0)
+                        .sort((a, b) => b.mo - a.mo);
+                      const totalMo = withCost.reduce((t, s) => t + s.mo, 0);
+                      if (withCost.length < 1 || totalMo <= 0) return null;
+                      const top       = withCost[0];
+                      const pctIncome = income > 0 ? (totalMo / income) * 100 : null;
+                      const cycleMix  = {};
+                      withCost.forEach(s => { cycleMix[s.cycle] = (cycleMix[s.cycle] || 0) + s.mo; });
+                      const now = new Date(); now.setHours(0, 0, 0, 0);
+                      const recent = subs
+                        .map(s => { const sd = s['Start Date'] ? new Date(s['Start Date'] + 'T12:00:00') : null; return { s, sd }; })
+                        .filter(({ sd }) => sd && !isNaN(sd) && (now - sd) / 86400000 >= 0 && (now - sd) / 86400000 <= calWindow);
+                      const recentMo = recent.reduce((t, { s }) => t + toMonthly(s['Amount'], s['Cycle']), 0);
+                      const ranked    = withCost.slice(0, 6);
+                      const moreCount = withCost.length - ranked.length;
+                      return (
+                        <div className="bg-slate-900 rounded-2xl overflow-hidden">
+                          <button onClick={() => setShowInsights(v => !v)} className="w-full flex items-center justify-between px-3 py-2.5">
+                            <span className="text-slate-300 text-xs font-semibold uppercase tracking-wider">💡 Cost insights</span>
+                            <span className="text-slate-500 text-xs">{showInsights ? '▲' : '▼'}</span>
+                          </button>
+                          {showInsights && (
+                            <div className="px-3 pb-3 space-y-3">
+                              {/* Annual headline */}
+                              <div className="bg-slate-800/60 rounded-xl p-3">
+                                <p className="text-2xl font-bold text-white font-mono tabular-nums">
+                                  ${(totalMo * 12).toFixed(0)}<span className="text-sm text-slate-500 font-sans font-normal"> /yr</span>
+                                </p>
+                                <p className="text-slate-400 text-xs mt-0.5">
+                                  across {withCost.length} subscription{withCost.length !== 1 ? 's' : ''}
+                                  {pctIncome !== null && <> · <span className={pctIncome > 15 ? 'text-amber-300' : 'text-slate-400'}>{pctIncome.toFixed(0)}% of monthly income</span></>}
+                                </p>
+                              </div>
+                              {/* Cost ranking bars — where the money goes */}
+                              <div className="space-y-1.5">
+                                <p className="text-slate-500 text-[10px] uppercase tracking-wider">Where it goes</p>
+                                {ranked.map((s, i) => {
+                                  const share = (s.mo / totalMo) * 100;
+                                  return (
+                                    <div key={i} className="space-y-0.5">
+                                      <div className="flex justify-between text-xs">
+                                        <span className="text-slate-300 truncate pr-2">{s.name}</span>
+                                        <span className="text-slate-400 font-mono tabular-nums shrink-0">${(s.mo * 12).toFixed(0)}/yr · {share.toFixed(0)}%</span>
+                                      </div>
+                                      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                        <div className="h-full rounded-full bg-gradient-to-r from-teal-600 to-teal-400" style={{ width: `${Math.max(3, share)}%` }} />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {moreCount > 0 && <p className="text-slate-600 text-[10px]">+{moreCount} smaller</p>}
+                              </div>
+                              {/* Optimization nudge — biggest lever first */}
+                              <div className="bg-amber-950/30 border border-amber-900/40 rounded-xl p-3">
+                                <p className="text-amber-200 text-xs leading-relaxed">
+                                  💸 Your priciest is <span className="font-semibold">{top.name}</span> at <span className="font-mono">${(top.mo * 12).toFixed(0)}/yr</span> ({((top.mo / totalMo) * 100).toFixed(0)}% of subs). Cancelling it would save <span className="font-mono">${(top.mo * 12).toFixed(0)}/yr</span>.
+                                </p>
+                              </div>
+                              {/* Cycle mix */}
+                              <div className="flex flex-wrap gap-1.5">
+                                {Object.entries(cycleMix).sort((a, b) => b[1] - a[1]).map(([cy, mo]) => (
+                                  <span key={cy} className="text-[10px] px-2 py-1 rounded-full bg-slate-800 text-slate-400 capitalize">
+                                    {cy}: <span className="font-mono text-slate-300">${mo.toFixed(0)}/mo</span>
+                                  </span>
+                                ))}
+                              </div>
+                              {/* Recently added — lightweight trend signal from Start Dates */}
+                              {recent.length > 0 && (
+                                <p className="text-teal-400/80 text-[11px]">
+                                  🆕 {recent.length} added in the last {calWindow}d (+${recentMo.toFixed(2)}/mo)
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })()}
