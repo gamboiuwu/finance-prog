@@ -822,13 +822,13 @@ function AnomalyCard({ allAllocTx, expanded, onToggle }) {
               </div>
               <button
                 onClick={() => dismiss(f.hash)}
-                className="text-slate-500 hover:text-slate-300 text-xs shrink-0 px-1.5 py-0.5 rounded-lg hover:bg-slate-700 transition-colors"
-                title="Dismiss — looks fine"
-              >✕</button>
+                className="text-emerald-300 hover:text-emerald-200 text-[11px] font-semibold shrink-0 px-2 py-1 rounded-lg bg-emerald-900/40 hover:bg-emerald-800/50 transition-colors"
+                title="Mark this charge as OK — it won't be flagged again"
+              >✓ OK</button>
             </div>
           ))}
           <p className="text-[10px] text-slate-600 pt-1">
-            Read-only — flags large or repeated charges vs each category's history. Dismiss anything expected; it won't reappear.
+            Read-only — flags large or repeated charges vs each category's history. Mark anything expected ✓ OK and it won't reappear.
           </p>
         </div>
       )}
@@ -1036,7 +1036,7 @@ function BudgetMixCard({ allAllocTx, expenses, expanded, onToggle }) {
 //   • Discretionary spends already made live inside `spent`, so they shrink the
 //     free pot automatically.
 // Pure presentation over already-loaded state — zero new API calls, no storage.
-function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, expanded, onToggle }) {
+function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, dayOfMonth, daysInMo, expanded, onToggle }) {
   const now = new Date();
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   // Current-month per-Type sums: spent (abs of negatives) + funded (positives).
@@ -1100,9 +1100,19 @@ function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, ex
                 : <><span className="text-slate-200 font-semibold">{fmt(free)}</span> free ÷ <span className="text-slate-200 font-semibold">{daysLeftIncl}</span> {daysLeftIncl === 1 ? 'day' : 'days'} left this month</>}
             </p>
           </div>
-          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+            <span className="text-[10px] text-slate-500 font-mono">Day {dayOfMonth}/{daysInMo}</span>
+          </div>
         </div>
       </button>
+
+      {/* Month progress — how far through the month the days are */}
+      <div className="mt-3 w-full bg-slate-900/70 rounded-full h-1.5 overflow-hidden">
+        <div className="h-1.5 rounded-full transition-all"
+          style={{ width: `${(dayOfMonth / daysInMo) * 100}%`,
+                   background: tier === 'red' ? '#ef4444' : tier === 'amber' ? '#f59e0b' : '#10b981' }} />
+      </div>
 
       {expanded && (
         <div className="mt-3 pt-3 border-t border-slate-700/60 text-xs space-y-1.5">
@@ -1673,22 +1683,10 @@ export default function Dashboard({ token }) {
 
   // ── Daily spending allowance ───────────────────────────────────────────────
   // "How much can I spend a day" = flexible money left this month ÷ days left.
-  // Flexible = the Discretionary category (day-to-day money); if none is defined,
-  // fall back to every non-Savings budget item. Uses per-category Actual Spend.
+  // Day-of-month anchors used by the Safe-to-Spend card.
   const daysInMo      = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const dayOfMonth    = now.getDate();
   const daysLeftIncl  = Math.max(1, daysInMo - dayOfMonth + 1); // include today
-  const discItems     = expenses.filter(e => (e['Expense'] || '') === 'Discretionary' && pm(e['Monthly Allowance ($)']) > 0);
-  const flexItems     = discItems.length
-    ? discItems
-    : expenses.filter(e => (e['Expense'] || '') !== 'Savings' && pm(e['Monthly Allowance ($)']) > 0);
-  const flexBudget    = flexItems.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
-  const flexSpent     = flexItems.reduce((s, e) => s + pm(e['Actual Spend']), 0);
-  const flexLeft      = flexBudget - flexSpent;
-  const perDay        = daysLeftIncl > 0 ? Math.max(0, flexLeft) / daysLeftIncl : 0;
-  const flexLabel     = discItems.length ? 'discretionary' : 'flexible';
-  const flexOver      = flexLeft < 0;
-  const fullMonthPerDay = daysInMo > 0 ? flexBudget / daysInMo : 0;
 
   const chartData = allMonths
     .filter(m => pm(m['Total Processed Income']) > 0)
@@ -2234,6 +2232,8 @@ ${stmtTxns.length ? `
           expenses={expenses}
           allAllocTx={allAllocTx}
           daysLeftIncl={daysLeftIncl}
+          dayOfMonth={dayOfMonth}
+          daysInMo={daysInMo}
           expanded={safeExpanded}
           onToggle={() => setSafeExpanded(v => !v)}
         />
@@ -2765,44 +2765,6 @@ ${stmtTxns.length ? `
               <span className="text-slate-400">{fmt(spent)} / {fmt(income)}</span>
             </div>
             <ProgressBar pct={spendPct} color={spendPct > 90 ? '#ef4444' : spendPct > 70 ? '#f59e0b' : '#10b981'} />
-          </div>
-        </div>
-      )}
-
-      {/* ── Safe to Spend / Day ─────────────────────────────── */}
-      {flexBudget > 0 && (
-        <div className={`rounded-2xl p-4 border ${flexOver
-          ? 'bg-rose-950/40 border-rose-800/50'
-          : 'bg-gradient-to-br from-emerald-950/50 to-slate-800 border-emerald-800/40'}`}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-emerald-300/90 text-[11px] font-bold uppercase tracking-wider">💸 Safe to spend / day</p>
-              <p className={`text-3xl font-black font-broske mt-1 tabular-nums ${flexOver ? 'text-rose-400' : 'text-emerald-400'}`}>
-                {flexOver ? '$0.00' : fmt(perDay)}
-                {!flexOver && <span className="text-slate-500 text-sm font-bold"> /day</span>}
-              </p>
-              <p className="text-slate-400 text-xs mt-1.5">
-                {flexOver ? (
-                  <>You're <span className="text-rose-400 font-semibold">{fmt(Math.abs(flexLeft))} over</span> your {flexLabel} budget this month</>
-                ) : (
-                  <><span className="text-slate-200 font-semibold">{fmt(flexLeft)}</span> {flexLabel} left ÷ <span className="text-slate-200 font-semibold">{daysLeftIncl}</span> {daysLeftIncl === 1 ? 'day' : 'days'} left</>
-                )}
-              </p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-slate-500 text-[10px] uppercase tracking-wider">Day</p>
-              <p className="text-white font-bold font-mono text-sm">{dayOfMonth}<span className="text-slate-600">/{daysInMo}</span></p>
-              {!flexOver && fullMonthPerDay > 0 && (
-                <p className="text-slate-600 text-[10px] mt-1.5 leading-tight">
-                  pace<br /><span className="text-slate-400 font-mono">{fmt(fullMonthPerDay)}/day</span>
-                </p>
-              )}
-            </div>
-          </div>
-          {/* Month progress bar — how far through the budget the days are */}
-          <div className="mt-3 w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-            <div className="h-1.5 rounded-full transition-all"
-              style={{ width: `${(dayOfMonth / daysInMo) * 100}%`, background: flexOver ? '#ef4444' : '#10b981' }} />
           </div>
         </div>
       )}
