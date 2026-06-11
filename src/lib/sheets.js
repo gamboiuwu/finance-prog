@@ -72,6 +72,14 @@ export async function appendRow(token, range, values) {
   });
 }
 
+// Append several rows in one request (atomic — all or nothing)
+export async function appendRows(token, range, rows) {
+  return request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+    method: 'POST',
+    body: JSON.stringify({ values: rows }),
+  });
+}
+
 export async function updateCell(token, range, value) {
   return request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
     method: 'PUT',

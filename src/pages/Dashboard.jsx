@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { readRange, readReportLinks, appendRow, ensureSheetTab, batchUpdateCells, clearRow } from '../lib/sheets';
+import { readRange, readReportLinks, appendRow, appendRows, ensureSheetTab, batchUpdateCells, clearRow } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
 import { computeGasBudget, saveGasBudget, getGasBudget } from '../lib/gasBudget';
 import { SHEETS, MONTHS } from '../config';
@@ -1279,6 +1279,319 @@ function EveryDollarCard({ income, expenses, allAllocTx, expanded, onToggle }) {
   );
 }
 
+// ── Net Worth Snapshot (Task 14) ──────────────────────────────────────────────
+// A standard personal-finance metric the app lacked: assets − liabilities, tracked
+// over time. Every figure lives in a dedicated "Net Worth" sheet tab
+// (Date | Account | Type | Balance | Notes — one row per account per snapshot), so
+// NOTHING financial is stored on the device. The card self-loads its own data, so it
+// costs the default Dashboard paint nothing.
+const NW_TAB = 'Net Worth';
+
+// Parse a stored snapshot date (ISO / M/D/YYYY / sheet serial) to a sortable YYYY-MM-DD.
+function nwNormDate(val) {
+  const s = String(val ?? '').trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return `${m[3]}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`;
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const d = new Date(Math.round((parseFloat(s) - 25569) * 86400000));
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  return s;
+}
+function nwDateLabel(iso) {
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso;
+  return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+}
+// Compact money: whole dollars with thousands separators, signed.
+function nwMoney(n) {
+  const v = Math.round(Number(n) || 0);
+  const sign = v < 0 ? '-' : '';
+  return `${sign}$${Math.abs(v).toLocaleString('en-US')}`;
+}
+
+// Build one snapshot per distinct date from raw rows. Each snapshot:
+//   { date, assets, liabilities, net, accounts:[{account,type,balance}] }
+function nwBuildSnapshots(rows) {
+  const byDate = {};
+  rows.forEach(r => {
+    const date = nwNormDate(r[0]);
+    const account = String(r[1] ?? '').trim();
+    const type = String(r[2] ?? '').trim().toLowerCase().startsWith('l') ? 'Liability' : 'Asset';
+    const balance = pm(r[3]);
+    if (!date || !account) return;
+    if (!byDate[date]) byDate[date] = { date, accounts: [] };
+    byDate[date].accounts.push({ account, type, balance });
+  });
+  return Object.values(byDate)
+    .map(s => {
+      const assets = s.accounts.filter(a => a.type === 'Asset').reduce((t, a) => t + a.balance, 0);
+      const liabilities = s.accounts.filter(a => a.type === 'Liability').reduce((t, a) => t + a.balance, 0);
+      return { ...s, assets, liabilities, net: assets - liabilities };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function NetWorthCard({ token, expanded, onToggle }) {
+  const [rows, setRows] = useState(null);   // null = not loaded yet, [] = loaded empty
+  const [error, setError] = useState(false);
+  const [showUpdate, setShowUpdate] = useState(false);
+
+  const load = useCallbackNW(token, setRows, setError);
+  useEffect(() => { load(); }, [load]);
+
+  // Loading / no-data states are quiet — they never block or clutter the Dashboard.
+  if (rows === null && !error) return null;
+
+  const snaps = nwBuildSnapshots(rows || []);
+  const latest = snaps[snaps.length - 1] || null;
+  const prev   = snaps.length >= 2 ? snaps[snaps.length - 2] : null;
+
+  // No snapshots yet → a single quiet setup prompt.
+  if (!latest) {
+    return (
+      <>
+        <button onClick={() => setShowUpdate(true)}
+          className="w-full flex items-center justify-center gap-2 bg-slate-800/60 border border-dashed border-slate-600 hover:border-slate-400 text-slate-300 hover:text-white text-sm py-3 rounded-2xl transition-colors">
+          <span>📊</span><span>Set up net worth tracking</span>
+        </button>
+        {showUpdate && (
+          <NetWorthUpdateModal token={token} accounts={[]} onClose={() => setShowUpdate(false)} onSaved={() => { setShowUpdate(false); setRows(null); load(); }} />
+        )}
+      </>
+    );
+  }
+
+  const net = latest.net;
+  const delta = prev ? net - prev.net : null;
+  const netColor = net >= 0 ? 'text-emerald-400' : 'text-rose-400';
+  const trend = snaps.slice(-12).map(s => ({ d: nwDateLabel(s.date), net: Math.round(s.net) }));
+
+  return (
+    <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-4">
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white font-bold text-sm">📊 Net Worth</p>
+            <p className={`text-2xl font-bold mt-0.5 ${netColor}`}>{nwMoney(net)}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {delta !== null && (
+              <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${delta >= 0 ? 'bg-emerald-900/40 text-emerald-300' : 'bg-rose-900/40 text-rose-300'}`}>
+                {delta >= 0 ? '▲' : '▼'} {nwMoney(Math.abs(delta))}
+              </span>
+            )}
+            <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-500 mt-1">
+          As of {nwDateLabel(latest.date)}
+          {delta !== null && prev ? ` · ${delta >= 0 ? 'up' : 'down'} ${nwMoney(Math.abs(delta))} since ${nwDateLabel(prev.date)}` : ''}
+        </p>
+      </button>
+
+      {expanded && (
+        <>
+          {/* Assets vs liabilities */}
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="bg-slate-900/60 rounded-xl p-3">
+              <p className="text-slate-400 text-xs">Assets</p>
+              <p className="text-emerald-300 text-lg font-bold">{nwMoney(latest.assets)}</p>
+            </div>
+            <div className="bg-slate-900/60 rounded-xl p-3">
+              <p className="text-slate-400 text-xs">Liabilities</p>
+              <p className="text-rose-300 text-lg font-bold">{nwMoney(latest.liabilities)}</p>
+            </div>
+          </div>
+
+          {/* Trend */}
+          {trend.length >= 2 && (
+            <div className="mt-3 h-32">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={trend} margin={{ top: 6, right: 6, bottom: 0, left: 6 }}>
+                  <XAxis dataKey="d" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis hide domain={['auto', 'auto']} />
+                  <Tooltip
+                    contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: '#cbd5e1' }}
+                    formatter={(v) => [nwMoney(v), 'Net worth']}
+                  />
+                  <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
+                  <Line type="monotone" dataKey="net" stroke="#34d399" strokeWidth={2} dot={{ r: 2, fill: '#34d399' }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Account breakdown (latest snapshot) */}
+          <div className="mt-3 pt-3 border-t border-slate-700">
+            <p className="text-slate-500 text-[11px] uppercase tracking-wide mb-1.5">Accounts</p>
+            <div className="space-y-1 text-xs">
+              {latest.accounts
+                .slice()
+                .sort((a, b) => (a.type === b.type ? b.balance - a.balance : a.type === 'Asset' ? -1 : 1))
+                .map((a, i) => (
+                  <div key={i} className="flex justify-between text-slate-400">
+                    <span className="truncate pr-2">{a.type === 'Liability' ? '🔻 ' : ''}{a.account}</span>
+                    <span className={`font-mono ${a.type === 'Liability' ? 'text-rose-400' : 'text-emerald-400'}`}>
+                      {a.type === 'Liability' ? '-' : ''}{nwMoney(a.balance)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+
+          <button onClick={() => setShowUpdate(true)}
+            className="mt-3 w-full bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium py-2.5 rounded-xl transition-colors">
+            Update balances
+          </button>
+        </>
+      )}
+
+      {showUpdate && (
+        <NetWorthUpdateModal
+          token={token}
+          accounts={latest.accounts}
+          onClose={() => setShowUpdate(false)}
+          onSaved={() => { setShowUpdate(false); setRows(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Small hook factory kept outside the component body so the effect dep is stable.
+function useCallbackNW(token, setRows, setError) {
+  return useRef(async () => {
+    if (!token) return;
+    try {
+      const data = await readRange(token, `${NW_TAB}!A:E`, 'UNFORMATTED_VALUE');
+      // Drop a header row if present (first cell isn't a parseable date).
+      const body = data.filter(r => r && r.length && !/^date$/i.test(String(r[0]).trim()));
+      setRows(body);
+      setError(false);
+    } catch {
+      // Tab doesn't exist yet — treat as "no snapshots", show the setup prompt.
+      setRows([]);
+      setError(false);
+    }
+  }).current;
+}
+
+// Modal: edit each account's balance, add/remove accounts, then write one snapshot
+// row per account (Date = today) to the Net Worth tab. The tab + header are created
+// on first save. Liabilities are entered as positive numbers (the math subtracts them).
+function NetWorthUpdateModal({ token, accounts, onClose, onSaved }) {
+  const [items, setItems] = useState(() =>
+    accounts.length
+      ? accounts.map(a => ({ account: a.account, type: a.type, balance: String(a.balance) }))
+      : [{ account: '', type: 'Asset', balance: '' }]
+  );
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  function setItem(i, patch) { setItems(list => list.map((it, j) => (j === i ? { ...it, ...patch } : it))); }
+  function addItem() { setItems(list => [...list, { account: '', type: 'Asset', balance: '' }]); }
+  function removeItem(i) { setItems(list => list.filter((_, j) => j !== i)); }
+
+  const valid = items.filter(it => it.account.trim() && it.balance.trim() !== '');
+  const assets = valid.filter(it => it.type === 'Asset').reduce((t, it) => t + pm(it.balance), 0);
+  const liabs  = valid.filter(it => it.type === 'Liability').reduce((t, it) => t + pm(it.balance), 0);
+  const previewNet = assets - liabs;
+
+  async function save() {
+    if (!valid.length) { setErr('Add at least one account with a balance.'); return; }
+    setSaving(true); setErr('');
+    try {
+      await ensureSheetTab(token, NW_TAB);
+      const today = new Date().toISOString().slice(0, 10);
+      // Read once to know whether a header row already exists.
+      let existing = [];
+      try { existing = await readRange(token, `${NW_TAB}!A1:A1`); } catch { /* empty */ }
+      const out = [];
+      if (!existing.length) out.push(['Date', 'Account', 'Type', 'Balance', 'Notes']);
+      valid.forEach(it => out.push([today, it.account.trim(), it.type, pm(it.balance), '']));
+      await appendRows(token, `${NW_TAB}!A:E`, out);
+      onSaved();
+    } catch (e) {
+      setErr(e?.message || 'Could not save. Check your connection and try again.');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50" onClick={onClose}>
+      <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-white font-semibold">📊 Update Net Worth</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">✕</button>
+        </div>
+        <p className="text-slate-500 text-xs">
+          Enter each account's current balance. Liabilities are entered as positive numbers — the app subtracts them. Saving records a dated snapshot to your sheet.
+        </p>
+
+        <div className="space-y-2">
+          {items.map((it, i) => (
+            <div key={i} className="bg-slate-800 rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  value={it.account}
+                  onChange={e => setItem(i, { account: e.target.value })}
+                  placeholder="Account name (e.g. Chase Checking)"
+                  className="flex-1 bg-slate-900 text-white rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-500"
+                />
+                <button onClick={() => removeItem(i)} className="text-slate-500 hover:text-rose-400 text-lg px-1" title="Remove">✕</button>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-lg overflow-hidden border border-slate-700">
+                  {['Asset', 'Liability'].map(t => (
+                    <button key={t} onClick={() => setItem(i, { type: t })}
+                      className={`px-3 py-2 text-xs font-medium transition-colors ${it.type === t
+                        ? (t === 'Asset' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white')
+                        : 'bg-slate-900 text-slate-400 hover:bg-slate-800'}`}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex-1 relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">$</span>
+                  <input
+                    type="number" inputMode="decimal" value={it.balance}
+                    onChange={e => setItem(i, { balance: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full bg-slate-900 text-white rounded-lg pl-7 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-500 tabular-nums"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={addItem} className="w-full text-slate-300 hover:text-white text-sm py-2 rounded-xl border border-dashed border-slate-600 hover:border-slate-400 transition-colors">
+          + Add account
+        </button>
+
+        <div className="bg-slate-800 rounded-xl p-3 flex items-center justify-between">
+          <span className="text-slate-400 text-sm">Net worth (preview)</span>
+          <span className={`font-bold ${previewNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{nwMoney(previewNet)}</span>
+        </div>
+
+        {err && <p className="text-rose-400 text-xs">{err}</p>}
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2.5 rounded-xl transition-colors">Cancel</button>
+          <button onClick={save} disabled={saving}
+            className="flex-1 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-xl transition-colors">
+            {saving ? 'Saving…' : 'Save snapshot'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -1349,6 +1662,7 @@ export default function Dashboard({ token }) {
   const [mixExpanded, setMixExpanded]         = useState(false);
   const [safeExpanded, setSafeExpanded]       = useState(false);
   const [envelopeExpanded, setEnvelopeExpanded] = useState(false);
+  const [nwExpanded, setNwExpanded]           = useState(false);
   const [paydayConfig, setPaydayConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_payday_config') || 'null') || null; } catch { return null; }
   });
@@ -2298,6 +2612,13 @@ ${stmtTxns.length ? `
           onToggle={() => setEnvelopeExpanded(v => !v)}
         />
       )}
+
+      {/* ── Net Worth Snapshot (Task 14) ────────────────────── */}
+      <NetWorthCard
+        token={token}
+        expanded={nwExpanded}
+        onToggle={() => setNwExpanded(v => !v)}
+      />
 
       {/* ── Spending Calendar Heatmap (Task 24) ─────────────── */}
       {allAllocTx.length > 0 && (
