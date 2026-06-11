@@ -72,6 +72,15 @@ export async function appendRow(token, range, values) {
   });
 }
 
+// Append multiple rows in one request (e.g. a full net-worth snapshot).
+export async function appendRows(token, range, values2d) {
+  if (!values2d || !values2d.length) return null;
+  return request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+    method: 'POST',
+    body: JSON.stringify({ values: values2d }),
+  });
+}
+
 export async function updateCell(token, range, value) {
   return request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
     method: 'PUT',
