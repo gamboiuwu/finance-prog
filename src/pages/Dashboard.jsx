@@ -449,7 +449,7 @@ function subsDueInMonth(subs, monthIndex) {
   }, 0);
 }
 
-function ForecastCard({ chartData, subscriptions, expenses, expanded, onToggle }) {
+function ForecastCard({ chartData, subscriptions, expenses, debtReserve = 0, expanded, onToggle }) {
   const last6 = chartData.map(d => d.income).filter(v => v > 0).slice(-6);
   if (last6.length < 2) return null;                       // need history to project
   const expected = last6.reduce((s, v) => s + v, 0) / last6.length;
@@ -465,7 +465,7 @@ function ForecastCard({ chartData, subscriptions, expenses, expanded, onToggle }
   let cumulative = 0;
   const rows = Array.from({ length: FORECAST_MONTHS }, (_, i) => {
     const mi = (now.getMonth() + 1 + i) % 12;              // start with NEXT month
-    const outflow = subsDueInMonth(subscriptions, mi) + recurringAllow;
+    const outflow = subsDueInMonth(subscriptions, mi) + recurringAllow + Math.max(0, debtReserve);
     const net = expected - outflow;
     cumulative += net;
     return {
@@ -1036,7 +1036,7 @@ function BudgetMixCard({ allAllocTx, expenses, expanded, onToggle }) {
 //   • Discretionary spends already made live inside `spent`, so they shrink the
 //     free pot automatically.
 // Pure presentation over already-loaded state — zero new API calls, no storage.
-function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, dayOfMonth, daysInMo, expanded, onToggle }) {
+function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, dayOfMonth, daysInMo, debtReserve = 0, expanded, onToggle }) {
   const now = new Date();
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   // Current-month per-Type sums: spent (abs of negatives) + funded (positives).
@@ -1069,8 +1069,9 @@ function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, da
     });
   const unmetSavings = savRows.reduce((s, r) => s + r.unmet, 0);
 
+  const reserve = Math.max(0, debtReserve);               // monthly debt set-aside to hold back
   const net    = income - spent;                          // cash this month after spends
-  const free   = net - owedEssentials - unmetSavings;     // genuinely uncommitted
+  const free   = net - owedEssentials - unmetSavings - reserve;   // genuinely uncommitted
   const perDay = daysLeftIncl > 0 ? Math.max(0, free) / daysLeftIncl : 0;
 
   // Tier: rose when nothing's free, amber when ≤15% of remaining cash is free,
@@ -1120,6 +1121,7 @@ function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, da
           <div className="flex justify-between text-slate-400"><span>− Already spent</span><span className="font-mono text-slate-300">${spent.toFixed(0)}</span></div>
           <div className="flex justify-between text-slate-400"><span>− Bills still owed</span><span className="font-mono text-amber-300">${owedEssentials.toFixed(0)}</span></div>
           <div className="flex justify-between text-slate-400"><span>− Savings still to set aside</span><span className="font-mono text-sky-300">${unmetSavings.toFixed(0)}</span></div>
+          {reserve > 0 && <div className="flex justify-between text-slate-400"><span>− Debt set-aside (payoff plan)</span><span className="font-mono text-amber-300">${reserve.toFixed(0)}</span></div>}
           <div className="flex justify-between pt-1.5 border-t border-slate-700/60">
             <span className="text-slate-200 font-semibold">= Free for the rest of the month</span>
             <span className={`font-mono font-semibold ${free > 0 ? 'text-emerald-300' : 'text-rose-300'}`}>${free.toFixed(0)}</span>
@@ -1143,7 +1145,7 @@ function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, da
           )}
 
           <p className="text-[10px] text-slate-600 pt-2">
-            Free = money in − spent − unpaid essentials (P1+P2) − unmet savings, split across the {daysLeftIncl} day{daysLeftIncl === 1 ? '' : 's'} left. Already-paid bills aren't double-counted.
+            Free = money in − spent − unpaid essentials (P1+P2) − unmet savings{reserve > 0 ? ' − debt set-aside' : ''}, split across the {daysLeftIncl} day{daysLeftIncl === 1 ? '' : 's'} left. Already-paid bills aren't double-counted.
           </p>
         </div>
       )}
@@ -1447,6 +1449,38 @@ function NetWorthCard({ rows, expanded, onToggle, onUpdate }) {
 const DEBT_TYPES = ['Credit Card', 'Student Loan', 'Car Loan', 'Medical', 'Personal', 'Mortgage', 'Other'];
 const DEBT_SIM_CAP = 1200;   // hard month cap so a never-paying-off plan can't loop forever
 
+// A debt can carry a "pay it off over N months" plan, stored as a compact
+// `plan:N` tag inside its Notes column (no schema change to the Debts sheet).
+// From that we derive a monthly set-aside — the amount to reserve each month so
+// the balance clears on schedule — which then flows into the budget's
+// reserved-money figures (Safe-to-Spend, Forecast) so it's truly accounted for.
+function parseDebtPlanMonths(notes) {
+  const m = /(?:^|\s)plan:(\d{1,3})(?=\s|$)/i.exec(String(notes || ''));
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return n > 0 ? n : null;
+}
+function stripDebtPlanTag(notes) {
+  return String(notes || '').replace(/(?:^|\s)plan:\d{1,3}(?=\s|$)/i, ' ').replace(/\s+/g, ' ').trim();
+}
+// Monthly amount to set aside to clear `balance` in `months`. Amortised when the
+// debt charges interest (APR > 0); for an interest-free IOU it's just balance/N.
+function debtSetAside(balance, apr, months) {
+  if (balance <= 0 || months <= 0) return 0;
+  const r = apr / 100 / 12;
+  if (r <= 0) return balance / months;
+  return (balance * r) / (1 - Math.pow(1 + r, -months));
+}
+// Total monthly set-aside across every debt that has a payoff plan — the
+// obligation the rest of the budget must reserve.
+function totalDebtSetAside(rows) {
+  return (rows || []).reduce((s, d) => {
+    const bal = pm(d.balance);
+    const months = parseDebtPlanMonths(d.notes);
+    return months && bal > 0 ? s + debtSetAside(bal, pm(d.apr), months) : s;
+  }, 0);
+}
+
 // Months to clear ONE debt in isolation at a fixed monthly payment.
 // Returns Infinity when the payment can't even cover the first month's interest.
 function debtMonthsToPayoff(balance, apr, payment) {
@@ -1492,7 +1526,15 @@ function simulateDebtStrategy(debts, order, extra) {
 // there's nothing owed.
 function buildDebtPlan(rawDebts, strategy, extra) {
   const debts = rawDebts
-    .map(d => ({ name: d.name, balance: pm(d.balance), apr: pm(d.apr), min: pm(d.min), r: pm(d.apr) / 100 / 12 }))
+    .map(d => {
+      const balance = pm(d.balance), apr = pm(d.apr);
+      const planMonths = parseDebtPlanMonths(d.notes);
+      const setAside = planMonths ? debtSetAside(balance, apr, planMonths) : 0;
+      // A planned installment's set-aside IS its monthly payment; otherwise use
+      // the stated minimum. max() guards a plan whose set-aside undercuts the min.
+      const min = planMonths ? Math.max(setAside, pm(d.min)) : pm(d.min);
+      return { name: d.name, balance, apr, min, r: apr / 100 / 12, planMonths, setAside };
+    })
     .filter(d => d.balance > 0);
   if (!debts.length) return null;
   const order = strategy === 'snowball'
@@ -1524,6 +1566,13 @@ function DebtCard({ rows, expanded, onToggle, onManage }) {
 
   const totalBal = debts.reduce((s, d) => s + pm(d.balance), 0);
   const totalMin = debts.reduce((s, d) => s + pm(d.min), 0);
+  const setAsideTotal = totalDebtSetAside(debts);        // monthly reserve for planned payoffs
+  const planned = debts
+    .filter(d => parseDebtPlanMonths(d.notes) && pm(d.balance) > 0)
+    .map(d => {
+      const months = parseDebtPlanMonths(d.notes);
+      return { name: d.name, balance: pm(d.balance), months, setAside: debtSetAside(pm(d.balance), pm(d.apr), months) };
+    });
   const sliderMax = Math.max(100, Math.ceil((totalMin * 2) / 50) * 50);
   const aval = buildDebtPlan(debts, 'avalanche', extra);
   const snow = buildDebtPlan(debts, 'snowball', extra);
@@ -1541,6 +1590,9 @@ function DebtCard({ rows, expanded, onToggle, onManage }) {
             <p className="text-slate-400 text-xs mt-1.5">
               {debts.length} debt{debts.length > 1 ? 's' : ''} · {fmt(totalMin)}/mo minimum
             </p>
+            {setAsideTotal > 0 && (
+              <p className="text-amber-300 text-xs mt-1 font-semibold">💰 Set aside {fmt(setAsideTotal)}/mo to stay on plan</p>
+            )}
           </div>
           <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
         </div>
@@ -1548,6 +1600,24 @@ function DebtCard({ rows, expanded, onToggle, onManage }) {
 
       {expanded && (
         <div className="mt-3 pt-3 border-t border-slate-700/60 space-y-3">
+          {/* Payoff-plan set-asides — the monthly reserve folded into the budget */}
+          {planned.length > 0 && (
+            <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 space-y-1.5">
+              <p className="text-amber-200 text-xs font-semibold">💰 Monthly set-aside plan</p>
+              {planned.map((p, i) => (
+                <div key={`${p.name}-${i}`} className="flex justify-between text-xs text-slate-300">
+                  <span className="truncate pr-2">{p.name} <span className="text-slate-500">· {fmt(p.balance)} over {p.months} mo</span></span>
+                  <span className="font-mono text-amber-300">{fmt(p.setAside)}/mo</span>
+                </div>
+              ))}
+              <div className="flex justify-between text-xs pt-1.5 border-t border-amber-800/30">
+                <span className="text-amber-200 font-semibold">Total reserved each month</span>
+                <span className="font-mono text-amber-300 font-semibold">{fmt(setAsideTotal)}</span>
+              </div>
+              <p className="text-[10px] text-amber-200/60">This amount is reserved in your Safe-to-Spend and Forecast figures so the money is there when it's due.</p>
+            </div>
+          )}
+
           {/* Strategy toggle */}
           <div className="flex gap-2">
             {[['avalanche', 'Avalanche', 'highest APR first'], ['snowball', 'Snowball', 'smallest balance first']].map(([key, label, sub]) => (
@@ -1609,8 +1679,8 @@ function DebtCard({ rows, expanded, onToggle, onManage }) {
                     <span className="text-sm font-mono text-rose-300 shrink-0">{fmt(d.balance)}</span>
                   </div>
                   <div className="flex justify-between text-[11px] text-slate-500 mt-1 pl-7">
-                    <span>{pm(d.apr).toFixed(1)}% APR · {fmt(d.min)}/mo min</span>
-                    <span className={underfunded ? 'text-amber-400' : ''}>{underfunded ? '⚠ min ≤ interest' : debtMonthsLabel(moMin)}</span>
+                    <span>{pm(d.apr).toFixed(1)}% APR · {fmt(d.min)}/mo {d.planMonths ? 'set-aside' : 'min'}</span>
+                    <span className={underfunded ? 'text-amber-400' : d.planMonths ? 'text-amber-300' : ''}>{underfunded ? '⚠ min ≤ interest' : debtMonthsLabel(moMin)}</span>
                   </div>
                 </div>
               );
@@ -2680,6 +2750,7 @@ ${stmtTxns.length ? `
           daysLeftIncl={daysLeftIncl}
           dayOfMonth={dayOfMonth}
           daysInMo={daysInMo}
+          debtReserve={totalDebtSetAside(debtRows)}
           expanded={safeExpanded}
           onToggle={() => setSafeExpanded(v => !v)}
         />
@@ -2700,6 +2771,7 @@ ${stmtTxns.length ? `
           chartData={chartData}
           subscriptions={subscriptions}
           expenses={expenses}
+          debtReserve={totalDebtSetAside(debtRows)}
           expanded={forecastExpanded}
           onToggle={() => setForecastExpanded(v => !v)}
         />
@@ -5281,16 +5353,34 @@ ${stmtTxns.length ? `
       {showDebts && (() => {
         function DebtModal() {
           // Seed from the loaded debts, or one blank row for a first-time user.
+          const blankRow = { name: '', type: 'Credit Card', balance: '', apr: '', min: '', planMonths: '', notes: '' };
           const seed = debtRows.length
-            ? debtRows.map(d => ({ name: d.name, type: d.type || 'Credit Card', balance: String(d.balance), apr: String(d.apr), min: String(d.min), notes: d.notes || '' }))
-            : [{ name: '', type: 'Credit Card', balance: '', apr: '', min: '', notes: '' }];
+            ? debtRows.map(d => ({
+                name: d.name, type: d.type || 'Credit Card', balance: String(d.balance),
+                apr: String(d.apr), min: String(d.min),
+                planMonths: parseDebtPlanMonths(d.notes) ? String(parseDebtPlanMonths(d.notes)) : '',
+                notes: stripDebtPlanTag(d.notes),   // user notes without the plan:N tag
+              }))
+            : [{ ...blankRow }];
           const [list, setList] = useState(seed);
           const upd    = (i, k, v) => setList(a => a.map((row, j) => j === i ? { ...row, [k]: v } : row));
-          const addRow = () => setList(a => [...a, { name: '', type: 'Credit Card', balance: '', apr: '', min: '', notes: '' }]);
+          const addRow = () => setList(a => [...a, { ...blankRow }]);
           const rmRow  = (i) => setList(a => a.filter((_, j) => j !== i));
           const totBal = list.reduce((s, r) => s + pm(r.balance), 0);
           const totMin = list.reduce((s, r) => s + pm(r.min), 0);
-          function save() { saveDebts(list.filter(r => r.name.trim())); }
+          const totSetAside = list.reduce((s, r) => {
+            const n = parseInt(r.planMonths, 10);
+            return n > 0 && pm(r.balance) > 0 ? s + debtSetAside(pm(r.balance), pm(r.apr), n) : s;
+          }, 0);
+          function save() {
+            // Re-attach the plan:N tag to each debt's Notes (no schema change).
+            const out = list.filter(r => r.name.trim()).map(r => {
+              const n = parseInt(r.planMonths, 10);
+              const notes = (stripDebtPlanTag(r.notes) + (n > 0 ? ` plan:${n}` : '')).trim();
+              return { name: r.name, type: r.type, balance: r.balance, apr: r.apr, min: r.min, notes };
+            });
+            saveDebts(out);
+          }
           return (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4" onClick={() => !debtSaving && setShowDebts(false)}>
               <div className="bg-slate-800 rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[90dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -5298,7 +5388,7 @@ ${stmtTxns.length ? `
                   <h2 className="text-white font-semibold">💳 Manage Debts</h2>
                   <button onClick={() => setShowDebts(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
                 </div>
-                <p className="text-slate-500 text-xs">Enter each debt's current balance, its APR (annual interest %), and the minimum monthly payment. Saving rewrites your private Debts sheet.</p>
+                <p className="text-slate-500 text-xs">Enter each debt's current balance, APR (annual interest %), and minimum monthly payment. To pay someone back over time, set "pay off over N months" — the app reserves the monthly set-aside in your spending figures. Saving rewrites your private Debts sheet.</p>
 
                 <div className="space-y-3">
                   {list.map((row, i) => (
@@ -5335,6 +5425,18 @@ ${stmtTxns.length ? `
                           </div>
                         </label>
                       </div>
+                      {/* Optional payoff plan: pay this off over N months → monthly set-aside */}
+                      <div className="flex items-center gap-2">
+                        <label className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                          Pay off over
+                          <input value={row.planMonths} onChange={e => upd(i, 'planMonths', e.target.value.replace(/[^\d]/g, ''))} inputMode="numeric" placeholder="—"
+                            className="w-12 bg-slate-700 text-white rounded-lg px-2 py-1.5 text-sm text-center outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-500" />
+                          months
+                        </label>
+                        {parseInt(row.planMonths, 10) > 0 && pm(row.balance) > 0 && (
+                          <span className="text-[11px] text-amber-300 ml-auto">→ set aside <span className="font-mono font-semibold">{fmt(debtSetAside(pm(row.balance), pm(row.apr), parseInt(row.planMonths, 10)))}/mo</span></span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -5344,6 +5446,9 @@ ${stmtTxns.length ? `
                   <span className="text-rose-300">Total owed {fmt(totBal)}</span>
                   <span className="text-slate-300">Min {fmt(totMin)}/mo</span>
                 </div>
+                {totSetAside > 0 && (
+                  <p className="text-xs text-amber-300 text-center">💰 Reserve {fmt(totSetAside)}/mo to clear planned debts on schedule</p>
+                )}
 
                 {debtError && <p className="text-rose-400 text-xs">{debtError}</p>}
                 <div className="flex gap-3">
