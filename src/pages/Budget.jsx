@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { readRange, batchUpdateCells, appendRow } from '../lib/sheets';
+import { readRange, batchUpdateCells, appendRow, updateCell, clearRow, ensureSheetTab } from '../lib/sheets';
 import { SHEETS, MONTHS } from '../config';
 import { fetchGasPrices } from '../lib/gasPrice';
 import { computeGasBudget, saveGasBudget, getGasBudget } from '../lib/gasBudget';
@@ -1320,12 +1320,372 @@ function TrendsView({ allAllocTx, expenses }) {
   );
 }
 
+// ── Savings Goals (Task 9) ──────────────────────────────────────────────────────
+// Data lives in the private "Savings Goals" sheet tab (Name|Target|Current|Deadline|
+// Color|Notes) — nothing financial touches GitHub. Milestone flags (25/50/75/100%)
+// are remembered on-device in localStorage `_fin_goal_milestones` (opaque % markers,
+// no amounts). Contributions log a real positive row to Allocation Transactions AND
+// bump the goal's Current cell, so the money is genuine rather than a sheet-only number.
+
+const GOAL_COLORS = ['#10b981', '#3b82f6', '#a855f7', '#f59e0b', '#f43f5e', '#06b6d4', '#ec4899', '#84cc16'];
+const GOAL_MILESTONES = [25, 50, 75, 100];
+
+function toISODate(d) {
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${yr}-${mo}-${da}`;
+}
+function getGoalMilestones() {
+  try { return JSON.parse(localStorage.getItem('_fin_goal_milestones') || '{}'); } catch { return {}; }
+}
+function notifyGoal(title, body) {
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission === 'granted') { try { new Notification(title, { body }); } catch { /* ignore */ } }
+  else if (Notification.permission !== 'denied') {
+    Notification.requestPermission().then(p => {
+      if (p === 'granted') { try { new Notification(title, { body }); } catch { /* ignore */ } }
+    });
+  }
+}
+
+// Parse "Savings Goals" sheet rows → goal objects. Carries _rowNum for in-place edit/delete.
+function parseGoals(rows) {
+  if (!rows || !rows.length) return [];
+  const [, ...data] = rows; // drop header
+  return data
+    .map((r, idx) => {
+      const deadlineDate = parseSheetDate(r[3]);
+      return {
+        _rowNum:  idx + 2,
+        name:     String(r[0] || '').trim(),
+        target:   pm(r[1]),
+        current:  pm(r[2]),
+        deadline: deadlineDate ? toISODate(deadlineDate) : '',
+        color:    String(r[4] || '').trim() || GOAL_COLORS[0],
+        notes:    String(r[5] || '').trim(),
+      };
+    })
+    .filter(g => g.name);
+}
+
+// Fires a milestone push when a goal newly crosses 25/50/75/100% (once each, deduped on-device).
+function checkGoalMilestones(goals) {
+  const map = getGoalMilestones();
+  let changed = false;
+  goals.forEach(g => {
+    if (g.target <= 0) return;
+    const pct = (g.current / g.target) * 100;
+    const hit = (map[g.name] || []).map(String);
+    GOAL_MILESTONES.forEach(ms => {
+      if (pct >= ms && !hit.includes(String(ms))) {
+        hit.push(String(ms));
+        changed = true;
+        notifyGoal(
+          ms >= 100 ? `🎉 Goal reached: ${g.name}` : `🎯 ${g.name} hit ${ms}%`,
+          ms >= 100
+            ? `You've fully funded ${g.name} (${fmt(g.target)}).`
+            : `${fmt(g.current)} of ${fmt(g.target)} saved — ${ms}% there.`
+        );
+      }
+    });
+    map[g.name] = hit;
+  });
+  if (changed) {
+    try { localStorage.setItem('_fin_goal_milestones', JSON.stringify(map)); } catch { /* ignore */ }
+  }
+}
+
+// Average monthly contribution toward a goal, derived from all-time allocation rows
+// (positive deposits whose Type matches the goal name). Used only for the projection.
+function goalAvgMonthly(goalName, allAllocTx) {
+  const key = goalName.trim().toLowerCase();
+  const rows = allAllocTx.filter(tx => String(tx.type).trim().toLowerCase() === key && tx.amount > 0 && tx.dateObj);
+  if (!rows.length) return 0;
+  const total = rows.reduce((s, tx) => s + tx.amount, 0);
+  const months = new Set(rows.map(tx => `${tx.dateObj.getFullYear()}-${tx.dateObj.getMonth()}`));
+  return total / Math.max(1, months.size);
+}
+
+function daysBetween(a, b) { return Math.round((b - a) / 86400000); }
+
+function GoalCard({ goal, allAllocTx, onContribute, onEdit, contributing }) {
+  const [showContrib, setShowContrib] = useState(false);
+  const [amt, setAmt] = useState('');
+
+  const pct       = goal.target > 0 ? Math.min((goal.current / goal.target) * 100, 100) : 0;
+  const remaining = Math.max(0, goal.target - goal.current);
+  const done      = remaining <= 0.005 && goal.target > 0;
+  const avgMonthly = goalAvgMonthly(goal.name, allAllocTx);
+
+  // Days to deadline
+  let deadlineInfo = null;
+  if (goal.deadline) {
+    const dd = parseSheetDate(goal.deadline);
+    if (dd) {
+      const days = daysBetween(new Date(), dd);
+      deadlineInfo = { days };
+    }
+  }
+
+  // Projected completion from average monthly contribution
+  let projection = null;
+  if (!done && remaining > 0 && avgMonthly > 0) {
+    const monthsLeft = remaining / avgMonthly;
+    const proj = new Date();
+    proj.setDate(proj.getDate() + Math.ceil(monthsLeft * 30.44));
+    projection = { date: proj, monthsLeft };
+  }
+
+  // On-track: is the average pace enough to hit the deadline?
+  let onTrack = null;
+  if (deadlineInfo && deadlineInfo.days > 0 && remaining > 0) {
+    const monthsToDeadline = deadlineInfo.days / 30.44;
+    const requiredMonthly = remaining / monthsToDeadline;
+    if (avgMonthly > 0) onTrack = avgMonthly >= requiredMonthly;
+  }
+
+  function submitContrib(e) {
+    e.preventDefault();
+    const v = parseFloat(amt);
+    if (!v || v <= 0) return;
+    onContribute(goal, v);
+    setAmt('');
+    setShowContrib(false);
+  }
+
+  return (
+    <div className="bg-slate-900 rounded-2xl p-4 space-y-3 border border-slate-800/60">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="w-3 h-3 rounded-full shrink-0" style={{ background: goal.color }} />
+          <div className="min-w-0">
+            <p className="text-white font-semibold text-sm truncate">{goal.name}</p>
+            {goal.notes && <p className="text-slate-500 text-[11px] truncate">{goal.notes}</p>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`text-xs font-bold tabular-nums ${done ? 'text-emerald-400' : 'text-slate-300'}`}>
+            {pct.toFixed(0)}%
+          </span>
+          <button onClick={() => onEdit(goal)} className="text-slate-500 hover:text-slate-300 text-sm" aria-label="Edit goal">✎</button>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div>
+        <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+          <div className="h-2.5 rounded-full transition-all duration-500"
+            style={{ width: `${pct}%`, background: done ? '#10b981' : goal.color }} />
+        </div>
+        <div className="flex justify-between text-[11px] font-mono text-slate-400 mt-1">
+          <span>{fmt(goal.current)} <span className="text-slate-600">/ {fmt(goal.target)}</span></span>
+          {done
+            ? <span className="text-emerald-400 font-semibold">✓ Funded</span>
+            : <span className="text-sky-400">{fmt(remaining)} to go</span>}
+        </div>
+      </div>
+
+      {/* Meta chips */}
+      <div className="flex flex-wrap gap-1.5 text-[10px]">
+        {deadlineInfo && (
+          <span className={`px-2 py-0.5 rounded-lg font-medium ${
+            deadlineInfo.days < 0 ? 'bg-rose-900/50 text-rose-300'
+            : deadlineInfo.days <= 14 ? 'bg-amber-900/40 text-amber-300'
+            : 'bg-slate-800 text-slate-400'}`}>
+            {deadlineInfo.days < 0 ? `⏰ ${Math.abs(deadlineInfo.days)}d overdue`
+              : deadlineInfo.days === 0 ? '⏰ Due today'
+              : `📅 ${deadlineInfo.days}d left`}
+          </span>
+        )}
+        {projection && (
+          <span className="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-400 font-medium">
+            ~done {projection.date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+          </span>
+        )}
+        {avgMonthly > 0 && (
+          <span className="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-500 font-mono">
+            {fmt(avgMonthly)}/mo avg
+          </span>
+        )}
+        {onTrack != null && (
+          <span className={`px-2 py-0.5 rounded-lg font-medium ${onTrack ? 'bg-emerald-900/40 text-emerald-300' : 'bg-rose-900/40 text-rose-300'}`}>
+            {onTrack ? '✓ On track' : '⚠ Behind pace'}
+          </span>
+        )}
+      </div>
+
+      {/* Contribute */}
+      {!done && (
+        showContrib ? (
+          <form onSubmit={submitContrib} className="flex gap-2">
+            <input
+              type="number" step="0.01" min="0" autoFocus value={amt}
+              onChange={e => setAmt(e.target.value)} placeholder="Amount"
+              className="flex-1 bg-slate-800 text-white rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+            />
+            <button type="submit" disabled={contributing}
+              className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold">
+              {contributing ? '…' : 'Add'}
+            </button>
+            <button type="button" onClick={() => { setShowContrib(false); setAmt(''); }}
+              className="px-3 py-2 rounded-lg bg-slate-700 text-slate-300 text-sm">✕</button>
+          </form>
+        ) : (
+          <button onClick={() => setShowContrib(true)}
+            className="w-full py-2 rounded-lg bg-emerald-900/30 hover:bg-emerald-900/50 text-emerald-300 text-sm font-semibold transition-colors">
+            + Contribute
+          </button>
+        )
+      )}
+    </div>
+  );
+}
+
+function GoalDrawer({ goal, isNew, onSave, onDelete, onClose, saving }) {
+  const [form, setForm] = useState({
+    name:     goal?.name || '',
+    target:   goal?.target ? String(goal.target) : '',
+    current:  goal?.current ? String(goal.current) : '0',
+    deadline: goal?.deadline || '',
+    color:    goal?.color || GOAL_COLORS[0],
+    notes:    goal?.notes || '',
+  });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const cls = "w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500";
+
+  function submit(e) {
+    e.preventDefault();
+    if (!form.name.trim() || !(parseFloat(form.target) > 0)) return;
+    onSave({
+      name: form.name.trim(),
+      target: parseFloat(form.target),
+      current: parseFloat(form.current) || 0,
+      deadline: form.deadline,
+      color: form.color,
+      notes: form.notes.trim(),
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+      <div className="bg-slate-800 rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[90dvh] overflow-y-auto">
+        <div className="flex justify-between items-center">
+          <h2 className="text-white font-semibold text-lg">{isNew ? 'New Savings Goal' : 'Edit Goal'}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">✕</button>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          <div>
+            <label className="text-slate-400 text-xs block mb-1">Goal Name</label>
+            <input value={form.name} onChange={e => set('name', e.target.value)} required className={cls} placeholder="e.g. Emergency Fund" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-slate-400 text-xs block mb-1">Target ($)</label>
+              <input type="number" step="0.01" min="0" value={form.target} onChange={e => set('target', e.target.value)} required className={cls} />
+            </div>
+            <div>
+              <label className="text-slate-400 text-xs block mb-1">Saved so far ($)</label>
+              <input type="number" step="0.01" min="0" value={form.current} onChange={e => set('current', e.target.value)} className={cls} />
+            </div>
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs block mb-1">Deadline (optional)</label>
+            <input type="date" value={form.deadline} onChange={e => set('deadline', e.target.value)} className={cls} />
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs block mb-1">Color</label>
+            <div className="flex flex-wrap gap-2">
+              {GOAL_COLORS.map(c => (
+                <button key={c} type="button" onClick={() => set('color', c)}
+                  className={`w-7 h-7 rounded-full transition-transform ${form.color === c ? 'ring-2 ring-white ring-offset-2 ring-offset-slate-800 scale-110' : ''}`}
+                  style={{ background: c }} aria-label={`color ${c}`} />
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs block mb-1">Notes (optional)</label>
+            <textarea value={form.notes} onChange={e => set('notes', e.target.value)} className={cls + ' resize-none h-16'} />
+          </div>
+          <div className="flex gap-3 pt-1">
+            {!isNew && (
+              <button type="button" onClick={() => onDelete(goal)} disabled={saving}
+                className="px-4 py-2.5 rounded-xl bg-rose-900/40 text-rose-300 text-sm font-medium disabled:opacity-50">
+                Delete
+              </button>
+            )}
+            <button type="submit" disabled={saving}
+              className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50">
+              {saving ? 'Saving…' : isNew ? 'Create Goal' : 'Save'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function GoalsView({ goals, allAllocTx, loading, error, onAdd, onEdit, onContribute, contributing }) {
+  if (loading) return <div className="py-12"><LoadingSpinner /></div>;
+  if (error)   return <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm">{error}</div>;
+
+  const totalTarget  = goals.reduce((s, g) => s + g.target, 0);
+  const totalSaved   = goals.reduce((s, g) => s + Math.min(g.current, g.target), 0);
+  const overallPct   = totalTarget > 0 ? Math.min((totalSaved / totalTarget) * 100, 100) : 0;
+  const fundedCount  = goals.filter(g => g.target > 0 && g.current >= g.target - 0.005).length;
+
+  return (
+    <div className="space-y-4">
+      {goals.length > 0 && (
+        <div className="bg-slate-900 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-slate-400 text-[10px] uppercase tracking-wider">All Goals</p>
+            <p className="text-slate-500 text-[11px]">{fundedCount}/{goals.length} funded</p>
+          </div>
+          <div className="flex items-end justify-between mb-2">
+            <p className="text-emerald-400 text-xl font-bold font-mono tabular-nums">{fmt(totalSaved)}</p>
+            <p className="text-slate-500 text-xs font-mono">of {fmt(totalTarget)}</p>
+          </div>
+          <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+            <div className="h-2.5 rounded-full bg-emerald-500 transition-all" style={{ width: `${overallPct}%` }} />
+          </div>
+        </div>
+      )}
+
+      <button onClick={onAdd}
+        className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors">
+        + New Savings Goal
+      </button>
+
+      {goals.length === 0 ? (
+        <p className="text-slate-500 text-center py-8 text-sm">
+          No savings goals yet.<br />Create one to track progress toward what matters.
+        </p>
+      ) : (
+        <div className="stagger space-y-3">
+          {goals.map(g => (
+            <GoalCard
+              key={g._rowNum}
+              goal={g}
+              allAllocTx={allAllocTx}
+              onContribute={onContribute}
+              onEdit={onEdit}
+              contributing={contributing}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 
 const TABS = [
   { key: 'categories', label: 'Categories' },
   { key: 'budget',     label: 'Budget' },
   { key: 'entries',    label: 'Entries & Trends' },
+  { key: 'goals',      label: 'Goals' },
 ];
 
 function TabBar({ active, onChange }) {
@@ -1365,6 +1725,16 @@ export default function Budget({ token }) {
   const [isAddNew, setIsAddNew]   = useState(false);
   const [saving, setSaving]       = useState(false);
   const [saveError, setSaveError] = useState(null);
+
+  // ── Savings Goals (Task 9) — lazy-loaded on first Goals-tab open ──
+  const [goals, setGoals]               = useState([]);
+  const [goalsLoaded, setGoalsLoaded]   = useState(false);
+  const [goalsLoading, setGoalsLoading] = useState(false);
+  const [goalsError, setGoalsError]     = useState(null);
+  const [editGoal, setEditGoal]         = useState(null);   // goal object or {} for new
+  const [isNewGoal, setIsNewGoal]       = useState(false);
+  const [goalSaving, setGoalSaving]     = useState(false);
+  const [contributing, setContributing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1496,6 +1866,104 @@ export default function Budget({ token }) {
     setEditItem({ Type: '', Expense: '', Account: 'Checking', Priority: priority, 'Monthly Allowance ($)': '0' });
   }
 
+  // ── Savings Goals handlers ──
+  const loadGoals = useCallback(async () => {
+    setGoalsLoading(true);
+    setGoalsError(null);
+    try {
+      const rows = await readRange(token, `${SHEETS.SAVINGS_GOALS}!A1:F100`, 'UNFORMATTED_VALUE').catch(() => []);
+      const parsed = parseGoals(rows);
+      setGoals(parsed);
+      checkGoalMilestones(parsed);
+      setGoalsLoaded(true);
+    } catch (e) {
+      setGoalsError(e.message);
+    } finally {
+      setGoalsLoading(false);
+    }
+  }, [token]);
+
+  // Lazy-load goals the first time the Goals tab is opened (zero cost to other tabs).
+  useEffect(() => {
+    if (activeTab === 'goals' && !goalsLoaded && !goalsLoading && token) loadGoals();
+  }, [activeTab, goalsLoaded, goalsLoading, token, loadGoals]);
+
+  async function ensureGoalsSheet() {
+    await ensureSheetTab(token, SHEETS.SAVINGS_GOALS);
+    const existing = await readRange(token, `${SHEETS.SAVINGS_GOALS}!A1:F1`).catch(() => []);
+    if (!existing.length || String(existing[0]?.[0]).toLowerCase() !== 'name') {
+      await batchUpdateCells(token, [
+        { range: `${SHEETS.SAVINGS_GOALS}!A1`, value: 'Name' },
+        { range: `${SHEETS.SAVINGS_GOALS}!B1`, value: 'Target' },
+        { range: `${SHEETS.SAVINGS_GOALS}!C1`, value: 'Current' },
+        { range: `${SHEETS.SAVINGS_GOALS}!D1`, value: 'Deadline' },
+        { range: `${SHEETS.SAVINGS_GOALS}!E1`, value: 'Color' },
+        { range: `${SHEETS.SAVINGS_GOALS}!F1`, value: 'Notes' },
+      ]);
+    }
+  }
+
+  async function saveGoal(fields) {
+    setGoalSaving(true);
+    try {
+      if (isNewGoal) {
+        await ensureGoalsSheet();
+        await appendRow(token, `${SHEETS.SAVINGS_GOALS}!A:F`,
+          [fields.name, fields.target, fields.current, fields.deadline, fields.color, fields.notes]);
+      } else {
+        const row = editGoal._rowNum;
+        await batchUpdateCells(token, [
+          { range: `${SHEETS.SAVINGS_GOALS}!A${row}`, value: fields.name },
+          { range: `${SHEETS.SAVINGS_GOALS}!B${row}`, value: fields.target },
+          { range: `${SHEETS.SAVINGS_GOALS}!C${row}`, value: fields.current },
+          { range: `${SHEETS.SAVINGS_GOALS}!D${row}`, value: fields.deadline },
+          { range: `${SHEETS.SAVINGS_GOALS}!E${row}`, value: fields.color },
+          { range: `${SHEETS.SAVINGS_GOALS}!F${row}`, value: fields.notes },
+        ]);
+      }
+      setEditGoal(null);
+      setIsNewGoal(false);
+      await loadGoals();
+    } catch (e) {
+      setGoalsError(e.message);
+    } finally {
+      setGoalSaving(false);
+    }
+  }
+
+  async function deleteGoal(goal) {
+    setGoalSaving(true);
+    try {
+      await clearRow(token, `${SHEETS.SAVINGS_GOALS}!A${goal._rowNum}:F${goal._rowNum}`);
+      setEditGoal(null);
+      setIsNewGoal(false);
+      await loadGoals();
+    } catch (e) {
+      setGoalsError(e.message);
+    } finally {
+      setGoalSaving(false);
+    }
+  }
+
+  // Contribute: log a real positive deposit to Allocation Transactions AND bump Current.
+  async function contributeGoal(goal, amount) {
+    setContributing(true);
+    try {
+      const today = toISODate(new Date());
+      await appendRow(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!A:F`,
+        [today, goal.name, amount, '[Goal] contribution', 'Savings', true]);
+      await updateCell(token, `${SHEETS.SAVINGS_GOALS}!C${goal._rowNum}`, goal.current + amount);
+      await loadGoals();
+    } catch (e) {
+      setGoalsError(e.message);
+    } finally {
+      setContributing(false);
+    }
+  }
+
+  function openGoalAdd() { setIsNewGoal(true); setEditGoal({}); }
+  function openGoalEdit(goal) { setIsNewGoal(false); setEditGoal(goal); }
+
   if (loading) return <LoadingSpinner />;
   if (error)   return <div className="p-4 text-red-400">Error: {error}</div>;
 
@@ -1552,6 +2020,7 @@ export default function Budget({ token }) {
             {activeTab === 'budget'     ? 'Plan vs. actual spend · tap any item to edit' :
              activeTab === 'categories' ? 'Funded this month (deposits) vs. goal' :
              activeTab === 'entries'    ? 'Allocation entries + month-over-month trends' :
+             activeTab === 'goals'      ? 'Savings goals · progress, deadlines & projections' :
              'Allocation actuals vs. plan'}
           </p>
         </div>
@@ -1703,6 +2172,20 @@ export default function Budget({ token }) {
           </>
         )}
 
+        {/* ── Savings Goals tab ── */}
+        {activeTab === 'goals' && (
+          <GoalsView
+            goals={goals}
+            allAllocTx={allAllocTx}
+            loading={goalsLoading && !goalsLoaded}
+            error={goalsError}
+            onAdd={openGoalAdd}
+            onEdit={openGoalEdit}
+            onContribute={contributeGoal}
+            contributing={contributing}
+          />
+        )}
+
       </div>
 
       {/* Edit / Add drawer (Budget Plan tab only) */}
@@ -1714,6 +2197,18 @@ export default function Budget({ token }) {
           onClose={() => { setEditItem(null); setIsAddNew(false); setSaveError(null); }}
           saving={saving}
           isNew={isAddNew}
+        />
+      )}
+
+      {/* Savings Goal drawer (Goals tab) */}
+      {editGoal && (
+        <GoalDrawer
+          goal={editGoal}
+          isNew={isNewGoal}
+          onSave={saveGoal}
+          onDelete={deleteGoal}
+          onClose={() => { setEditGoal(null); setIsNewGoal(false); }}
+          saving={goalSaving}
         />
       )}
     </div>
