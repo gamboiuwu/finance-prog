@@ -1,8 +1,41 @@
 import { useEffect, useState } from 'react';
-import { readRange, appendRow } from '../lib/sheets';
+import { readRange, appendRow, batchUpdateCells } from '../lib/sheets';
 import { SHEETS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import CommissionPrices from './CommissionPrices';
+
+// ── Task 12 helpers ─────────────────────────────────────────────────────────
+// An inquiry is "outstanding" once a price is agreed but it isn't fully paid and
+// isn't marked complete. This is the basis for both the ✦ Art nav badge and the
+// aged A/R list.
+function isOutstanding(inq) {
+  const agreed = parseFloat(inq['Price Agreed']) || 0;
+  const paid = parseFloat(inq['Paid Amount, Method']) || 0;
+  const completed = (inq['Status'] || '').toLowerCase().includes('complet');
+  return agreed > 0 && paid < agreed - 0.005 && !completed;
+}
+
+// Parse a sheet date (serial number, YYYY-MM-DD, or M/D/YYYY) to a Date, else null.
+function parseCommDate(val) {
+  if (val == null || val === '') return null;
+  if (typeof val === 'number') {
+    // Google Sheets serial date: days since 1899-12-30
+    return new Date(Date.UTC(1899, 11, 30) + val * 86400000);
+  }
+  const s = String(val).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (m) {
+    const y = +m[3] < 100 ? 2000 + +m[3] : +m[3];
+    return new Date(y, +m[1] - 1, +m[2]);
+  }
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+// Art-income tag matcher: descriptions prefixed "[Commission]" or "[Art]" (Task 27 source tags).
+const ART_TAG_RE = /^\[(commission|art)\]/i;
 
 const STATUS_COLORS = {
   'Completed': 'bg-emerald-900/50 text-emerald-300',
@@ -95,6 +128,8 @@ export default function Commissions({ token }) {
   const [error, setError] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [expanded, setExpanded] = useState(null);
+  const [artIncome, setArtIncome] = useState(null); // { month, all } or null while loading
+  const [marking, setMarking] = useState(null);     // sheet row currently being marked paid
 
   function load() {
     setLoading(true);
@@ -103,19 +138,68 @@ export default function Commissions({ token }) {
         if (!rows.length) return;
         const [headers, ...data] = rows;
         const parsed = data
-          .filter(r => r[1])
-          .map(row => {
-            const obj = {};
+          // Preserve the real sheet-row number (header is row 1) so writes target the right row.
+          .map((row, idx) => ({ row, sheetRow: idx + 2 }))
+          .filter(({ row }) => row[1])
+          .map(({ row, sheetRow }) => {
+            const obj = { _row: sheetRow };
             headers.slice(0, 12).forEach((h, i) => { obj[h] = row[i] ?? null; });
             return obj;
           });
         setInquiries(parsed);
+        // Cache the outstanding count for the ✦ Art nav badge (no $ amounts stored).
+        const count = parsed.filter(isOutstanding).length;
+        try {
+          localStorage.setItem('_fin_art_outstanding', JSON.stringify({ count }));
+          window.dispatchEvent(new Event('_fin_art_outstanding_update'));
+        } catch {}
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { if (token) load(); }, [token]);
+  // This-month + all-time art income = Allocation Transactions tagged [Commission]/[Art].
+  function loadArtIncome() {
+    readRange(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!A:F`, 'UNFORMATTED_VALUE')
+      .then(rows => {
+        const now = new Date();
+        let month = 0, all = 0;
+        (rows || []).slice(1).forEach(r => {
+          const desc = String(r[3] ?? '');
+          if (!ART_TAG_RE.test(desc.trim())) return;
+          const amt = parseFloat(r[2]) || 0;
+          if (amt <= 0) return; // income deposits only
+          all += amt;
+          const d = parseCommDate(r[0]);
+          if (d && d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) month += amt;
+        });
+        setArtIncome({ month, all });
+      })
+      .catch(() => setArtIncome({ month: 0, all: 0 }));
+  }
+
+  useEffect(() => { if (token) { load(); loadArtIncome(); } }, [token]);
+
+  // Mark a commission as fully paid: Status → Completed, Paid Amount → Price Agreed.
+  // Writes back to the inquiry's own sheet row (no deposit is created here — logging the
+  // deposit via Process Income is a deliberate follow-up pending the owner's choice).
+  async function markPaid(inq) {
+    const agreed = parseFloat(inq['Price Agreed']) || 0;
+    if (!agreed) return;
+    if (!window.confirm(`Mark "${inq['Card Name']}" as paid in full ($${agreed.toFixed(2)})?`)) return;
+    setMarking(inq._row);
+    try {
+      await batchUpdateCells(token, [
+        { range: `${SHEETS.INQUIRIES}!E${inq._row}`, value: 'Completed' },       // Status
+        { range: `${SHEETS.INQUIRIES}!G${inq._row}`, value: agreed },             // Paid Amount, Method
+      ]);
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setMarking(null);
+    }
+  }
 
   async function handleSave(values) {
     setSaving(true);
@@ -160,7 +244,13 @@ export default function Commissions({ token }) {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-white">Commissions</h1>
-          <p className="text-slate-400 text-sm">Client inquiries</p>
+          {artIncome && artIncome.all > 0
+            ? <p className="text-slate-400 text-sm">
+                <span className="text-emerald-400 font-semibold">${artIncome.month.toFixed(2)}</span> art income this month
+                <span className="text-slate-600"> · </span>
+                <span className="text-slate-500">${artIncome.all.toFixed(2)} all-time</span>
+              </p>
+            : <p className="text-slate-400 text-sm">Client inquiries</p>}
         </div>
         <div className="flex items-center gap-2">
           <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
@@ -229,6 +319,43 @@ export default function Commissions({ token }) {
         );
       })()}
 
+      {/* Aged accounts-receivable — outstanding commissions, oldest first */}
+      {(() => {
+        const outstanding = inquiries
+          .filter(isOutstanding)
+          .map(inq => {
+            const agreed = parseFloat(inq['Price Agreed']) || 0;
+            const paid = parseFloat(inq['Paid Amount, Method']) || 0;
+            const d = parseCommDate(inq['Comm Date']);
+            const ageDays = d ? Math.floor((Date.now() - d.getTime()) / 86400000) : null;
+            return { inq, remaining: agreed - paid, ageDays };
+          })
+          .sort((a, b) => (b.ageDays ?? -1) - (a.ageDays ?? -1));
+        if (outstanding.length === 0) return null;
+        const totalDue = outstanding.reduce((s, o) => s + o.remaining, 0);
+        return (
+          <div className="bg-amber-900/10 border border-amber-800/40 rounded-2xl p-4 space-y-2.5">
+            <div className="flex justify-between items-center">
+              <p className="text-amber-300 text-xs font-semibold uppercase tracking-wider">Awaiting payment</p>
+              <p className="text-amber-300 text-sm font-bold tabular-nums">${totalDue.toFixed(2)} · {outstanding.length}</p>
+            </div>
+            <div className="space-y-1.5">
+              {outstanding.map((o, i) => (
+                <div key={i} className="flex justify-between items-center text-xs">
+                  <span className="text-slate-300 truncate min-w-0">{o.inq['Card Name']}</span>
+                  <span className="flex items-center gap-2 shrink-0 ml-2">
+                    {o.ageDays != null && (
+                      <span className={o.ageDays >= 30 ? 'text-rose-400' : 'text-slate-500'}>{o.ageDays}d</span>
+                    )}
+                    <span className="text-white font-medium tabular-nums">${o.remaining.toFixed(2)}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* List */}
       <div className="space-y-3">
         {inquiries.map((inq, i) => {
@@ -279,6 +406,15 @@ export default function Commissions({ token }) {
                   {inq['Comm Date'] && <p className="text-slate-500 text-xs">Started: {inq['Comm Date']}</p>}
                   {inq['Completion Date'] && <p className="text-slate-500 text-xs">Completed: {inq['Completion Date']}</p>}
                   {inq['Notes'] && <p className="text-slate-400 text-xs italic">{inq['Notes']}</p>}
+                  {isOutstanding(inq) && (
+                    <button
+                      onClick={() => markPaid(inq)}
+                      disabled={marking === inq._row}
+                      className="w-full py-2 rounded-lg bg-emerald-600/90 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition-colors"
+                    >
+                      {marking === inq._row ? 'Saving…' : `✓ Mark Paid ($${(agreed - paid).toFixed(2)} due)`}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
