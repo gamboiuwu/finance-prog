@@ -46,6 +46,74 @@ const fmt = (n) => {
 const clamp = (n) => Math.max(0, Math.min(100, Number(n) || 0));
 const pct   = (n) => `${Math.round(Number(n) || 0)}%`;
 
+// ── Milestone tracking (Task 9) ───────────────────────────────────────────────
+// Celebrate when a goal crosses 25 / 50 / 75 / 100% funded. Crossings are deduped
+// in localStorage so each milestone notifies at most once. A goal seen for the
+// first time is seeded SILENTLY with whatever it has already passed, so existing
+// goals never fire a burst of stale notifications on first load — only genuinely
+// new crossings push. Nothing financial is stored: the map holds opaque goal keys
+// → integer milestone percentages, no amounts.
+const GOAL_MILESTONES = [25, 50, 75, 100];
+const GOAL_MS_KEY = '_fin_goal_milestones';
+
+const goalKey = (g) => g.id || g.name || '';
+
+function readGoalMilestones() {
+  try { return JSON.parse(localStorage.getItem(GOAL_MS_KEY)) || {}; }
+  catch { return {}; }
+}
+function writeGoalMilestones(map) {
+  try { localStorage.setItem(GOAL_MS_KEY, JSON.stringify(map)); } catch {}
+}
+// Milestone percentages a goal at `progress`% has reached.
+function reachedMilestones(progress) {
+  const p = clamp(progress);
+  return GOAL_MILESTONES.filter(m => p >= m);
+}
+// Reconcile every goal against stored milestones. Fires one push per newly
+// crossed milestone (skipping each goal's silent first-seen baseline), prunes
+// entries for deleted goals, and returns the updated { key: [reached...] } map
+// for rendering milestone badges. Read-only to the sheet — localStorage + push.
+function syncGoalMilestones(goals) {
+  const stored = readGoalMilestones();
+  const next = {};
+  const fresh = []; // { name, milestone, saved, target }
+  for (const g of goals) {
+    const key = goalKey(g);
+    if (!key) continue;
+    const reached = reachedMilestones(g.progress);
+    const prev = Array.isArray(stored[key]) ? stored[key].map(Number) : null;
+    if (prev !== null) {
+      // Known goal — anything newly reached beyond what we recorded is a crossing.
+      for (const m of reached) {
+        if (!prev.includes(m)) fresh.push({ name: g.name, milestone: m, saved: g.saved, target: g.target });
+      }
+    }
+    // prev === null → first sighting: baseline silently (no notification).
+    next[key] = reached;
+  }
+  writeGoalMilestones(next); // deleted goals drop out (rebuilt from live list)
+
+  if (fresh.length && typeof Notification !== 'undefined' && Notification.permission !== 'denied') {
+    const doNotify = () => {
+      try {
+        for (const f of fresh) {
+          const title = f.milestone >= 100
+            ? `🏆 ${f.name} fully funded! 🎉`
+            : `🎉 ${f.name}: ${f.milestone}% funded`;
+          new Notification(title, {
+            body: `${fmt(f.saved)} of ${fmt(f.target)} saved`,
+            tag: `fin-goal-${f.name}-${f.milestone}`,
+          });
+        }
+      } catch {}
+    };
+    if (Notification.permission === 'granted') doNotify();
+    else Notification.requestPermission().then(p => { if (p === 'granted') doNotify(); });
+  }
+  return next;
+}
+
 const VERDICT = {
   reached:  { label: 'Reached',         cls: 'bg-emerald-900/40 text-emerald-300 border-emerald-700/50' },
   on_track: { label: 'On track',        cls: 'bg-teal-900/40 text-teal-300 border-teal-700/50' },
@@ -55,12 +123,14 @@ const VERDICT = {
 };
 
 // ── Inline goal card with edit / delete buttons ───────────────────────────────
-function GoalCard({ g, onEdit, onDelete, isDeleting }) {
+function GoalCard({ g, onEdit, onDelete, isDeleting, milestones }) {
   const done   = g.status === 'done' || g.progress >= 100;
   const paused = g.status === 'paused';
   const barColor = done ? 'bg-emerald-500' : paused ? 'bg-slate-500' : 'bg-gradient-to-r from-emerald-500 to-teal-400';
   const a = g.assessment;
   const v = a ? (VERDICT[a.verdict] || VERDICT.on_track) : null;
+  // Reached milestones (falls back to live progress until the sync effect runs).
+  const reached = (milestones || reachedMilestones(g.progress)).filter(m => m < 100);
 
   return (
     <div className="bg-slate-900/60 rounded-xl p-3 space-y-2">
@@ -89,10 +159,27 @@ function GoalCard({ g, onEdit, onDelete, isDeleting }) {
         </button>
       </div>
 
-      {/* Progress bar */}
-      <div className="h-2 bg-slate-700/60 rounded-full overflow-hidden">
+      {/* Progress bar with 25 / 50 / 75% milestone ticks */}
+      <div className="relative h-2 bg-slate-700/60 rounded-full overflow-hidden">
         <div className={`h-full rounded-full ${barColor}`} style={{ width: `${clamp(g.progress)}%` }} />
+        {[25, 50, 75].map(m => (
+          <span key={m} className="absolute top-0 bottom-0 w-px bg-slate-900/70" style={{ left: `${m}%` }} />
+        ))}
       </div>
+
+      {/* Milestone badges — celebrate the levels this goal has crossed */}
+      {!done && reached.length > 0 && (
+        <div className="flex items-center gap-1 flex-wrap">
+          {reached.map(m => (
+            <span
+              key={m}
+              className="text-[9px] px-1.5 py-0.5 rounded-full bg-teal-900/40 text-teal-300 border border-teal-700/40"
+            >
+              🎉 {m}%
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Progress numbers */}
       <div className="flex items-center justify-between text-[11px]">
@@ -101,7 +188,7 @@ function GoalCard({ g, onEdit, onDelete, isDeleting }) {
         </span>
         <span className="text-slate-400">
           {done
-            ? <span className="text-emerald-400 font-semibold">Funded!</span>
+            ? <span className="text-emerald-400 font-semibold">🏆 Funded!</span>
             : paused
             ? <span className="text-slate-400">Paused</span>
             : <>{pct(g.progress)} · {fmt(g.remaining)} to go</>}
@@ -139,7 +226,7 @@ function GoalCard({ g, onEdit, onDelete, isDeleting }) {
   );
 }
 
-function GoalGroup({ title, goals, onEdit, onDelete, deleting }) {
+function GoalGroup({ title, goals, onEdit, onDelete, deleting, milestoneMap }) {
   if (!goals.length) return null;
   return (
     <div className="space-y-2">
@@ -153,6 +240,7 @@ function GoalGroup({ title, goals, onEdit, onDelete, deleting }) {
           onEdit={onEdit}
           onDelete={onDelete}
           isDeleting={deleting === g.id}
+          milestones={milestoneMap[goalKey(g)]}
         />
       ))}
     </div>
@@ -313,6 +401,7 @@ export default function Goals({ token }) {
   const [drawer, setDrawer]     = useState(null); // null | 'add' | goal-object (edit)
   const [saving, setSaving]     = useState(false);
   const [deleting, setDeleting] = useState(null); // id of goal currently being deleted
+  const [milestoneMap, setMilestoneMap] = useState({}); // { goalKey: [reached %] }
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -349,6 +438,13 @@ export default function Goals({ token }) {
   }, [token]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Detect milestone crossings whenever goal progress changes, fire celebratory
+  // pushes for new ones, and hold the reached-map for rendering badges.
+  useEffect(() => {
+    if (!plans.length) return;
+    setMilestoneMap(syncGoalMilestones(plans));
+  }, [plans]);
 
   async function handleSave(formData) {
     setSaving(true);
@@ -396,7 +492,7 @@ export default function Goals({ token }) {
         </div>
       );
     }
-    const sharedProps = { onEdit: g => setDrawer(g), onDelete: handleDelete, deleting };
+    const sharedProps = { onEdit: g => setDrawer(g), onDelete: handleDelete, deleting, milestoneMap };
     return (
       <div className="space-y-5">
         <GoalGroup title="Personal" goals={personal} {...sharedProps} />
