@@ -101,9 +101,9 @@ function CoverageChip({ coverage }) {
   return                     <span className="text-[10px] font-medium text-rose-400   bg-rose-900/40   px-1.5 py-0.5 rounded-full">✗ Unfunded</span>;
 }
 
-export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose, defaultIncome, onProcessed, gasBalance, gasBudget = null }) {
+export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose, defaultIncome, defaultSource = '', onProcessed, gasBalance, gasBudget = null }) {
   const [income,        setIncome]       = useState(defaultIncome > 0 ? String(defaultIncome.toFixed(2)) : '');
-  const [source,        setSource]       = useState('');
+  const [source,        setSource]       = useState(defaultSource);
   const [mode,          setMode]         = useState('priority');
   const [logging,       setLogging]      = useState(false);
   const [done,          setDone]         = useState(false);
