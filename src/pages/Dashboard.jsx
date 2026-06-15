@@ -1444,6 +1444,18 @@ export default function Dashboard({ token }) {
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState(null);
   const [showIncome, setShowIncome]     = useState(false);
+  // Commission "Verify & Process" handoff (Task 12): a one-shot prefill the Commissions
+  // page writes to localStorage, consumed once here on mount to open Process Income.
+  const [pendingIncome, setPendingIncome] = useState(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('_fin_pending_income');
+      if (!raw) return;
+      localStorage.removeItem('_fin_pending_income');
+      const d = JSON.parse(raw);
+      if (d && d.amount > 0) { setPendingIncome(d); setShowIncome(true); }
+    } catch {}
+  }, []);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -4232,7 +4244,9 @@ ${stmtTxns.length ? `
           alreadyProcessed={income}
           gasBalance={gasBalance}
           gasBudget={gasBudget}
-          onClose={() => setShowIncome(false)}
+          defaultIncome={pendingIncome?.amount}
+          defaultSource={pendingIncome?.source}
+          onClose={() => { setShowIncome(false); setPendingIncome(null); }}
           onProcessed={() => setRefreshKey(k => k + 1)}
         />
       )}
