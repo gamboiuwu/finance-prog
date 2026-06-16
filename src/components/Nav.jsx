@@ -72,17 +72,31 @@ function readBudgetBadge() {
   return 0;
 }
 
+// Outstanding-commissions badge (Task 12): count of inquiries with money still
+// owed (Price Agreed > 0 and Paid < Agreed). Cached by Commissions.jsx so the
+// nav can paint it without its own API call. Not month-scoped — A/R is A/R.
+function readArtBadge() {
+  try {
+    const stored = JSON.parse(localStorage.getItem('_fin_art_outstanding') || '{}');
+    return stored.count || 0;
+  } catch {}
+  return 0;
+}
+
 export default function Nav() {
   const [budgetBadge, setBudgetBadge] = useState(readBudgetBadge);
+  const [artBadge, setArtBadge] = useState(readArtBadge);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   useEffect(() => {
-    const refresh = () => setBudgetBadge(readBudgetBadge());
+    const refresh = () => { setBudgetBadge(readBudgetBadge()); setArtBadge(readArtBadge()); };
     window.addEventListener('storage', refresh);
     window.addEventListener('_fin_budget_alert_update', refresh);
+    window.addEventListener('_fin_art_outstanding_update', refresh);
     return () => {
       window.removeEventListener('storage', refresh);
       window.removeEventListener('_fin_budget_alert_update', refresh);
+      window.removeEventListener('_fin_art_outstanding_update', refresh);
     };
   }, []);
 
@@ -134,6 +148,11 @@ export default function Nav() {
                   {to === '/budget' && budgetBadge > 0 && (
                     <span className="absolute -top-1 -right-2 min-w-[14px] h-3.5 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 leading-none">
                       {budgetBadge > 9 ? '9+' : budgetBadge}
+                    </span>
+                  )}
+                  {to === '/commissions' && artBadge > 0 && (
+                    <span className="absolute -top-1 -right-2 min-w-[14px] h-3.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 leading-none">
+                      {artBadge > 9 ? '9+' : artBadge}
                     </span>
                   )}
                 </span>

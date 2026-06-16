@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { readRange, appendRow } from '../lib/sheets';
+import { readRange, appendRow, batchUpdateCells } from '../lib/sheets';
 import { SHEETS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import CommissionPrices from './CommissionPrices';
@@ -18,6 +18,40 @@ function statusColor(s) {
   if (s.toLowerCase().includes('accept')) return STATUS_COLORS['Accepted, placed slot'];
   if (s.toLowerCase().includes('undecided')) return STATUS_COLORS['Undecided'];
   return STATUS_COLORS.default;
+}
+
+// Money still owed on one inquiry: agreed price minus what's been paid.
+function unpaidAmount(inq) {
+  const agreed = parseFloat(inq['Price Agreed']) || 0;
+  const paid   = parseFloat(inq['Paid Amount, Method']) || 0;
+  return Math.max(0, agreed - paid);
+}
+// "Outstanding" = an agreed-on commission that isn't fully paid yet (Task 12).
+function isOutstanding(inq) {
+  return (parseFloat(inq['Price Agreed']) || 0) > 0 && unpaidAmount(inq) > 0.005;
+}
+
+// Cache the outstanding-commission count so the Art nav item can paint a badge
+// without its own API call (mirrors the _fin_budget_alert pattern in Nav.jsx).
+function cacheArtBadge(inquiries) {
+  try {
+    const count = inquiries.filter(isOutstanding).length;
+    localStorage.setItem('_fin_art_outstanding', JSON.stringify({ count }));
+    window.dispatchEvent(new Event('_fin_art_outstanding_update'));
+  } catch { /* localStorage unavailable — badge just won't update */ }
+}
+
+// Parse a sheet date (serial number, YYYY-MM-DD, or M/D/YYYY) to a timestamp for
+// sorting the aged A/R list oldest-first. Undated rows sort last.
+function inqDateTs(raw) {
+  if (!raw && raw !== 0) return Infinity;
+  const s = String(raw).trim();
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const n = parseFloat(s);
+    if (n > 10000) return Math.round((n - 25569) * 86400000);
+  }
+  const t = new Date(s).getTime();
+  return isNaN(t) ? Infinity : t;
 }
 
 function AddModal({ onSave, onClose }) {
@@ -102,14 +136,19 @@ export default function Commissions({ token }) {
       .then(rows => {
         if (!rows.length) return;
         const [headers, ...data] = rows;
+        // Keep each inquiry's true sheet row (header is row 1, data starts at 2)
+        // so writes target the right line even though blank rows are filtered out.
         const parsed = data
-          .filter(r => r[1])
-          .map(row => {
+          .map((row, idx) => ({ row, sheetRow: idx + 2 }))
+          .filter(({ row }) => row[1])
+          .map(({ row, sheetRow }) => {
             const obj = {};
             headers.slice(0, 12).forEach((h, i) => { obj[h] = row[i] ?? null; });
+            obj._row = sheetRow;
             return obj;
           });
         setInquiries(parsed);
+        cacheArtBadge(parsed);
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
@@ -122,6 +161,26 @@ export default function Commissions({ token }) {
     try {
       await appendRow(token, `${SHEETS.INQUIRIES}!A:L`, values);
       setShowModal(false);
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Mark a commission fully paid: set Paid Amount = Agreed Price (col G) and
+  // Status = Completed (col E) on its sheet row, then reload so the A/R tile,
+  // collection bars and nav badge all reconcile. Status col = E, Paid col = G.
+  async function markPaid(inq) {
+    if (!inq?._row) return;
+    const agreed = parseFloat(inq['Price Agreed']) || 0;
+    setSaving(true);
+    try {
+      await batchUpdateCells(token, [
+        { range: `${SHEETS.INQUIRIES}!E${inq._row}`, value: 'Completed' },
+        { range: `${SHEETS.INQUIRIES}!G${inq._row}`, value: agreed },
+      ]);
       load();
     } catch (e) {
       setError(e.message);
@@ -229,6 +288,49 @@ export default function Commissions({ token }) {
         );
       })()}
 
+      {/* Outstanding A/R — money agreed but not yet collected, oldest first (Task 12) */}
+      {(() => {
+        const outstanding = inquiries
+          .filter(isOutstanding)
+          .sort((a, b) => inqDateTs(a['Comm Date']) - inqDateTs(b['Comm Date']));
+        if (outstanding.length === 0) return null;
+        const arTotal = outstanding.reduce((s, i) => s + unpaidAmount(i), 0);
+        return (
+          <div className="bg-amber-950/30 border border-amber-800/40 rounded-2xl p-4 space-y-3">
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-amber-200 text-sm font-semibold">💰 Awaiting Payment</h2>
+              <span className="text-amber-300 text-lg font-black tabular-nums">${arTotal.toFixed(2)}</span>
+            </div>
+            <p className="text-amber-200/60 text-[11px] -mt-1">
+              {outstanding.length} commission{outstanding.length !== 1 ? 's' : ''} owed · oldest first
+            </p>
+            <div className="space-y-2">
+              {outstanding.map((inq) => (
+                <div key={inq._row} className="flex items-center justify-between gap-3 bg-slate-800/60 rounded-lg px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-white text-sm font-medium truncate">{inq['Card Name']}</p>
+                    <p className="text-slate-500 text-[10px]">
+                      {inq['Comm Date'] ? `since ${inq['Comm Date']}` : 'no date'}
+                      {' · '}${(parseFloat(inq['Paid Amount, Method']) || 0).toFixed(2)} of ${(parseFloat(inq['Price Agreed']) || 0).toFixed(2)} paid
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-amber-300 text-sm font-semibold tabular-nums">${unpaidAmount(inq).toFixed(2)}</span>
+                    <button
+                      onClick={() => markPaid(inq)}
+                      disabled={saving}
+                      className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-[11px] font-semibold rounded-lg px-2.5 py-1.5 whitespace-nowrap"
+                    >
+                      ✓ Mark Paid
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* List */}
       <div className="space-y-3">
         {inquiries.map((inq, i) => {
@@ -279,6 +381,15 @@ export default function Commissions({ token }) {
                   {inq['Comm Date'] && <p className="text-slate-500 text-xs">Started: {inq['Comm Date']}</p>}
                   {inq['Completion Date'] && <p className="text-slate-500 text-xs">Completed: {inq['Completion Date']}</p>}
                   {inq['Notes'] && <p className="text-slate-400 text-xs italic">{inq['Notes']}</p>}
+                  {isOutstanding(inq) && (
+                    <button
+                      onClick={() => markPaid(inq)}
+                      disabled={saving}
+                      className="w-full mt-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg py-2"
+                    >
+                      ✓ Mark Paid (${unpaidAmount(inq).toFixed(2)} owed)
+                    </button>
+                  )}
                 </div>
               )}
             </div>
