@@ -3,6 +3,10 @@ import { readRange, batchUpdateCells, appendRow } from '../lib/sheets';
 import { SHEETS, MONTHS } from '../config';
 import { fetchGasPrices } from '../lib/gasPrice';
 import { computeGasBudget, saveGasBudget, getGasBudget } from '../lib/gasBudget';
+import {
+  getCatPins, togglePin, persistOrder, sortByCatLayout,
+  hasCustomLayout, resetCatLayout,
+} from '../lib/catLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
@@ -674,10 +678,99 @@ function CategoryItemCard({ item, allocated, budgeted }) {
   );
 }
 
+// ── Reorder & Pinning (Task 25) ──────────────────────────────────────────────
+// Shared arrange logic for any category list (main expense groups + savings).
+// `version` is bumped by the parent after each localStorage write to force a
+// re-sort; `onMutate` triggers that bump.
+function useCatArrange(items, version, onMutate) {
+  const [dragType, setDragType] = useState(null);
+  const sorted = useMemo(() => sortByCatLayout(items), [items, version]);
+  const pinSet = useMemo(() => new Set(getCatPins()), [version]);
+  const types  = sorted.map(i => i['Type'] || '');
+
+  const pin = (t) => { togglePin(t); onMutate(); };
+
+  const move = (t, dir) => {
+    const arr = [...types];
+    const i = arr.indexOf(t), j = i + dir;
+    if (i < 0 || j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    persistOrder(arr);
+    onMutate();
+  };
+
+  const drop = (target) => {
+    if (!dragType || dragType === target) { setDragType(null); return; }
+    const arr = [...types];
+    const from = arr.indexOf(dragType), to = arr.indexOf(target);
+    if (from < 0 || to < 0) { setDragType(null); return; }
+    arr.splice(from, 1);
+    arr.splice(to, 0, dragType);
+    persistOrder(arr);
+    setDragType(null);
+    onMutate();
+  };
+
+  return { sorted, pinSet, dragType, setDragType, pin, move, drop };
+}
+
+// A category card wrapped with arrange controls (drag handle + ▲/▼ + 📌 pin).
+// Controls only appear in arrange mode; outside it, a pinned card keeps a gold
+// ring so the pin state stays visible (Q2: distinct visual treatment).
+function OrderableRow({
+  item, allocated, budgeted, arrange, pinned, first, last,
+  onPin, onMove, dragging, onDragStart, onDrop,
+}) {
+  const type = item['Type'] || '';
+  return (
+    <div
+      draggable={arrange}
+      onDragStart={arrange ? () => onDragStart(type) : undefined}
+      onDragOver={arrange ? (e) => e.preventDefault() : undefined}
+      onDrop={arrange ? (e) => { e.preventDefault(); onDrop(type); } : undefined}
+      className={`flex items-stretch gap-1.5 rounded-2xl transition-opacity ${
+        pinned ? 'ring-1 ring-amber-400/50' : ''
+      } ${dragging ? 'opacity-40' : ''} ${arrange ? 'cursor-grab' : ''}`}
+    >
+      {arrange && (
+        <div className="flex flex-col items-center justify-center gap-1 shrink-0">
+          <button
+            onClick={() => onMove(type, -1)}
+            disabled={first}
+            className={`w-6 h-6 rounded-md text-xs leading-none ${
+              first ? 'text-slate-700' : 'text-slate-300 bg-slate-800 active:bg-slate-700'
+            }`}
+            title="Move up"
+          >▲</button>
+          <button
+            onClick={() => onPin(type)}
+            className={`w-6 h-6 rounded-md text-sm leading-none ${
+              pinned ? 'text-amber-400 bg-amber-900/30' : 'text-slate-500 bg-slate-800 active:bg-slate-700'
+            }`}
+            title={pinned ? 'Unpin' : 'Pin to top'}
+          >📌</button>
+          <button
+            onClick={() => onMove(type, 1)}
+            disabled={last}
+            className={`w-6 h-6 rounded-md text-xs leading-none ${
+              last ? 'text-slate-700' : 'text-slate-300 bg-slate-800 active:bg-slate-700'
+            }`}
+            title="Move down"
+          >▼</button>
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <CategoryItemCard item={item} allocated={allocated} budgeted={budgeted} />
+      </div>
+    </div>
+  );
+}
+
 // ── Category tab: expense-type group ─────────────────────────────────────────
 
-function CategoryGroup({ label, items, allocByType }) {
+function CategoryGroup({ label, items, allocByType, arrange = false, version = 0, onMutate = () => {} }) {
   const [open, setOpen] = useState(true);
+  const { sorted, pinSet, dragType, setDragType, pin, move, drop } = useCatArrange(items, version, onMutate);
   const color  = CAT_COLORS[label] || '#64748b';
   const totalB = items.reduce((s, i) => s + itemGoal(i), 0);
   const totalA = items.reduce((s, i) => s + (allocByType[i['Type'] || ''] || 0), 0);
@@ -756,12 +849,21 @@ function CategoryGroup({ label, items, allocByType }) {
 
       {open && (
         <div className="p-3 space-y-2 bg-slate-950/30">
-          {items.map(item => (
-            <CategoryItemCard
+          {sorted.map((item, idx) => (
+            <OrderableRow
               key={item._rowNum}
               item={item}
               allocated={allocByType[item['Type'] || ''] || 0}
               budgeted={itemGoal(item)}
+              arrange={arrange}
+              pinned={pinSet.has(item['Type'] || '')}
+              first={idx === 0}
+              last={idx === sorted.length - 1}
+              onPin={pin}
+              onMove={move}
+              dragging={dragType === (item['Type'] || '')}
+              onDragStart={setDragType}
+              onDrop={drop}
             />
           ))}
         </div>
@@ -776,6 +878,13 @@ const CAT_ORDER = ['Essentials', 'Stability', 'Discretionary', 'Subscription'];
 
 function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
   const [showSavings, setShowSavings] = useState(false);
+  const [arrange, setArrange]   = useState(false);
+  const [layoutVer, setLayoutVer] = useState(0);
+  const bumpLayout = () => setLayoutVer(v => v + 1);
+  const customized = useMemo(() => hasCustomLayout(), [layoutVer]);
+  const savingsArrange = useCatArrange(
+    items.filter(i => i['Expense'] === 'Savings'), layoutVer, bumpLayout,
+  );
 
   const allocByType = useMemo(() => {
     const map = {};
@@ -821,6 +930,31 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
       {/* (Funding status now lives in the page-level banner above the tabs,
           covering both unfunded and partially-funded essentials.) */}
 
+      {/* Arrange toolbar (Task 25 — pin & reorder) */}
+      <div className="flex items-center justify-between px-1">
+        <button
+          onClick={() => setArrange(a => !a)}
+          className={`text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+            arrange ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300 active:bg-slate-700'
+          }`}
+        >
+          {arrange ? '✓ Done arranging' : '↕ Arrange'}
+        </button>
+        {(arrange || customized) && (
+          <button
+            onClick={() => { resetCatLayout(); bumpLayout(); }}
+            className="text-xs text-slate-500 hover:text-rose-400 transition-colors"
+          >
+            Reset order
+          </button>
+        )}
+      </div>
+      {arrange && (
+        <p className="text-slate-500 text-[11px] px-1 -mt-2">
+          Drag a card, use ▲/▼, or tap 📌 to pin to the top. Order syncs to your income allocation.
+        </p>
+      )}
+
       {/* Summary bar */}
       <div className="bg-slate-900 rounded-2xl p-4">
         {totalA === 0 && totalB > 0 && (
@@ -855,7 +989,15 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
 
       {/* Expense-type groups */}
       {orderedKeys.map(cat => (
-        <CategoryGroup key={cat} label={cat} items={groups[cat]} allocByType={allocByType} />
+        <CategoryGroup
+          key={cat}
+          label={cat}
+          items={groups[cat]}
+          allocByType={allocByType}
+          arrange={arrange}
+          version={layoutVer}
+          onMutate={bumpLayout}
+        />
       ))}
 
       {/* Savings — shown separately, collapsible */}
@@ -880,12 +1022,21 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
           </button>
           {showSavings && (
             <div className="p-3 space-y-2 bg-emerald-950/20">
-              {savingsItems.map(item => (
-                <CategoryItemCard
+              {savingsArrange.sorted.map((item, idx) => (
+                <OrderableRow
                   key={item._rowNum}
                   item={item}
                   allocated={allocByType[item['Type'] || ''] || 0}
                   budgeted={pm(item['Monthly Allowance ($)'])}
+                  arrange={arrange}
+                  pinned={savingsArrange.pinSet.has(item['Type'] || '')}
+                  first={idx === 0}
+                  last={idx === savingsArrange.sorted.length - 1}
+                  onPin={savingsArrange.pin}
+                  onMove={savingsArrange.move}
+                  dragging={savingsArrange.dragType === (item['Type'] || '')}
+                  onDragStart={savingsArrange.setDragType}
+                  onDrop={savingsArrange.drop}
                 />
               ))}
             </div>
