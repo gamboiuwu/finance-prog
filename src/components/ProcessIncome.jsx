@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { appendRow, readRange } from '../lib/sheets';
+import { sortByCatLayout } from '../lib/catLayout';
 
 const ACCOUNT_ICONS = {
   'Checking':        { icon: '🏧', color: 'text-blue-400',    bg: 'bg-blue-900/30 border-blue-800/40'     },
@@ -256,7 +257,11 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         rows.push({ name: it.name.trim(), account: it.account || 'Savings', amount: it.deposit, priority: 4, kind: 'surplus' });
       }
     });
-    return rows.sort((a, b) => b.amount - a.amount);
+    // Biggest first, then float pinned/custom-ordered categories to match the
+    // Budget → Categories layout (Task 25). Sort is stable, so amount order is
+    // preserved as the tiebreak for anything without a custom position.
+    rows.sort((a, b) => b.amount - a.amount);
+    return sortByCatLayout(rows, (r) => r.name);
   }, [deposits, surplusDeposits]);
 
   function addTemplate() {
