@@ -1435,6 +1435,181 @@ function NetWorthCard({ rows, expanded, onToggle, onUpdate }) {
   );
 }
 
+// ── Debt Payoff Tracker (Task 26) ──────────────────────────────────────────
+// Debts live in a `Debts` sheet tab (Name|Type|Balance|APR|MinPayment|Account|
+// TargetDate|Notes). Unlike Net Worth (append-only snapshots), debts are
+// current-state rows edited in place, so a save rewrites the whole data range.
+// All balances stay in the private sheet; nothing financial is stored on-device.
+// The card is read-only display + payoff projection; the only write is the
+// explicit "Manage debts" save (saveDebts in the Dashboard body).
+function fmtMonths(m) {
+  if (!isFinite(m)) return 'never at this rate';
+  if (m <= 0) return 'paid off';
+  const y = Math.floor(m / 12), mo = Math.round(m % 12);
+  if (y === 0) return `${mo} mo`;
+  if (mo === 0) return `${y} yr`;
+  return `${y}y ${mo}m`;
+}
+function debtFreeDate(m) {
+  if (!isFinite(m) || m <= 0) return null;
+  const d = new Date(); d.setMonth(d.getMonth() + Math.round(m));
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+// Simulate paying off every debt month-by-month with the snowball *method*:
+// each owing debt pays its minimum; `extra` (plus minimums freed as debts clear)
+// is funneled to the highest-priority debt per `strategy`.
+//   strategy 'avalanche' → highest APR first (least total interest)
+//   strategy 'snowball'  → smallest balance first (fastest first win)
+// Returns { months, interest, order } — months is Infinity if payments can never
+// out-run the interest. Pure; never mutates the caller's debt objects.
+function simulateDebts(debts, strategy, extra) {
+  const list  = debts.map(d => ({ name: d.name, bal: d.balance, apr: d.apr, min: d.min }));
+  const order = [...list].sort((a, b) =>
+    strategy === 'snowball' ? a.bal - b.bal : b.apr - a.apr);  // sorted on starting balances
+  let months = 0, interest = 0;
+  const CAP = 1200;  // 100 years — guards a non-converging plan
+  while (list.some(d => d.bal > 0.005) && months < CAP) {
+    list.forEach(d => {                                         // accrue one month of interest
+      if (d.bal > 0) { const i = d.bal * (d.apr / 100 / 12); d.bal += i; interest += i; }
+    });
+    let pool = extra;
+    list.forEach(d => { if (d.bal > 0) pool += d.min; });       // pool = extra + active minimums
+    list.forEach(d => {                                         // pay minimums first
+      if (d.bal > 0) { const pay = Math.min(d.min, d.bal); d.bal -= pay; pool -= pay; }
+    });
+    for (const d of order) {                                    // remainder → focus debt(s)
+      if (pool <= 0.005) break;
+      if (d.bal > 0) { const pay = Math.min(pool, d.bal); d.bal -= pay; pool -= pay; }
+    }
+    months++;
+  }
+  const cleared = !list.some(d => d.bal > 0.005);
+  return { months: cleared ? months : Infinity, interest, order: order.map(d => d.name) };
+}
+
+function DebtCard({ rows, expanded, onToggle, onUpdate }) {
+  const [strategy, setStrategy] = useState('avalanche');
+  const [extra, setExtra]       = useState(0);
+
+  // Empty state — slim dashed CTA (mirrors Net Worth) so it's discoverable.
+  if (!rows.length) {
+    return (
+      <button onClick={onUpdate}
+        className="w-full flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-slate-700/50 text-slate-600 hover:text-slate-400 text-xs transition-colors">
+        <span>💳</span><span>Track debt payoff — add your balances &amp; rates</span>
+      </button>
+    );
+  }
+
+  const totalDebt = rows.reduce((s, d) => s + d.balance, 0);
+  const totalMin  = rows.reduce((s, d) => s + d.min, 0);
+  const base      = simulateDebts(rows, strategy, 0);
+  const plan      = simulateDebts(rows, strategy, extra);
+  const interestSaved = isFinite(base.interest) && isFinite(plan.interest) ? base.interest - plan.interest : 0;
+  const monthsSaved   = isFinite(base.months)   && isFinite(plan.months)   ? base.months   - plan.months   : 0;
+  // Avalanche-vs-snowball interest gap at the current extra payment.
+  const otherStrat = strategy === 'avalanche' ? 'snowball' : 'avalanche';
+  const otherPlan  = simulateDebts(rows, otherStrat, extra);
+  const stratGap   = isFinite(plan.interest) && isFinite(otherPlan.interest) ? otherPlan.interest - plan.interest : 0;
+  const sliderMax  = Math.max(500, Math.ceil(totalMin));
+  const ordered    = [...rows].sort((a, b) =>
+    strategy === 'snowball' ? a.balance - b.balance : b.apr - a.apr);
+  const focusName  = plan.order[0];
+
+  return (
+    <div className="rounded-2xl p-4 border bg-rose-950/30 border-rose-800/40">
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">💳 Debt Payoff</p>
+            <p className="text-3xl font-black font-broske mt-1 tabular-nums text-rose-400">{fmt(totalDebt)}</p>
+            <p className="text-slate-400 text-xs mt-1.5">
+              {rows.length} debt{rows.length !== 1 ? 's' : ''} · {fmt(totalMin)}/mo minimum
+            </p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-slate-700/60 space-y-3">
+          {/* Strategy toggle */}
+          <div className="flex gap-2">
+            {[['avalanche', '🏔 Avalanche', 'Highest APR first'], ['snowball', '⛄ Snowball', 'Smallest first']].map(([id, label, sub]) => (
+              <button key={id} onClick={() => setStrategy(id)}
+                className={`flex-1 rounded-xl px-2 py-2 text-xs font-medium border transition-colors ${strategy === id
+                  ? 'bg-rose-900/50 border-rose-700/60 text-rose-200'
+                  : 'bg-slate-900/40 border-slate-700/50 text-slate-400 hover:text-slate-300'}`}>
+                <span className="block">{label}</span>
+                <span className="block text-[10px] text-slate-500">{sub}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Extra payment slider */}
+          <div>
+            <div className="flex justify-between text-xs text-slate-400 mb-1">
+              <span>Extra payment / mo</span>
+              <span className="text-rose-200 font-semibold tabular-nums">{fmt(extra)}</span>
+            </div>
+            <input type="range" min="0" max={sliderMax} step="25" value={extra}
+              onChange={e => setExtra(Number(e.target.value))}
+              className="w-full accent-rose-500" />
+          </div>
+
+          {/* Projection */}
+          <div className="bg-slate-900/60 rounded-xl p-3 space-y-1">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">Debt-free in</span>
+              <span className="text-white font-semibold">
+                {fmtMonths(plan.months)}{debtFreeDate(plan.months) ? ` · ${debtFreeDate(plan.months)}` : ''}
+              </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">Total interest</span>
+              <span className="text-rose-300 font-mono">{fmt(plan.interest)}</span>
+            </div>
+            {extra > 0 && (interestSaved > 0.5 || monthsSaved > 0) && (
+              <p className="text-[11px] text-emerald-300 pt-1">
+                ✓ Saves {fmt(interestSaved)} in interest{monthsSaved > 0 ? ` and ${fmtMonths(monthsSaved)}` : ''} vs minimums only.
+              </p>
+            )}
+          </div>
+
+          {/* Strategy comparison */}
+          {Math.abs(stratGap) > 0.5 && (
+            <p className="text-[11px] text-slate-400">
+              {stratGap > 0
+                ? <>🏔 <span className="text-slate-300">{strategy === 'avalanche' ? 'Avalanche' : 'Snowball'}</span> saves {fmt(Math.abs(stratGap))} in interest vs {otherStrat}.</>
+                : <>The {otherStrat} order would save {fmt(Math.abs(stratGap))} more in interest.</>}
+            </p>
+          )}
+
+          {/* Per-debt list (payoff order) */}
+          <div className="space-y-1.5">
+            {ordered.map((d, i) => (
+              <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                <span className="truncate text-slate-300">
+                  {d.name === focusName && <span className="text-rose-400 mr-1">🎯</span>}
+                  {d.name}
+                  <span className="text-slate-500"> · {d.apr ? `${d.apr}% APR` : 'no APR'}</span>
+                </span>
+                <span className="font-mono text-rose-300 shrink-0">{fmt(d.balance)}</span>
+              </div>
+            ))}
+          </div>
+
+          <button onClick={onUpdate}
+            className="w-full py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium transition-colors">
+            ✎ Manage debts
+          </button>
+          <p className="text-[10px] text-slate-600">🎯 marks the focus debt — pay extra here while paying minimums on the rest. Projection assumes fixed payments and current APRs.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -1514,6 +1689,11 @@ export default function Dashboard({ token }) {
   const [showNetWorth, setShowNetWorth] = useState(false);
   const [nwSaving, setNwSaving]         = useState(false);
   const [nwError, setNwError]           = useState(null);
+  const [debtRows, setDebtRows]         = useState([]);
+  const [debtExpanded, setDebtExpanded] = useState(false);
+  const [showDebts, setShowDebts]       = useState(false);
+  const [debtSaving, setDebtSaving]     = useState(false);
+  const [debtError, setDebtError]       = useState(null);
   const [qaActions, setQaActions] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('_fin_quickactions') || 'null');
@@ -1545,9 +1725,29 @@ export default function Dashboard({ token }) {
       readRange(token, 'Subscriptions!A:E').catch(() => []),
       readRange(token, 'Allocation Transactions!A:F', 'UNFORMATTED_VALUE').catch(() => []),
       readRange(token, 'Net Worth!A:E', 'UNFORMATTED_VALUE').catch(() => []),
+      readRange(token, 'Debts!A:H', 'UNFORMATTED_VALUE').catch(() => []),
     ])
-      .then(([summaryRows, expRows, links, subRows, allocRows, nwRows]) => {
+      .then(([summaryRows, expRows, links, subRows, allocRows, nwRows, debtSheetRows]) => {
         setReportLinks(links);
+
+        // Debt Payoff (Task 26) — skip a leading header row; balances/APR/min are
+        // numbers. Rows need a name + a positive balance to count as a debt.
+        if (debtSheetRows.length) {
+          const startsHeader = String(debtSheetRows[0]?.[0] || '').trim().toLowerCase() === 'name';
+          const dataRows = startsHeader ? debtSheetRows.slice(1) : debtSheetRows;
+          setDebtRows(dataRows.filter(r => r[0] != null && String(r[0]).trim() && pm(r[2]) > 0).map(r => ({
+            name: String(r[0]),
+            type: r[1] != null ? String(r[1]) : 'Other',
+            balance: pm(r[2]),
+            apr: pm(r[3]),
+            min: pm(r[4]),
+            account: r[5] != null ? String(r[5]) : '',
+            targetDate: r[6] != null ? String(r[6]) : '',
+            notes: r[7] != null ? String(r[7]) : '',
+          })));
+        } else {
+          setDebtRows([]);
+        }
 
         // Net Worth snapshots (Task 14) — skip a leading header row; convert each
         // date to ISO so snapshots sort/group consistently. Balances are positive
@@ -2049,6 +2249,29 @@ export default function Dashboard({ token }) {
     }
   }
 
+  // Rewrite the whole Debts data range (debts are current-state, edited in place,
+  // not append-only snapshots). Clear → header → one row per debt, then re-pull.
+  async function saveDebts(debtList) {
+    if (!token) return;
+    setDebtSaving(true); setDebtError(null);
+    try {
+      await ensureSheetTab(token, 'Debts');
+      await clearRow(token, 'Debts!A1:H1000');
+      await appendRow(token, 'Debts!A:H', ['Name', 'Type', 'Balance', 'APR', 'MinPayment', 'Account', 'TargetDate', 'Notes']);
+      for (const d of debtList) {
+        await appendRow(token, 'Debts!A:H', [
+          d.name.trim(), d.type || 'Other', pm(d.balance), pm(d.apr), pm(d.min), d.account || '', d.targetDate || '', d.notes || '',
+        ]);
+      }
+      setShowDebts(false);
+      setRefreshKey(k => k + 1);
+    } catch (e) {
+      setDebtError(e.message || 'Could not save — check your connection and try again.');
+    } finally {
+      setDebtSaving(false);
+    }
+  }
+
   function saveStatementArchive(month, year, incomeVal, spentVal, goalVal, txns) {
     try {
       const archive = JSON.parse(localStorage.getItem('_fin_statements') || '{}');
@@ -2478,6 +2701,14 @@ ${stmtTxns.length ? `
         expanded={nwExpanded}
         onToggle={() => setNwExpanded(v => !v)}
         onUpdate={() => { setNwError(null); setShowNetWorth(true); }}
+      />
+
+      {/* ── Debt Payoff Tracker (Task 26) ───────────────────── */}
+      <DebtCard
+        rows={debtRows}
+        expanded={debtExpanded}
+        onToggle={() => setDebtExpanded(v => !v)}
+        onUpdate={() => { setDebtError(null); setShowDebts(true); }}
       />
 
       {/* ── Spending Anomaly Detection (Task 40) ────────────── */}
@@ -5024,6 +5255,92 @@ ${stmtTxns.length ? `
           );
         }
         return <NetWorthModal />;
+      })()}
+
+      {/* ── Manage Debts Modal (Task 26) ─────────────────────── */}
+      {showDebts && (() => {
+        const DEBT_TYPES = ['Credit Card', 'Student Loan', 'Car Loan', 'Medical', 'Personal', 'Other'];
+        function DebtsModal() {
+          const seed = debtRows.length
+            ? debtRows.map(d => ({ name: d.name, type: d.type || 'Credit Card', balance: String(d.balance), apr: d.apr ? String(d.apr) : '', min: d.min ? String(d.min) : '' }))
+            : [{ name: '', type: 'Credit Card', balance: '', apr: '', min: '' }];
+          const [debts, setDebts] = useState(seed);
+          const upd    = (i, k, v) => setDebts(a => a.map((row, j) => j === i ? { ...row, [k]: v } : row));
+          const addRow = () => setDebts(a => [...a, { name: '', type: 'Credit Card', balance: '', apr: '', min: '' }]);
+          const rmRow  = (i) => setDebts(a => a.filter((_, j) => j !== i));
+          const totBal = debts.reduce((s, r) => s + pm(r.balance), 0);
+          const totMin = debts.reduce((s, r) => s + pm(r.min), 0);
+          function save() {
+            saveDebts(debts.filter(r => r.name.trim() && pm(r.balance) > 0));
+          }
+          return (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4" onClick={() => !debtSaving && setShowDebts(false)}>
+              <div className="bg-slate-800 rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[90dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center">
+                  <h2 className="text-white font-semibold">💳 Manage Debts</h2>
+                  <button onClick={() => setShowDebts(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
+                </div>
+                <p className="text-slate-500 text-xs">Enter each debt's current balance, APR and minimum payment. Saving rewrites the Debts tab in your private sheet.</p>
+
+                <div className="space-y-3">
+                  {debts.map((row, i) => (
+                    <div key={i} className="bg-slate-900/40 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input value={row.name} onChange={e => upd(i, 'name', e.target.value)} placeholder="Debt name (e.g. Visa)"
+                          className="flex-1 min-w-0 bg-slate-700 text-white rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-500 placeholder-slate-500" />
+                        <button onClick={() => rmRow(i)} className="text-slate-500 hover:text-rose-400 text-lg shrink-0 leading-none">✕</button>
+                      </div>
+                      <select value={row.type} onChange={e => upd(i, 'type', e.target.value)}
+                        className="w-full bg-slate-700 text-slate-200 rounded-lg px-2 py-2 text-xs outline-none focus:ring-2 focus:ring-rose-500">
+                        {DEBT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-slate-500 text-[10px] block mb-0.5">Balance</label>
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">$</span>
+                            <input value={row.balance} onChange={e => upd(i, 'balance', e.target.value)} inputMode="decimal" placeholder="0"
+                              className="w-full bg-slate-700 text-white rounded-lg pl-5 pr-1.5 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-500 placeholder-slate-500" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-slate-500 text-[10px] block mb-0.5">APR %</label>
+                          <input value={row.apr} onChange={e => upd(i, 'apr', e.target.value)} inputMode="decimal" placeholder="0"
+                            className="w-full bg-slate-700 text-white rounded-lg px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-500 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-slate-500 text-[10px] block mb-0.5">Min / mo</label>
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">$</span>
+                            <input value={row.min} onChange={e => upd(i, 'min', e.target.value)} inputMode="decimal" placeholder="0"
+                              className="w-full bg-slate-700 text-white rounded-lg pl-5 pr-1.5 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-500 placeholder-slate-500" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={addRow} className="text-rose-400 hover:text-rose-300 text-sm">+ Add debt</button>
+
+                <div className="flex justify-between text-sm bg-slate-900/60 rounded-xl px-3 py-2">
+                  <span className="text-rose-300">Total {fmt(totBal)}</span>
+                  <span className="text-slate-300">Min {fmt(totMin)}/mo</span>
+                </div>
+
+                {debtError && <p className="text-rose-400 text-xs">{debtError}</p>}
+                <div className="flex gap-3">
+                  <button onClick={() => setShowDebts(false)} disabled={debtSaving}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-700 text-slate-300 text-sm font-medium disabled:opacity-50">Cancel</button>
+                  <button onClick={save} disabled={debtSaving || !debts.some(r => r.name.trim() && pm(r.balance) > 0)}
+                    className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-sm font-medium disabled:opacity-50">
+                    {debtSaving ? 'Saving…' : 'Save debts'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        return <DebtsModal />;
       })()}
 
       {/* ── Month Note Drawer ────────────────────────────────── */}
