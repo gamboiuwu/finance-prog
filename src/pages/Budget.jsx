@@ -6,6 +6,10 @@ import { computeGasBudget, saveGasBudget, getGasBudget } from '../lib/gasBudget'
 import LoadingSpinner from '../components/LoadingSpinner';
 import Goals from './Goals';
 import {
+  orderTypes, getCatPins, togglePin, resetCatOrder,
+  moveTypeWithin, dropTypeOnto,
+} from '../lib/catOrder';
+import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis,
 } from 'recharts';
@@ -475,7 +479,7 @@ function PrioritySection({ priority, items, onEdit, onAdd }) {
 
       {!collapsed && (
         <div className="p-3 space-y-2" style={{ background: 'rgba(2,6,23,0.35)' }}>
-          {items.map(item => (
+          {orderTypes(items, i => i['Type'] || '').map(item => (
             <BudgetCard
               key={item._rowNum}
               item={item}
@@ -496,7 +500,11 @@ function PrioritySection({ priority, items, onEdit, onAdd }) {
 
 // ── Category tab: individual item card ────────────────────────────────────────
 
-function CategoryItemCard({ item, allocated, budgeted }) {
+function CategoryItemCard({
+  item, allocated, budgeted,
+  pinned = false, manage = false, isFirst = false, isLast = false,
+  onTogglePin, onMove, onDropOnto, dragType, setDragType,
+}) {
   const type  = item['Type'] || '';
   const [dueDay, setDueDayState] = useState(() => getDueDates()[type] ?? null);
   const [editingDue, setEditingDue] = useState(false);
@@ -536,17 +544,47 @@ function CategoryItemCard({ item, allocated, budgeted }) {
   const pct   = budgeted > 0 ? Math.min((allocated / budgeted) * 100, 100) : (allocated > 0 ? 100 : 0);
   const cat   = item['Expense'] || 'Other';
   const color = CAT_COLORS[cat] || '#64748b';
-  const leftBorder = pastDue ? '#ef4444' : dueSoon ? '#f59e0b' : over ? '#ef4444' : color;
+  const leftBorder = pastDue ? '#ef4444' : dueSoon ? '#f59e0b' : over ? '#ef4444' : pinned ? '#eab308' : color;
+
+  const isDragging = manage && dragType === type;
 
   return (
     <>
       <div
-        className="bg-slate-900 rounded-xl p-3.5 border border-slate-800/60"
+        className={`bg-slate-900 rounded-xl p-3.5 border transition-opacity ${
+          pinned ? 'border-yellow-600/40' : 'border-slate-800/60'
+        } ${isDragging ? 'opacity-40' : ''}`}
         style={{ borderLeft: `3px solid ${leftBorder}` }}
+        draggable={manage}
+        onDragStart={manage ? () => setDragType?.(type) : undefined}
+        onDragOver={manage ? (e) => e.preventDefault() : undefined}
+        onDrop={manage ? (e) => { e.preventDefault(); onDropOnto?.(type); } : undefined}
+        onDragEnd={manage ? () => setDragType?.(null) : undefined}
       >
+        {manage && (
+          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-800/60">
+            <span className="text-slate-600 text-base cursor-grab select-none" title="Drag to reorder">⠿</span>
+            <button
+              onClick={() => onMove?.(-1)}
+              disabled={isFirst}
+              className="text-slate-400 hover:text-white text-xs w-7 h-7 rounded-lg bg-slate-800 disabled:opacity-30 transition-colors"
+              title="Move up"
+            >▲</button>
+            <button
+              onClick={() => onMove?.(1)}
+              disabled={isLast}
+              className="text-slate-400 hover:text-white text-xs w-7 h-7 rounded-lg bg-slate-800 disabled:opacity-30 transition-colors"
+              title="Move down"
+            >▼</button>
+            <span className="text-slate-600 text-[10px] ml-auto">drag or use arrows</span>
+          </div>
+        )}
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
+              {pinned && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-900/50 text-yellow-300 font-medium shrink-0">📌 Pinned</span>
+              )}
               <p className="text-white text-sm font-medium">{type || '—'}</p>
               {pastDue && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium shrink-0">⚠ Past due</span>
@@ -556,13 +594,24 @@ function CategoryItemCard({ item, allocated, budgeted }) {
                   ⏰ {daysUntil === 0 ? 'Due today' : `Due in ${daysUntil}d`}
                 </span>
               )}
-              <button
-                onClick={openNoteDrawer}
-                className="text-slate-600 hover:text-slate-300 text-[11px] leading-none transition-colors shrink-0 ml-auto"
-                title="Add note"
-              >
-                ✎
-              </button>
+              <div className="flex items-center gap-2 shrink-0 ml-auto">
+                <button
+                  onClick={() => onTogglePin?.()}
+                  className={`text-[12px] leading-none transition-colors ${
+                    pinned ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-600 hover:text-slate-300'
+                  }`}
+                  title={pinned ? 'Unpin' : 'Pin to top'}
+                >
+                  📌
+                </button>
+                <button
+                  onClick={openNoteDrawer}
+                  className="text-slate-600 hover:text-slate-300 text-[11px] leading-none transition-colors"
+                  title="Add note"
+                >
+                  ✎
+                </button>
+              </div>
             </div>
             {item['Account'] && (
               <p className="text-slate-500 text-[10px] mt-0.5">{item['Account']}</p>
@@ -677,9 +726,27 @@ function CategoryItemCard({ item, allocated, budgeted }) {
 
 // ── Category tab: expense-type group ─────────────────────────────────────────
 
-function CategoryGroup({ label, items, allocByType }) {
+function CategoryGroup({ label, items, allocByType, manage = false, orderV = 0, bump }) {
   const [open, setOpen] = useState(true);
+  const [dragType, setDragType] = useState(null);
   const color  = CAT_COLORS[label] || '#64748b';
+
+  // Pinned-first + custom order. orderV forces a recompute after a pin/reorder.
+  const ordered = useMemo(
+    () => orderTypes(items, i => i['Type'] || ''),
+    [items, orderV]
+  );
+  const pinSet = useMemo(() => new Set(getCatPins()), [orderV]);
+  const orderedTypes = ordered.map(i => i['Type'] || '');
+
+  function handleMove(type, dir) {
+    if (moveTypeWithin(orderedTypes, type, dir)) bump?.();
+  }
+  function handleDrop(fromType, toType) {
+    if (dropTypeOnto(orderedTypes, fromType, toType)) bump?.();
+  }
+  function handlePin(type) { togglePin(type); bump?.(); }
+
   const totalB = items.reduce((s, i) => s + itemGoal(i), 0);
   const totalA = items.reduce((s, i) => s + (allocByType[i['Type'] || ''] || 0), 0);
   const over   = totalA > totalB && totalB > 0;
@@ -757,14 +824,26 @@ function CategoryGroup({ label, items, allocByType }) {
 
       {open && (
         <div className="p-3 space-y-2 bg-slate-950/30">
-          {items.map(item => (
-            <CategoryItemCard
-              key={item._rowNum}
-              item={item}
-              allocated={allocByType[item['Type'] || ''] || 0}
-              budgeted={itemGoal(item)}
-            />
-          ))}
+          {ordered.map((item, idx) => {
+            const t = item['Type'] || '';
+            return (
+              <CategoryItemCard
+                key={item._rowNum}
+                item={item}
+                allocated={allocByType[t] || 0}
+                budgeted={itemGoal(item)}
+                pinned={pinSet.has(t)}
+                manage={manage}
+                isFirst={idx === 0}
+                isLast={idx === ordered.length - 1}
+                onTogglePin={() => handlePin(t)}
+                onMove={(dir) => handleMove(t, dir)}
+                onDropOnto={(toType) => { if (dragType) handleDrop(dragType, toType); }}
+                dragType={dragType}
+                setDragType={setDragType}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -777,6 +856,15 @@ const CAT_ORDER = ['Essentials', 'Stability', 'Discretionary', 'Subscription'];
 
 function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
   const [showSavings, setShowSavings] = useState(false);
+  const [manage, setManage]   = useState(false);
+  const [orderV, setOrderV]   = useState(0);
+  const bump = useCallback(() => setOrderV(v => v + 1), []);
+  const savingsPins = useMemo(() => new Set(getCatPins()), [orderV]);
+
+  function handleReset() {
+    resetCatOrder();
+    bump();
+  }
 
   const allocByType = useMemo(() => {
     const map = {};
@@ -819,6 +907,33 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
 
   return (
     <div className="space-y-4">
+      {/* ── Reorder / pin toolbar (Task 25) ── */}
+      <div className="flex items-center justify-between gap-2">
+        <button
+          onClick={() => setManage(m => !m)}
+          className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+            manage
+              ? 'bg-blue-600 border-blue-500 text-white'
+              : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white'
+          }`}
+        >
+          {manage ? '✓ Done reordering' : '↕ Reorder'}
+        </button>
+        {manage && (
+          <button
+            onClick={handleReset}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg text-slate-400 hover:text-rose-300 transition-colors"
+          >
+            Reset order
+          </button>
+        )}
+      </div>
+      {manage && (
+        <p className="text-slate-500 text-[11px] -mt-2 px-1">
+          📌 Pin items to float them to the top · drag the ⠿ handle or use ▲/▼ to reorder within each group.
+        </p>
+      )}
+
       {/* (Funding status now lives in the page-level banner above the tabs,
           covering both unfunded and partially-funded essentials.) */}
 
@@ -856,7 +971,15 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
 
       {/* Expense-type groups */}
       {orderedKeys.map(cat => (
-        <CategoryGroup key={cat} label={cat} items={groups[cat]} allocByType={allocByType} />
+        <CategoryGroup
+          key={cat}
+          label={cat}
+          items={groups[cat]}
+          allocByType={allocByType}
+          manage={manage}
+          orderV={orderV}
+          bump={bump}
+        />
       ))}
 
       {/* Savings — shown separately, collapsible */}
@@ -881,14 +1004,27 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
           </button>
           {showSavings && (
             <div className="p-3 space-y-2 bg-emerald-950/20">
-              {savingsItems.map(item => (
-                <CategoryItemCard
-                  key={item._rowNum}
-                  item={item}
-                  allocated={allocByType[item['Type'] || ''] || 0}
-                  budgeted={pm(item['Monthly Allowance ($)'])}
-                />
-              ))}
+              {(() => {
+                const ord = orderTypes(savingsItems, i => i['Type'] || '');
+                const ordTypes = ord.map(i => i['Type'] || '');
+                return ord.map((item, idx) => {
+                  const t = item['Type'] || '';
+                  return (
+                    <CategoryItemCard
+                      key={item._rowNum}
+                      item={item}
+                      allocated={allocByType[t] || 0}
+                      budgeted={pm(item['Monthly Allowance ($)'])}
+                      pinned={savingsPins.has(t)}
+                      manage={manage}
+                      isFirst={idx === 0}
+                      isLast={idx === ord.length - 1}
+                      onTogglePin={() => { togglePin(t); bump(); }}
+                      onMove={(dir) => { if (moveTypeWithin(ordTypes, t, dir)) bump(); }}
+                    />
+                  );
+                });
+              })()}
             </div>
           )}
         </div>
@@ -1254,7 +1390,7 @@ function TrendsView({ allAllocTx, expenses }) {
       {/* Per-category breakdown */}
       {orderedCats.map(cat => {
         const color     = CAT_COLORS[cat] || '#64748b';
-        const types     = categoryGroups[cat];
+        const types     = orderTypes(categoryGroups[cat], t => t);
         const catTotals = pKeys.map(k => types.reduce((s, t) => s + (grouped[k]?.[t] || 0), 0));
         const catDelta  = catTotals[0] - catTotals[1];
 
