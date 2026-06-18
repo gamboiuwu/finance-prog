@@ -4,6 +4,7 @@ import { SHEETS, MONTHS } from '../config';
 import { fetchGasPrices } from '../lib/gasPrice';
 import { computeGasBudget, saveGasBudget, getGasBudget } from '../lib/gasBudget';
 import LoadingSpinner from '../components/LoadingSpinner';
+import Goals from './Goals';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis,
@@ -1326,6 +1327,7 @@ const TABS = [
   { key: 'categories', label: 'Categories' },
   { key: 'budget',     label: 'Budget' },
   { key: 'entries',    label: 'Entries & Trends' },
+  { key: 'goals',      label: 'Goals' },
 ];
 
 function TabBar({ active, onChange }) {
@@ -1552,6 +1554,7 @@ export default function Budget({ token }) {
             {activeTab === 'budget'     ? 'Plan vs. actual spend · tap any item to edit' :
              activeTab === 'categories' ? 'Funded this month (deposits) vs. goal' :
              activeTab === 'entries'    ? 'Allocation entries + month-over-month trends' :
+             activeTab === 'goals'      ? 'Savings goals · contribute and track milestones' :
              'Allocation actuals vs. plan'}
           </p>
         </div>
@@ -1701,6 +1704,11 @@ export default function Budget({ token }) {
             <SpendingHeatmap allAllocTx={allAllocTx} />
             <AllEntriesView allocTx={allocTx} />
           </>
+        )}
+
+        {/* ── Goals tab (Task 9) — ported from the standalone Goals page ── */}
+        {activeTab === 'goals' && (
+          <Goals token={token} embedded />
         )}
 
       </div>

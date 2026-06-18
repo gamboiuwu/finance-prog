@@ -1435,6 +1435,69 @@ function NetWorthCard({ rows, expanded, onToggle, onUpdate }) {
   );
 }
 
+// ── Top-Goal widget (Task 9, item f) ─────────────────────────────────────────
+// Picks the most motivating active personal goal to surface on the Dashboard:
+// the one nearest its deadline (so it nudges action); when no goals have a
+// deadline, the one closest to completion. Tap to open the Goals page.
+function pickTopGoal(goals) {
+  const active = goals.filter(g =>
+    g.scope !== 'business' &&
+    g.status !== 'done' &&
+    g.target > 0 &&
+    g.saved < g.target
+  );
+  if (!active.length) return null;
+  const dated = active.filter(g => g.targetDate);
+  if (dated.length) {
+    return dated.slice().sort((a, b) => a.targetDate.localeCompare(b.targetDate))[0];
+  }
+  // No deadlines — surface the goal closest to the finish line.
+  return active.slice().sort((a, b) => (b.saved / b.target) - (a.saved / a.target))[0];
+}
+
+function TopGoalCard({ goals, onOpen }) {
+  const g = pickTopGoal(goals);
+  if (!g) return null;
+  const pct = Math.max(0, Math.min(100, Math.round((g.saved / g.target) * 100)));
+  const remaining = Math.max(0, g.target - g.saved);
+
+  // Days until deadline → a short motivational line.
+  let when = '';
+  if (g.targetDate) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const d = new Date(g.targetDate + 'T12:00:00');
+    const days = Math.round((d - today) / 86400000);
+    when = days < 0 ? 'past deadline' : days === 0 ? 'due today' : `${days}d left`;
+  }
+  const cheer = pct >= 75 ? 'So close — finish strong! 🔥'
+    : pct >= 50 ? 'Over halfway there! 💪'
+    : pct >= 25 ? 'Great momentum! 🚀'
+    : 'Every dollar counts. 🌱';
+
+  return (
+    <button
+      onClick={onOpen}
+      className="w-full bg-gradient-to-br from-teal-900/50 to-slate-800 border border-teal-700/30 rounded-xl px-4 py-3 text-left transition-colors hover:border-teal-600/50"
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-base">🎯</span>
+        <span className="text-white text-sm font-semibold truncate flex-1">{g.name}</span>
+        {when && <span className="text-teal-300/80 text-[10px] shrink-0">{when}</span>}
+      </div>
+      <div className="h-2 bg-slate-700/60 rounded-full overflow-hidden">
+        <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="flex items-center justify-between text-[11px] mt-1">
+        <span className="text-slate-300 font-mono tabular-nums">
+          {fmt(g.saved)} <span className="text-slate-500">/ {fmt(g.target)}</span>
+        </span>
+        <span className="text-teal-300">{pct}% · {fmt(remaining)} to go</span>
+      </div>
+      <p className="text-slate-400 text-[10px] mt-1">{cheer}</p>
+    </button>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -1511,6 +1574,7 @@ export default function Dashboard({ token }) {
   const [showPaydayConfig, setShowPaydayConfig] = useState(false);
   const [netWorthRows, setNetWorthRows] = useState([]);
   const [nwExpanded, setNwExpanded]     = useState(false);
+  const [goalRows, setGoalRows]         = useState([]); // savings goals (Plans sheet, Task 9)
   const [showNetWorth, setShowNetWorth] = useState(false);
   const [nwSaving, setNwSaving]         = useState(false);
   const [nwError, setNwError]           = useState(null);
@@ -1545,9 +1609,28 @@ export default function Dashboard({ token }) {
       readRange(token, 'Subscriptions!A:E').catch(() => []),
       readRange(token, 'Allocation Transactions!A:F', 'UNFORMATTED_VALUE').catch(() => []),
       readRange(token, 'Net Worth!A:E', 'UNFORMATTED_VALUE').catch(() => []),
+      readRange(token, 'Plans!A:K', 'UNFORMATTED_VALUE').catch(() => []),
     ])
-      .then(([summaryRows, expRows, links, subRows, allocRows, nwRows]) => {
+      .then(([summaryRows, expRows, links, subRows, allocRows, nwRows, planRows]) => {
         setReportLinks(links);
+
+        // Savings goals (Task 9) — skip a leading header row; keep only the
+        // fields the Top-Goal widget needs. Plans cols: ID,Name,Scope,Target,
+        // Saved,Per Month,Target Date,Funding,Status,Created,Notes.
+        if (planRows.length) {
+          const startsHdr = String(planRows[0]?.[0] || '').trim().toLowerCase() === 'id';
+          const dataRows = startsHdr ? planRows.slice(1) : planRows;
+          setGoalRows(dataRows.filter(r => r[1]).map(r => ({
+            name:       String(r[1]),
+            scope:      String(r[2] || 'personal'),
+            target:     pm(r[3]),
+            saved:      pm(r[4]),
+            targetDate: nwDateToIso(r[6]),
+            status:     String(r[8] || 'active'),
+          })));
+        } else {
+          setGoalRows([]);
+        }
 
         // Net Worth snapshots (Task 14) — skip a leading header row; convert each
         // date to ISO so snapshots sort/group consistently. Balances are positive
@@ -2666,6 +2749,9 @@ ${stmtTxns.length ? `
           <span>💰</span><span>Set up payday tracker</span>
         </button>
       )}
+
+      {/* ── Top-Goal widget (Task 9) — nearest-deadline savings goal ── */}
+      <TopGoalCard goals={goalRows} onOpen={() => navigate('/goals')} />
 
       {/* ── Gas price chip + Log Gas spend ─────────────────── */}
       {gasPrice?.value && (

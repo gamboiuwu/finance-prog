@@ -6,9 +6,48 @@
 // goals are measured against personal cash flow, business goals against business
 // revenue vs expenses.
 import { useState, useEffect, useCallback } from 'react';
-import { readPlans, savePlan, deletePlan } from '../lib/sheetWrite';
+import { readPlans, savePlan, deletePlan, updatePlanProgress } from '../lib/sheetWrite';
+import { appendRow } from '../lib/sheets';
 import { parsePlans, derivePersonalCashflow, deriveBusinessCashflow } from '../lib/dragonOverview';
 import { assessGoal } from '../lib/dragonPlan';
+
+// ── Milestone tracking (Task 9) ───────────────────────────────────────────────
+// We fire a browser push the first time a goal crosses 25 / 50 / 75 / 100 %, and
+// remember which ones already fired so the same milestone never re-notifies.
+// Stored per-goal-name (not id) so it survives a goal being re-keyed.
+const MILESTONES = [25, 50, 75, 100];
+const GOAL_MILE_KEY = '_fin_goal_milestones';
+
+function getGoalMilestones() {
+  try { return JSON.parse(localStorage.getItem(GOAL_MILE_KEY)) || {}; }
+  catch { return {}; }
+}
+function saveGoalMilestones(m) {
+  try { localStorage.setItem(GOAL_MILE_KEY, JSON.stringify(m)); } catch { /* ignore quota */ }
+}
+
+// Given a goal's name and its new percent-funded, fire a push for any milestone
+// it just crossed (and hasn't fired before). Pure-localStorage dedup; no-op when
+// notifications are unavailable or denied.
+function fireGoalMilestones(goalName, pct) {
+  const all   = getGoalMilestones();
+  const fired = all[goalName] || [];
+  const crossed = MILESTONES.filter(m => pct >= m && !fired.includes(String(m)));
+  if (!crossed.length) return;
+  all[goalName] = [...fired, ...crossed.map(String)];
+  saveGoalMilestones(all);
+
+  if (typeof Notification === 'undefined' || Notification.permission === 'denied') return;
+  const top  = Math.max(...crossed);
+  const body = top >= 100
+    ? `🎉 You fully funded "${goalName}"! Goal reached — incredible work.`
+    : `🎯 "${goalName}" is ${top}% funded. Keep the momentum going!`;
+  const show = () => { try { new Notification('Savings milestone', { body }); } catch { /* ignore */ } };
+  if (Notification.permission === 'granted') show();
+  else Notification.requestPermission().then(p => { if (p === 'granted') show(); });
+}
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
 
 // Convert a raw sheet date value (serial number or string) to YYYY-MM-DD.
 // parsePlans() handles integer-string serials; this also covers fractional serials
@@ -54,8 +93,8 @@ const VERDICT = {
   stalled:  { label: 'Stalled',         cls: 'bg-slate-700/50 text-slate-300 border-slate-600/50' },
 };
 
-// ── Inline goal card with edit / delete buttons ───────────────────────────────
-function GoalCard({ g, onEdit, onDelete, isDeleting }) {
+// ── Inline goal card with edit / delete / contribute buttons ──────────────────
+function GoalCard({ g, onEdit, onDelete, onContribute, isDeleting }) {
   const done   = g.status === 'done' || g.progress >= 100;
   const paused = g.status === 'paused';
   const barColor = done ? 'bg-emerald-500' : paused ? 'bg-slate-500' : 'bg-gradient-to-r from-emerald-500 to-teal-400';
@@ -112,6 +151,17 @@ function GoalCard({ g, onEdit, onDelete, isDeleting }) {
         <p className="text-slate-500 text-[10px]">{fmt(g.perMonth)}/mo planned</p>
       )}
 
+      {/* Contribute — logs money toward the goal (personal goals also append an
+          Allocation Transaction so the deposit shows in budget history). */}
+      {!done && !paused && (
+        <button
+          onClick={() => onContribute(g)}
+          className="w-full mt-0.5 bg-teal-600/90 hover:bg-teal-500 text-white text-xs font-semibold py-1.5 rounded-lg transition-colors"
+        >
+          ＋ Contribute
+        </button>
+      )}
+
       {/* Assessment */}
       {a && (
         <div className="border-t border-slate-700/60 pt-2 space-y-1.5">
@@ -139,7 +189,7 @@ function GoalCard({ g, onEdit, onDelete, isDeleting }) {
   );
 }
 
-function GoalGroup({ title, goals, onEdit, onDelete, deleting }) {
+function GoalGroup({ title, goals, onEdit, onDelete, onContribute, deleting }) {
   if (!goals.length) return null;
   return (
     <div className="space-y-2">
@@ -152,9 +202,92 @@ function GoalGroup({ title, goals, onEdit, onDelete, deleting }) {
           g={g}
           onEdit={onEdit}
           onDelete={onDelete}
+          onContribute={onContribute}
           isDeleting={deleting === g.id}
         />
       ))}
+    </div>
+  );
+}
+
+// ── Contribute drawer ─────────────────────────────────────────────────────────
+// Enter an amount to put toward a goal. On save the parent logs the deposit and
+// bumps the plan's saved figure; this is purely the amount-entry UI.
+function ContributeDrawer({ goal, onSave, onClose, saving }) {
+  const [amount, setAmount] = useState('');
+  const remaining = Math.max(0, (Number(goal.target) || 0) - (Number(goal.saved) || 0));
+  const quick = [25, 50, 100].filter(v => v <= remaining || remaining === 0);
+
+  function submit(e) {
+    e.preventDefault();
+    const n = parseFloat(amount);
+    if (!(n > 0)) return;
+    onSave(goal, Math.round(n * 100) / 100);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onClick={onClose}>
+      <form
+        className="bg-slate-900 rounded-t-2xl p-5 space-y-4"
+        onClick={e => e.stopPropagation()}
+        onSubmit={submit}
+      >
+        <div className="flex items-center justify-between">
+          <p className="text-white font-semibold font-broske">Contribute to {goal.name}</p>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+        </div>
+
+        <p className="text-slate-400 text-xs">
+          {fmt(goal.saved)} of {fmt(goal.target)} saved
+          {remaining > 0 && <> · <span className="text-teal-300">{fmt(remaining)} to go</span></>}
+        </p>
+
+        <div className="space-y-1">
+          <label className="text-slate-400 text-xs">Amount ($)</label>
+          <input
+            autoFocus type="number" min="0" step="0.01" inputMode="decimal"
+            className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl px-3 py-2.5 outline-none focus:ring-1 focus:ring-teal-500 font-mono tabular-nums"
+            placeholder="0.00"
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            required
+          />
+        </div>
+
+        <div className="flex gap-2">
+          {quick.map(v => (
+            <button
+              key={v} type="button"
+              onClick={() => setAmount(String(v))}
+              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium py-2 rounded-xl transition-colors"
+            >
+              ${v}
+            </button>
+          ))}
+          {remaining > 0 && (
+            <button
+              type="button"
+              onClick={() => setAmount(String(remaining.toFixed(2)))}
+              className="flex-1 bg-slate-800 hover:bg-slate-700 text-teal-300 text-sm font-medium py-2 rounded-xl transition-colors"
+            >
+              Finish
+            </button>
+          )}
+        </div>
+
+        <p className="text-slate-600 text-[10px] leading-snug">
+          {goal.scope === 'business'
+            ? 'Business goal — updates the goal balance only (not personal budget history).'
+            : 'Logged to Allocation Transactions so it shows in your budget history.'}
+        </p>
+
+        <button
+          type="submit" disabled={saving || !(parseFloat(amount) > 0)}
+          className="w-full bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors"
+        >
+          {saving ? 'Saving...' : 'Add contribution'}
+        </button>
+      </form>
     </div>
   );
 }
@@ -306,13 +439,15 @@ function GoalDrawer({ initial, onSave, onClose, saving }) {
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-export default function Goals({ token }) {
+export default function Goals({ token, embedded = false }) {
   const [plans, setPlans]       = useState([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
   const [drawer, setDrawer]     = useState(null); // null | 'add' | goal-object (edit)
   const [saving, setSaving]     = useState(false);
   const [deleting, setDeleting] = useState(null); // id of goal currently being deleted
+  const [contribGoal, setContribGoal] = useState(null); // goal being contributed to
+  const [contribSaving, setContribSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -363,6 +498,31 @@ export default function Goals({ token }) {
     }
   }
 
+  // Log a contribution toward a goal: (1) personal goals append an Allocation
+  // Transaction so the deposit shows in budget history; business goals only
+  // adjust the plan balance (per the user's "business log is different" note).
+  // (2) bump the plan's saved total. (3) fire any newly-crossed milestone push.
+  async function handleContribute(goal, amount) {
+    setContribSaving(true);
+    try {
+      if (goal.scope !== 'business') {
+        await appendRow(token, 'Allocation Transactions!A:F', [
+          todayISO(), goal.name, amount,
+          `Goal contribution: ${goal.name}`, 'Savings', true,
+        ]);
+      }
+      const { saved } = await updatePlanProgress(token, { id: goal.id, addAmount: amount });
+      const pct = (Number(goal.target) || 0) > 0 ? (saved / goal.target) * 100 : 0;
+      fireGoalMilestones(goal.name, pct);
+      setContribGoal(null);
+      await load();
+    } catch (e) {
+      alert(`Could not log contribution: ${e.message || e}`);
+    } finally {
+      setContribSaving(false);
+    }
+  }
+
   async function handleDelete(g) {
     if (!window.confirm(`Delete goal "${g.name}"? This cannot be undone.`)) return;
     setDeleting(g.id);
@@ -396,7 +556,12 @@ export default function Goals({ token }) {
         </div>
       );
     }
-    const sharedProps = { onEdit: g => setDrawer(g), onDelete: handleDelete, deleting };
+    const sharedProps = {
+      onEdit: g => setDrawer(g),
+      onDelete: handleDelete,
+      onContribute: g => setContribGoal(g),
+      deleting,
+    };
     return (
       <div className="space-y-5">
         <GoalGroup title="Personal" goals={personal} {...sharedProps} />
@@ -406,11 +571,13 @@ export default function Goals({ token }) {
     );
   }
 
+  // When embedded inside the Budget page's Goals tab, drop the standalone-page
+  // chrome (outer padding + big title) so it sits cleanly under Budget's header.
   return (
-    <div className="max-w-lg mx-auto px-4 py-5 pb-28">
+    <div className={embedded ? '' : 'max-w-lg mx-auto px-4 py-5 pb-28'}>
       <div className="mb-4 flex items-start justify-between gap-2">
         <div>
-          <h1 className="text-white font-bold text-xl font-broske flex items-center gap-2">Goals</h1>
+          {!embedded && <h1 className="text-white font-bold text-xl font-broske flex items-center gap-2">Goals</h1>}
           <p className="text-slate-500 text-xs mt-1">
             Live progress and an honest read on whether each goal is on track.
           </p>
@@ -436,6 +603,15 @@ export default function Goals({ token }) {
           onSave={handleSave}
           onClose={() => setDrawer(null)}
           saving={saving}
+        />
+      )}
+
+      {contribGoal && (
+        <ContributeDrawer
+          goal={contribGoal}
+          onSave={handleContribute}
+          onClose={() => setContribGoal(null)}
+          saving={contribSaving}
         />
       )}
     </div>
