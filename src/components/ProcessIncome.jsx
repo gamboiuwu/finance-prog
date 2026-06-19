@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { appendRow, readRange } from '../lib/sheets';
+import { sortByCatPrefs } from '../lib/catPrefs';
 
 const ACCOUNT_ICONS = {
   'Checking':        { icon: '🏧', color: 'text-blue-400',    bg: 'bg-blue-900/30 border-blue-800/40'     },
@@ -256,7 +257,11 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         rows.push({ name: it.name.trim(), account: it.account || 'Savings', amount: it.deposit, priority: 4, kind: 'surplus' });
       }
     });
-    return rows.sort((a, b) => b.amount - a.amount);
+    // Connected to the Budget Categories pin/order (Task 25): pinned & custom-
+    // ordered budget rows lead, ties fall back to biggest-first; surplus last.
+    const budget  = rows.filter(r => r.kind === 'budget').sort((a, b) => b.amount - a.amount);
+    const surplus = rows.filter(r => r.kind !== 'budget').sort((a, b) => b.amount - a.amount);
+    return [...sortByCatPrefs(budget, r => r.name), ...surplus];
   }, [deposits, surplusDeposits]);
 
   function addTemplate() {
