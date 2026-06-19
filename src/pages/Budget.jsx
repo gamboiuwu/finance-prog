@@ -69,6 +69,59 @@ function getCatNotes() {
   try { return JSON.parse(localStorage.getItem('_fin_cat_notes') || '{}'); } catch { return {}; }
 }
 
+// ── Category Reorder & Pinning (Task 25) ─────────────────────────────────────
+// Pure localStorage helpers — no financial data, only category names + an order
+// index. `_fin_cat_order = { "TypeName": sortIndex }` controls manual order within
+// an expense group; `_fin_cat_pins = ["TypeName", …]` floats pinned items to the
+// top of their group. Both persist across months (same set of budget categories).
+function getCatOrder() {
+  try { return JSON.parse(localStorage.getItem('_fin_cat_order') || '{}'); } catch { return {}; }
+}
+function getCatPins() {
+  try { const v = JSON.parse(localStorage.getItem('_fin_cat_pins') || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+// Sort a group's items: pinned first, then manual order index, then sheet order.
+// Unordered items default to (1000 + sheet index) so they keep their original
+// relative order and always sit after explicitly-ordered ones.
+function sortByPinOrder(items) {
+  const order = getCatOrder();
+  const pins  = new Set(getCatPins());
+  return items
+    .map((it, idx) => ({ it, idx, type: it['Type'] || '' }))
+    .sort((a, b) => {
+      const pa = pins.has(a.type) ? 0 : 1, pb = pins.has(b.type) ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      const oa = a.type in order ? order[a.type] : 1000 + a.idx;
+      const ob = b.type in order ? order[b.type] : 1000 + b.idx;
+      if (oa !== ob) return oa - ob;
+      return a.idx - b.idx;
+    })
+    .map(x => x.it);
+}
+function toggleCatPin(type) {
+  if (!type) return;
+  const pins = getCatPins();
+  const i = pins.indexOf(type);
+  if (i >= 0) pins.splice(i, 1); else pins.push(type);
+  localStorage.setItem('_fin_cat_pins', JSON.stringify(pins));
+}
+// Swap a type with its neighbour in the currently-displayed order. Rebases every
+// displayed type to its current position first so swaps are always consistent.
+function moveCatInOrder(displayedTypes, type, dir) {
+  const order = getCatOrder();
+  displayedTypes.forEach((t, idx) => { if (t) order[t] = idx; });
+  const i = displayedTypes.indexOf(type);
+  const j = dir === 'up' ? i - 1 : i + 1;
+  if (i < 0 || j < 0 || j >= displayedTypes.length) return;
+  const a = displayedTypes[i], b = displayedTypes[j];
+  const tmp = order[a]; order[a] = order[b]; order[b] = tmp;
+  localStorage.setItem('_fin_cat_order', JSON.stringify(order));
+}
+function resetCatLayout() {
+  localStorage.removeItem('_fin_cat_order');
+  localStorage.removeItem('_fin_cat_pins');
+}
+
 // Parses a Sheets date cell (serial number or M/D/YYYY or YYYY-MM-DD string)
 function parseSheetDate(val) {
   if (val == null || val === '') return null;
@@ -496,7 +549,11 @@ function PrioritySection({ priority, items, onEdit, onAdd }) {
 
 // ── Category tab: individual item card ────────────────────────────────────────
 
-function CategoryItemCard({ item, allocated, budgeted }) {
+function CategoryItemCard({
+  item, allocated, budgeted,
+  pinned = false, reorderMode = false, isFirst = false, isLast = false,
+  onMove = null, onPin = null,
+}) {
   const type  = item['Type'] || '';
   const [dueDay, setDueDayState] = useState(() => getDueDates()[type] ?? null);
   const [editingDue, setEditingDue] = useState(false);
@@ -547,6 +604,7 @@ function CategoryItemCard({ item, allocated, budgeted }) {
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
+              {pinned && <span className="text-[11px] leading-none shrink-0" title="Pinned to top">📌</span>}
               <p className="text-white text-sm font-medium">{type || '—'}</p>
               {pastDue && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium shrink-0">⚠ Past due</span>
@@ -628,6 +686,41 @@ function CategoryItemCard({ item, allocated, budgeted }) {
             <p className="text-[10px] text-slate-600 font-mono mt-0.5">{pct.toFixed(0)}% funded</p>
           </div>
         )}
+
+        {reorderMode && (
+          <div className="mt-2.5 pt-2.5 border-t border-slate-800/60 flex items-center gap-2">
+            <button
+              onClick={() => onPin && onPin(type)}
+              className={`text-[11px] px-2 py-1 rounded-lg font-medium transition-colors ${
+                pinned ? 'bg-amber-900/50 text-amber-300' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {pinned ? '📌 Pinned' : '📌 Pin'}
+            </button>
+            <div className="flex items-center gap-1 ml-auto">
+              <button
+                onClick={() => onMove && onMove(type, 'up')}
+                disabled={isFirst}
+                className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors ${
+                  isFirst ? 'bg-slate-900 text-slate-700' : 'bg-slate-800 text-slate-300 hover:text-white active:bg-slate-700'
+                }`}
+                title="Move up"
+              >
+                ▲
+              </button>
+              <button
+                onClick={() => onMove && onMove(type, 'down')}
+                disabled={isLast}
+                className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors ${
+                  isLast ? 'bg-slate-900 text-slate-700' : 'bg-slate-800 text-slate-300 hover:text-white active:bg-slate-700'
+                }`}
+                title="Move down"
+              >
+                ▼
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {showNoteDrawer && (
@@ -677,9 +770,13 @@ function CategoryItemCard({ item, allocated, budgeted }) {
 
 // ── Category tab: expense-type group ─────────────────────────────────────────
 
-function CategoryGroup({ label, items, allocByType }) {
+function CategoryGroup({ label, items, allocByType, reorderMode = false, orderTick = 0, onBump = null }) {
   const [open, setOpen] = useState(true);
   const color  = CAT_COLORS[label] || '#64748b';
+  // Pinned-first + manual order; re-sorts whenever orderTick bumps.
+  const displayed = useMemo(() => sortByPinOrder(items), [items, orderTick]);
+  const pins = useMemo(() => new Set(getCatPins()), [orderTick]);
+  const displayedTypes = displayed.map(it => it['Type'] || '');
   const totalB = items.reduce((s, i) => s + itemGoal(i), 0);
   const totalA = items.reduce((s, i) => s + (allocByType[i['Type'] || ''] || 0), 0);
   const over   = totalA > totalB && totalB > 0;
@@ -757,14 +854,23 @@ function CategoryGroup({ label, items, allocByType }) {
 
       {open && (
         <div className="p-3 space-y-2 bg-slate-950/30">
-          {items.map(item => (
-            <CategoryItemCard
-              key={item._rowNum}
-              item={item}
-              allocated={allocByType[item['Type'] || ''] || 0}
-              budgeted={itemGoal(item)}
-            />
-          ))}
+          {displayed.map((item, i) => {
+            const t = item['Type'] || '';
+            return (
+              <CategoryItemCard
+                key={item._rowNum}
+                item={item}
+                allocated={allocByType[t] || 0}
+                budgeted={itemGoal(item)}
+                pinned={pins.has(t)}
+                reorderMode={reorderMode}
+                isFirst={i === 0}
+                isLast={i === displayed.length - 1}
+                onPin={(type) => { toggleCatPin(type); onBump && onBump(); }}
+                onMove={(type, dir) => { moveCatInOrder(displayedTypes, type, dir); onBump && onBump(); }}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -777,6 +883,9 @@ const CAT_ORDER = ['Essentials', 'Stability', 'Discretionary', 'Subscription'];
 
 function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
   const [showSavings, setShowSavings] = useState(false);
+  const [reorderMode, setReorderMode] = useState(false);
+  const [orderTick, setOrderTick]     = useState(0);
+  const bump = () => setOrderTick(t => t + 1);
 
   const allocByType = useMemo(() => {
     const map = {};
@@ -822,6 +931,31 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
       {/* (Funding status now lives in the page-level banner above the tabs,
           covering both unfunded and partially-funded essentials.) */}
 
+      {/* Reorder / pin controls (Task 25) */}
+      <div className="flex items-center justify-between px-0.5">
+        <p className="text-slate-500 text-[10px] uppercase tracking-wider">
+          {reorderMode ? 'Tap 📌 to pin · ▲▼ to reorder' : 'Categories'}
+        </p>
+        <div className="flex items-center gap-2">
+          {reorderMode && (
+            <button
+              onClick={() => { resetCatLayout(); bump(); }}
+              className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              Reset
+            </button>
+          )}
+          <button
+            onClick={() => setReorderMode(m => !m)}
+            className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition-colors ${
+              reorderMode ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:text-white'
+            }`}
+          >
+            {reorderMode ? 'Done' : '↕ Reorder'}
+          </button>
+        </div>
+      </div>
+
       {/* Summary bar */}
       <div className="bg-slate-900 rounded-2xl p-4">
         {totalA === 0 && totalB > 0 && (
@@ -856,7 +990,15 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
 
       {/* Expense-type groups */}
       {orderedKeys.map(cat => (
-        <CategoryGroup key={cat} label={cat} items={groups[cat]} allocByType={allocByType} />
+        <CategoryGroup
+          key={cat}
+          label={cat}
+          items={groups[cat]}
+          allocByType={allocByType}
+          reorderMode={reorderMode}
+          orderTick={orderTick}
+          onBump={bump}
+        />
       ))}
 
       {/* Savings — shown separately, collapsible */}
