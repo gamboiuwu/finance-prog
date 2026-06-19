@@ -1,10 +1,14 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { readRange, batchUpdateCells, appendRow } from '../lib/sheets';
 import { SHEETS, MONTHS } from '../config';
 import { fetchGasPrices } from '../lib/gasPrice';
 import { computeGasBudget, saveGasBudget, getGasBudget } from '../lib/gasBudget';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Goals from './Goals';
+import {
+  getCatPins, toggleCatPin, sortByCatPrefs, commitCatOrder,
+  hasCatPrefs, resetCatPrefs,
+} from '../lib/catPrefs';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis,
@@ -496,7 +500,7 @@ function PrioritySection({ priority, items, onEdit, onAdd }) {
 
 // ── Category tab: individual item card ────────────────────────────────────────
 
-function CategoryItemCard({ item, allocated, budgeted }) {
+function CategoryItemCard({ item, allocated, budgeted, pinned = false, onTogglePin }) {
   const type  = item['Type'] || '';
   const [dueDay, setDueDayState] = useState(() => getDueDates()[type] ?? null);
   const [editingDue, setEditingDue] = useState(false);
@@ -536,7 +540,9 @@ function CategoryItemCard({ item, allocated, budgeted }) {
   const pct   = budgeted > 0 ? Math.min((allocated / budgeted) * 100, 100) : (allocated > 0 ? 100 : 0);
   const cat   = item['Expense'] || 'Other';
   const color = CAT_COLORS[cat] || '#64748b';
-  const leftBorder = pastDue ? '#ef4444' : dueSoon ? '#f59e0b' : over ? '#ef4444' : color;
+  // Pinned → gold left border, but urgent due/over states still take precedence.
+  const leftBorder = pastDue ? '#ef4444' : dueSoon ? '#f59e0b' : over ? '#ef4444'
+    : pinned ? '#eab308' : color;
 
   return (
     <>
@@ -547,6 +553,7 @@ function CategoryItemCard({ item, allocated, budgeted }) {
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
+              {pinned && <span className="text-[11px] leading-none shrink-0" title="Pinned">📌</span>}
               <p className="text-white text-sm font-medium">{type || '—'}</p>
               {pastDue && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium shrink-0">⚠ Past due</span>
@@ -556,9 +563,18 @@ function CategoryItemCard({ item, allocated, budgeted }) {
                   ⏰ {daysUntil === 0 ? 'Due today' : `Due in ${daysUntil}d`}
                 </span>
               )}
+              {onTogglePin && (
+                <button
+                  onClick={() => onTogglePin(type)}
+                  className={`text-[12px] leading-none shrink-0 ml-auto transition-opacity ${pinned ? 'opacity-100' : 'opacity-30 hover:opacity-70'}`}
+                  title={pinned ? 'Unpin from top' : 'Pin to top'}
+                >
+                  📌
+                </button>
+              )}
               <button
                 onClick={openNoteDrawer}
-                className="text-slate-600 hover:text-slate-300 text-[11px] leading-none transition-colors shrink-0 ml-auto"
+                className={`text-slate-600 hover:text-slate-300 text-[11px] leading-none transition-colors shrink-0 ${onTogglePin ? '' : 'ml-auto'}`}
                 title="Add note"
               >
                 ✎
@@ -677,8 +693,87 @@ function CategoryItemCard({ item, allocated, budgeted }) {
 
 // ── Category tab: expense-type group ─────────────────────────────────────────
 
-function CategoryGroup({ label, items, allocByType }) {
+// ── Pointer-based drag-to-reorder list (touch + mouse, no dependency) — Task 25 ──
+const REORDER_ROW_H = 46; // approx rendered row height incl. gap, for index math
+function ReorderList({ items, allocByType, pins, onCommit, onTogglePin }) {
+  const [order, setOrder] = useState(() => items.map(i => i['Type'] || ''));
+  const seq = items.map(i => i['Type'] || '').join('|');
+  useEffect(() => { setOrder(items.map(i => i['Type'] || '')); }, [seq]);
+
+  const [dragKey, setDragKey] = useState(null);
+  const [dragDy, setDragDy]   = useState(0);
+  const start = useRef({ y: 0, idx: 0 });
+
+  const byKey = {};
+  items.forEach(i => { byKey[i['Type'] || ''] = i; });
+
+  function down(e, key) {
+    start.current = { y: e.clientY, idx: order.indexOf(key) };
+    setDragKey(key); setDragDy(0);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* unsupported */ }
+  }
+  function move(e) {
+    if (dragKey == null) return;
+    const dyTotal = e.clientY - start.current.y;
+    let next = order;
+    const curIdx = order.indexOf(dragKey);
+    const tgt = Math.max(0, Math.min(order.length - 1, start.current.idx + Math.round(dyTotal / REORDER_ROW_H)));
+    if (tgt !== curIdx) {
+      next = order.filter(k => k !== dragKey);
+      next.splice(tgt, 0, dragKey);
+      setOrder(next);
+    }
+    setDragDy(dyTotal - (next.indexOf(dragKey) - start.current.idx) * REORDER_ROW_H);
+  }
+  function up() {
+    if (dragKey == null) return;
+    onCommit(order);
+    setDragKey(null); setDragDy(0);
+  }
+
+  return (
+    <div className="space-y-1.5" style={{ touchAction: 'pan-y' }}>
+      {order.map(key => {
+        const item = byKey[key];
+        if (!item) return null;
+        const pinned   = pins.includes(key);
+        const dragging = key === dragKey;
+        return (
+          <div
+            key={key}
+            className={`flex items-center gap-2 rounded-xl px-2 py-2 border ${dragging ? 'border-blue-500 bg-slate-800 shadow-lg' : 'border-slate-800/60 bg-slate-900'}`}
+            style={{
+              borderLeft: pinned ? '3px solid #eab308' : undefined,
+              ...(dragging ? { transform: `translateY(${dragDy}px)`, zIndex: 20, position: 'relative' } : null),
+            }}
+          >
+            <span
+              className="text-slate-500 text-lg leading-none select-none px-1 cursor-grab active:cursor-grabbing"
+              style={{ touchAction: 'none' }}
+              onPointerDown={e => down(e, key)}
+              onPointerMove={move}
+              onPointerUp={up}
+              onPointerCancel={up}
+              title="Drag to reorder"
+            >⠿</span>
+            <button
+              onClick={() => onTogglePin(key)}
+              className={`text-base leading-none shrink-0 transition-opacity ${pinned ? 'opacity-100' : 'opacity-30 hover:opacity-70'}`}
+              title={pinned ? 'Unpin' : 'Pin to top'}
+            >📌</button>
+            <span className="text-white text-sm font-medium truncate flex-1">{key || '—'}</span>
+            <span className="text-slate-500 text-xs font-mono shrink-0">{fmt(allocByType[key] || 0)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CategoryGroup({ label, items, allocByType, reorderMode = false, pins = [], onTogglePin, onCommitOrder }) {
   const [open, setOpen] = useState(true);
+  const isOpen = reorderMode || open;
+  const sortedItems = useMemo(() => sortByCatPrefs(items), [items, pins, reorderMode]);
   const color  = CAT_COLORS[label] || '#64748b';
   const totalB = items.reduce((s, i) => s + itemGoal(i), 0);
   const totalA = items.reduce((s, i) => s + (allocByType[i['Type'] || ''] || 0), 0);
@@ -707,7 +802,7 @@ function CategoryGroup({ label, items, allocByType }) {
         </div>
       </button>
 
-      {open && totalB > 0 && (
+      {isOpen && totalB > 0 && (
         <div className="px-4 py-2 bg-slate-950/50">
           <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
             <div className="h-1.5 rounded-full"
@@ -720,7 +815,7 @@ function CategoryGroup({ label, items, allocByType }) {
         </div>
       )}
 
-      {open && label === 'Subscription' && totalB > 0 && (
+      {isOpen && !reorderMode && label === 'Subscription' && totalB > 0 && (
         <div className="px-4 pt-3 pb-2 bg-slate-950/30 border-t border-slate-800/40">
           <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-2">Monthly cost per subscription</p>
           <div className="space-y-2">
@@ -755,16 +850,28 @@ function CategoryGroup({ label, items, allocByType }) {
         </div>
       )}
 
-      {open && (
+      {isOpen && (
         <div className="p-3 space-y-2 bg-slate-950/30">
-          {items.map(item => (
-            <CategoryItemCard
-              key={item._rowNum}
-              item={item}
-              allocated={allocByType[item['Type'] || ''] || 0}
-              budgeted={itemGoal(item)}
+          {reorderMode ? (
+            <ReorderList
+              items={sortedItems}
+              allocByType={allocByType}
+              pins={pins}
+              onCommit={onCommitOrder}
+              onTogglePin={onTogglePin}
             />
-          ))}
+          ) : (
+            sortedItems.map(item => (
+              <CategoryItemCard
+                key={item._rowNum}
+                item={item}
+                allocated={allocByType[item['Type'] || ''] || 0}
+                budgeted={itemGoal(item)}
+                pinned={pins.includes(item['Type'] || '')}
+                onTogglePin={onTogglePin}
+              />
+            ))
+          )}
         </div>
       )}
     </div>
@@ -777,6 +884,13 @@ const CAT_ORDER = ['Essentials', 'Stability', 'Discretionary', 'Subscription'];
 
 function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
   const [showSavings, setShowSavings] = useState(false);
+  const [reorderMode, setReorderMode] = useState(false);
+  const [prefsVer, setPrefsVer]       = useState(0); // bump to re-read pins/order
+  const pins = useMemo(() => getCatPins(), [prefsVer]);
+
+  const togglePin   = useCallback(t  => { toggleCatPin(t);    setPrefsVer(v => v + 1); }, []);
+  const commitOrder = useCallback(ks => { commitCatOrder(ks); setPrefsVer(v => v + 1); }, []);
+  const resetPrefs  = useCallback(() => { resetCatPrefs();    setPrefsVer(v => v + 1); }, []);
 
   const allocByType = useMemo(() => {
     const map = {};
@@ -822,6 +936,31 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
       {/* (Funding status now lives in the page-level banner above the tabs,
           covering both unfunded and partially-funded essentials.) */}
 
+      {/* ── Reorder / pin toolbar (Task 25) ── */}
+      <div className="flex items-center justify-between px-1">
+        <p className="text-slate-500 text-[10px] uppercase tracking-wider">
+          {reorderMode ? 'Drag ⠿ to reorder · tap 📌 to pin' : 'Categories'}
+        </p>
+        <div className="flex items-center gap-2">
+          {hasCatPrefs() && !reorderMode && (
+            <button
+              onClick={resetPrefs}
+              className="text-slate-600 hover:text-slate-400 text-[11px]"
+            >
+              Reset order
+            </button>
+          )}
+          <button
+            onClick={() => setReorderMode(m => !m)}
+            className={`text-[11px] px-2.5 py-1 rounded-full font-medium transition-colors ${
+              reorderMode ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:text-white'
+            }`}
+          >
+            {reorderMode ? '✓ Done' : '↕ Reorder'}
+          </button>
+        </div>
+      </div>
+
       {/* Summary bar */}
       <div className="bg-slate-900 rounded-2xl p-4">
         {totalA === 0 && totalB > 0 && (
@@ -856,7 +995,16 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
 
       {/* Expense-type groups */}
       {orderedKeys.map(cat => (
-        <CategoryGroup key={cat} label={cat} items={groups[cat]} allocByType={allocByType} />
+        <CategoryGroup
+          key={cat}
+          label={cat}
+          items={groups[cat]}
+          allocByType={allocByType}
+          reorderMode={reorderMode}
+          pins={pins}
+          onTogglePin={togglePin}
+          onCommitOrder={commitOrder}
+        />
       ))}
 
       {/* Savings — shown separately, collapsible */}
@@ -881,12 +1029,14 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
           </button>
           {showSavings && (
             <div className="p-3 space-y-2 bg-emerald-950/20">
-              {savingsItems.map(item => (
+              {sortByCatPrefs(savingsItems).map(item => (
                 <CategoryItemCard
                   key={item._rowNum}
                   item={item}
                   allocated={allocByType[item['Type'] || ''] || 0}
                   budgeted={pm(item['Monthly Allowance ($)'])}
+                  pinned={pins.includes(item['Type'] || '')}
+                  onTogglePin={togglePin}
                 />
               ))}
             </div>
