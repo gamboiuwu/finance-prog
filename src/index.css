@@ -116,7 +116,12 @@
 /* ── Page entrance ───────────────────────────────────── */
 
 .page-enter {
-  animation: fadeSlideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* No `forwards`/`both` fill-mode: keeping the final keyframe's transform would
+     leave a lingering `transform` on <main>, which makes it the containing block
+     for position:fixed descendants — pushing modals off-screen on tall pages.
+     The end state matches the element's natural style, so dropping the fill is
+     visually identical. */
+  animation: fadeSlideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* ── Staggered list children ─────────────────────────── */
