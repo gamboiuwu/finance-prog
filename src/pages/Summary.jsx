@@ -589,6 +589,291 @@ function YearView({ monthlyRows, allocRows, expenses, year, loading }) {
   );
 }
 
+// ─── Tax Prep View ─────────────────────────────────────────────────────────────
+// Task 15 — Tax Prep Summary. A once-a-year, READ-ONLY report that buckets the
+// year's money into tax-relevant categories so filing a Schedule C (or handing
+// it to a preparer) is copy/paste, not archaeology. Reuses the already-loaded
+// Allocation Transactions (personal income, split by [Source] tag) and
+// lazy-loads the Business sheets + Subscriptions. Nothing here ever writes.
+//
+// Numbers it computes (mirrors the Business Insights P&L so they reconcile):
+//   Schedule C: revenue (Business Transactions col F) − COGS − OpEx
+//               − deductible subscriptions = estimated net self-employment income.
+//   COGS / OpEx come from Business Expenses + non-owner-draw Business Account
+//   Spending, categorised exactly like InsightsView (cat === 'COGS' → COGS, else OpEx).
+//   Personal income is informational only (personal spending is NOT deductible).
+
+const IS_OWNER_DRAW_TX = d => String(d || '').toLowerCase().includes('processed as personal income');
+const IS_BIZ_DEDUCT_SUB = n => /business|deduct/i.test(String(n || ''));
+
+// Pull a "[Source]" prefix tag (Task 27 income tagging) off a description, else null.
+function extractSource(desc) {
+  const m = String(desc || '').match(/^\[([^\]]+)\]/);
+  return m ? m[1].trim() : null;
+}
+// Normalise a billed subscription amount to a monthly run-rate (matches Dashboard).
+function txMonthly(amount, cycle) {
+  const amt = parseFloat(amount) || 0;
+  switch (String(cycle || 'monthly').toLowerCase()) {
+    case 'annual':   return amt / 12;
+    case 'weekly':   return (amt * 52) / 12;
+    case 'biweekly': return (amt * 26) / 12;
+    default:         return amt;
+  }
+}
+// 4-digit calendar year of a date cell (serial or string), or null.
+function yearOf(raw) {
+  const d = parseAllocDate(raw);
+  return d ? d.getFullYear() : null;
+}
+
+function TaxView({ bizTx, bizExp, bizSpend, subs, allocRows, year, onYear, availableYears, loading }) {
+  const [copied, setCopied] = useState(false);
+  const [showOpex, setShowOpex] = useState(false);
+  const [showSubs, setShowSubs] = useState(false);
+  const [showPersonal, setShowPersonal] = useState(false);
+
+  const t = useMemo(() => {
+    const Y = Number(year);
+
+    // ── Schedule C gross receipts: Business Transactions revenue (col F / index 5) ──
+    const revenue = (bizTx || [])
+      .slice(String(bizTx?.[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
+      .filter(r => r && yearOf(r[0]) === Y)
+      .reduce((s, r) => s + (parseFloat(r[5]) || 0), 0);
+
+    // ── Business cost rows: Business Expenses + non-draw Business Account Spending ──
+    const expCosts = (bizExp || [])
+      .slice(String(bizExp?.[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
+      .filter(r => r && r[3] && parseFloat(r[2]) && yearOf(r[0]) === Y)
+      .map(r => ({ cat: String(r[3]).trim(), amount: parseFloat(r[2]) || 0 }));
+    const spendCosts = (bizSpend || [])
+      .slice(String(bizSpend?.[0]?.[0] || '').toLowerCase() === 'date' ? 1 : 0)
+      .filter(r => r && r[1] && parseFloat(r[2]) && !IS_OWNER_DRAW_TX(r[4]) && yearOf(r[0]) === Y)
+      .map(r => ({ cat: String(r[1]).trim(), amount: parseFloat(r[2]) || 0 }));
+    const costRows = [...expCosts, ...spendCosts];
+
+    const cogs = costRows.filter(r => r.cat === 'COGS').reduce((s, r) => s + r.amount, 0);
+    const opexMap = {};
+    costRows.filter(r => r.cat !== 'COGS').forEach(r => { opexMap[r.cat] = (opexMap[r.cat] || 0) + r.amount; });
+    const opexByCat = Object.entries(opexMap).sort((a, b) => b[1] - a[1]);
+    const opex = opexByCat.reduce((s, [, v]) => s + v, 0);
+
+    // ── Business-deductible subscriptions (Notes tagged business/deductible) ──
+    // Annualised run-rate from current subscription state (no per-year history).
+    const dedSubs = (subs || [])
+      .slice(1) // header
+      .filter(r => r && r[0] && IS_BIZ_DEDUCT_SUB(r[4]))
+      .map(r => ({ name: String(r[0]), annual: txMonthly(r[3], r[2]) * 12 }))
+      .filter(s => s.annual > 0)
+      .sort((a, b) => b.annual - a.annual);
+    const subDeduction = dedSubs.reduce((s, x) => s + x.annual, 0);
+
+    const grossProfit = revenue - cogs;
+    const totalDeductions = cogs + opex + subDeduction;
+    const netSE = revenue - totalDeductions;
+    const setAsideLow = Math.max(0, netSE) * 0.25;
+    const setAsideHigh = Math.max(0, netSE) * 0.30;
+
+    // ── Personal income by [Source] tag (informational; positive rows only) ──
+    const persMap = {};
+    (allocRows || []).slice(1).forEach(r => {
+      if (!r || !r[1]) return;
+      const amt = pm(r[2]) || 0;
+      if (amt <= 0) return;            // income/deposits only — never spends
+      if (yearOf(r[0]) !== Y) return;
+      const src = extractSource(r[3]) || 'Untagged';
+      persMap[src] = (persMap[src] || 0) + amt;
+    });
+    const personalBySource = Object.entries(persMap).sort((a, b) => b[1] - a[1]);
+    const totalPersonal = personalBySource.reduce((s, [, v]) => s + v, 0);
+
+    return {
+      revenue, cogs, opex, opexByCat, grossProfit, dedSubs, subDeduction,
+      totalDeductions, netSE, setAsideLow, setAsideHigh,
+      personalBySource, totalPersonal,
+    };
+  }, [bizTx, bizExp, bizSpend, subs, allocRows, year]);
+
+  function buildText() {
+    const L = [];
+    L.push(`TAX PREP SUMMARY — ${year}`);
+    L.push('(Estimate only — not tax advice. Verify with a professional before filing.)');
+    L.push('');
+    L.push('SCHEDULE C — BUSINESS');
+    L.push(`  Gross receipts (revenue):   ${fmt(t.revenue)}`);
+    L.push(`  - COGS:                     ${fmt(t.cogs)}`);
+    L.push(`  = Gross profit:             ${fmt(t.grossProfit)}`);
+    L.push(`  - Operating expenses:       ${fmt(t.opex)}`);
+    t.opexByCat.forEach(([cat, v]) => L.push(`        ${cat}: ${fmt(v)}`));
+    L.push(`  - Deductible subscriptions: ${fmt(t.subDeduction)}`);
+    t.dedSubs.forEach(s => L.push(`        ${s.name}: ${fmt(s.annual)}/yr (est.)`));
+    L.push(`  = Est. net self-employment income: ${fmt(t.netSE)}`);
+    L.push(`  Suggested tax set-aside (25-30%):  ${fmt(t.setAsideLow)} - ${fmt(t.setAsideHigh)}`);
+    L.push('');
+    L.push('PERSONAL INCOME (for your records — not deductible)');
+    t.personalBySource.forEach(([src, v]) => L.push(`  ${src}: ${fmt(v)}`));
+    L.push(`  Total personal income processed: ${fmt(t.totalPersonal)}`);
+    L.push('');
+    L.push('Mileage: not auto-included — track business miles separately and apply');
+    L.push('the IRS standard mileage rate for the tax year.');
+    return L.join('\n');
+  }
+
+  async function copyText() {
+    const txt = buildText();
+    try {
+      await navigator.clipboard.writeText(txt);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = txt; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (loading)
+    return <div className="px-4 py-10 text-center text-slate-500 text-sm">Loading tax summary…</div>;
+
+  const empty = t.revenue === 0 && t.totalDeductions === 0 && t.totalPersonal === 0;
+
+  return (
+    <div className="px-4 space-y-4">
+      {/* Year selector + copy */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex gap-1.5">
+          {availableYears.map(y => (
+            <button key={y} onClick={() => onYear(y)}
+              className={`text-xs px-2.5 py-1 rounded-lg font-mono font-medium transition-colors ${
+                String(y) === String(year) ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+              }`}>{y}</button>
+          ))}
+        </div>
+        <button onClick={copyText}
+          className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 font-medium hover:bg-slate-700 transition-colors">
+          {copied ? '✓ Copied' : '📋 Copy summary'}
+        </button>
+      </div>
+
+      {/* Caveat banner */}
+      <div className="flex items-start gap-2 bg-amber-950/50 border border-amber-800/40 rounded-lg px-3 py-2">
+        <span className="text-amber-400 text-xs mt-0.5">⚠</span>
+        <span className="text-amber-300 text-[11px] leading-relaxed">
+          Estimate only — not tax advice. You file a Schedule C; confirm every figure with a
+          professional (or in FreeTaxUSA) before filing.
+        </span>
+      </div>
+
+      {empty && (
+        <div className="px-1 py-6 text-center text-slate-500 text-sm">
+          No business or personal income logged for {year} yet.
+        </div>
+      )}
+
+      {/* ── Schedule C ── */}
+      <div className="bg-slate-900 rounded-xl p-4 space-y-2.5">
+        <p className="text-slate-500 text-[10px] uppercase tracking-widest">Schedule C — Self-Employment</p>
+
+        <div className="flex justify-between text-sm">
+          <span className="text-slate-300">Gross receipts (revenue)</span>
+          <span className="font-mono text-white tabular-nums">{fmt(t.revenue)}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-slate-400">− Cost of goods sold</span>
+          <span className="font-mono text-rose-300 tabular-nums">{fmt(t.cogs)}</span>
+        </div>
+        <div className="flex justify-between text-sm border-t border-slate-800 pt-2">
+          <span className="text-slate-300">= Gross profit</span>
+          <span className="font-mono text-white tabular-nums">{fmt(t.grossProfit)}</span>
+        </div>
+
+        {/* OpEx (expandable) */}
+        <div>
+          <button onClick={() => setShowOpex(v => !v)} className="w-full flex justify-between text-sm">
+            <span className="text-slate-400">− Operating expenses {t.opexByCat.length > 0 && <span className="text-slate-600">{showOpex ? '▾' : '▸'}</span>}</span>
+            <span className="font-mono text-rose-300 tabular-nums">{fmt(t.opex)}</span>
+          </button>
+          {showOpex && t.opexByCat.length > 0 && (
+            <div className="mt-1.5 space-y-1 pl-3 border-l border-slate-800">
+              {t.opexByCat.map(([cat, v]) => (
+                <div key={cat} className="flex justify-between text-[11px]">
+                  <span className="text-slate-500">{cat}</span>
+                  <span className="font-mono text-slate-400 tabular-nums">{fmt(v)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Deductible subscriptions (expandable) */}
+        <div>
+          <button onClick={() => setShowSubs(v => !v)} className="w-full flex justify-between text-sm">
+            <span className="text-slate-400">− Deductible subscriptions {t.dedSubs.length > 0 && <span className="text-slate-600">{showSubs ? '▾' : '▸'}</span>}</span>
+            <span className="font-mono text-rose-300 tabular-nums">{fmt(t.subDeduction)}</span>
+          </button>
+          {showSubs && (
+            <div className="mt-1.5 space-y-1 pl-3 border-l border-slate-800">
+              {t.dedSubs.length === 0 ? (
+                <p className="text-slate-600 text-[11px]">None tagged. Add "business" to a subscription's Notes to deduct it.</p>
+              ) : t.dedSubs.map(s => (
+                <div key={s.name} className="flex justify-between text-[11px]">
+                  <span className="text-slate-500">{s.name}</span>
+                  <span className="font-mono text-slate-400 tabular-nums">{fmt(s.annual)}/yr</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Net SE income */}
+        <div className="flex justify-between items-baseline border-t border-slate-700 pt-2.5">
+          <span className="text-slate-300 text-sm font-medium">= Est. net SE income</span>
+          <span className={`font-mono text-lg font-bold tabular-nums ${t.netSE >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(t.netSE)}</span>
+        </div>
+      </div>
+
+      {/* Tax set-aside suggestion */}
+      <div className="bg-indigo-950/40 border border-indigo-800/40 rounded-xl p-3">
+        <p className="text-indigo-300/80 text-[10px] uppercase tracking-widest">Suggested Tax Set-Aside</p>
+        <p className="text-white font-mono text-lg font-bold mt-1">{fmt(t.setAsideLow)} – {fmt(t.setAsideHigh)}</p>
+        <p className="text-slate-500 text-[11px] mt-0.5">Rough 25–30% of net SE income — covers self-employment + income tax. Confirm your bracket.</p>
+      </div>
+
+      {/* ── Personal income (informational) ── */}
+      <div className="bg-slate-900 rounded-xl p-4">
+        <button onClick={() => setShowPersonal(v => !v)} className="w-full flex justify-between items-baseline">
+          <span className="text-slate-500 text-[10px] uppercase tracking-widest">Personal Income {year} {t.personalBySource.length > 0 && <span className="text-slate-600">{showPersonal ? '▾' : '▸'}</span>}</span>
+          <span className="font-mono text-white tabular-nums text-sm">{fmt(t.totalPersonal)}</span>
+        </button>
+        {showPersonal && (
+          <div className="mt-2 space-y-1.5">
+            {t.personalBySource.length === 0 ? (
+              <p className="text-slate-600 text-[11px]">No personal income deposits logged for {year}.</p>
+            ) : t.personalBySource.map(([src, v]) => (
+              <div key={src} className="flex justify-between text-[12px]">
+                <span className="text-slate-400">{src === 'Untagged' ? 'Untagged income' : src}</span>
+                <span className="font-mono text-slate-300 tabular-nums">{fmt(v)}</span>
+              </div>
+            ))}
+            <p className="text-slate-600 text-[10px] pt-1.5 border-t border-slate-800 mt-1">
+              Personal spending isn't tax-deductible — this is for your records only. Tag income in
+              Process Income (e.g. [Paycheck], [Commission]) to split it out.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Mileage note */}
+      <p className="text-slate-600 text-[11px] leading-relaxed px-1">
+        🚗 <span className="text-slate-500">Mileage</span> isn't auto-included — log your business miles
+        separately and apply the IRS standard mileage rate for the tax year.
+      </p>
+    </div>
+  );
+}
+
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -617,6 +902,18 @@ export default function Summary({ token }) {
   const [yearAllocRows, setYearAllocRows]     = useState([]);
   const [yearLoaded, setYearLoaded]           = useState(false);
   const [yearLoading, setYearLoading]         = useState(false);
+
+  // Year-tab sub-view: 'ytd' (Task 11) or 'tax' (Task 15)
+  const [yearSub, setYearSub] = useState('ytd');
+  const [taxYear, setTaxYear] = useState(new Date().getFullYear());
+
+  // Tax sub-view — lazy-loaded the first time it is opened (Task 15)
+  const [taxBizTx, setTaxBizTx]       = useState([]);
+  const [taxBizExp, setTaxBizExp]     = useState([]);
+  const [taxBizSpend, setTaxBizSpend] = useState([]);
+  const [taxSubs, setTaxSubs]         = useState([]);
+  const [taxLoaded, setTaxLoaded]     = useState(false);
+  const [taxLoading, setTaxLoading]   = useState(false);
 
   // Tile order per tab (from localStorage)
   const [tileOrder, setTileOrder] = useState(() => {
@@ -717,6 +1014,25 @@ export default function Summary({ token }) {
       setYearLoaded(true);
     }).finally(() => setYearLoading(false));
   }, [tab, yearLoaded, yearLoading, token]);
+
+  // Lazy-load the Business sheets + Subscriptions the first time the Tax sub-view
+  // is opened (Task 15). The personal-income side reuses yearAllocRows above.
+  useEffect(() => {
+    if (tab !== 'year' || yearSub !== 'tax' || taxLoaded || taxLoading || !token) return;
+    setTaxLoading(true);
+    Promise.allSettled([
+      readRange(token, 'Business Transactions!A:H', 'UNFORMATTED_VALUE'),
+      readRange(token, 'Business Expenses!A:G', 'UNFORMATTED_VALUE'),
+      readRange(token, 'Business Account Spending!A:E', 'UNFORMATTED_VALUE'),
+      readRange(token, 'Subscriptions!A:E'),
+    ]).then(([txRes, expRes, spRes, subRes]) => {
+      setTaxBizTx(txRes.status === 'fulfilled' ? txRes.value : []);
+      setTaxBizExp(expRes.status === 'fulfilled' ? expRes.value : []);
+      setTaxBizSpend(spRes.status === 'fulfilled' ? spRes.value : []);
+      setTaxSubs(subRes.status === 'fulfilled' ? subRes.value : []);
+      setTaxLoaded(true);
+    }).finally(() => setTaxLoading(false));
+  }, [tab, yearSub, taxLoaded, taxLoading, token]);
 
   const sv = useMemo(() => extractSV(svRows), [svRows]);
   const expenses = useMemo(() => {
@@ -832,15 +1148,43 @@ export default function Summary({ token }) {
         ))}
       </div>
 
-      {/* Year (YTD) tab renders its own view instead of the tile grid */}
+      {/* Year tab renders its own view (YTD or Tax) instead of the tile grid */}
       {tab === 'year' && (
-        <YearView
-          monthlyRows={yearMonthlyRows}
-          allocRows={yearAllocRows}
-          expenses={expenses}
-          year={c.now.getFullYear()}
-          loading={yearLoading || !yearLoaded}
-        />
+        <>
+          {/* Sub-view toggle: Year-to-Date (Task 11) vs Tax Prep (Task 15) */}
+          <div className="px-4 pb-3 flex gap-1.5">
+            {[['ytd', '📊 Year-to-Date'], ['tax', '🧾 Tax Prep']].map(([id, label]) => (
+              <button key={id} onClick={() => setYearSub(id)}
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                  yearSub === id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {yearSub === 'ytd' ? (
+            <YearView
+              monthlyRows={yearMonthlyRows}
+              allocRows={yearAllocRows}
+              expenses={expenses}
+              year={c.now.getFullYear()}
+              loading={yearLoading || !yearLoaded}
+            />
+          ) : (
+            <TaxView
+              bizTx={taxBizTx}
+              bizExp={taxBizExp}
+              bizSpend={taxBizSpend}
+              subs={taxSubs}
+              allocRows={yearAllocRows}
+              year={taxYear}
+              onYear={setTaxYear}
+              availableYears={[c.now.getFullYear(), c.now.getFullYear() - 1, c.now.getFullYear() - 2]}
+              loading={taxLoading || !taxLoaded || yearLoading || !yearLoaded}
+            />
+          )}
+        </>
       )}
 
       {/* Tile grid — draggable */}
