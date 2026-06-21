@@ -49,6 +49,11 @@ const icons = {
       <path d="M3.5 10A6.5 6.5 0 1010 3.5H7" /><path d="M7 3.5L5 5.5l2 2" /><path d="M10 6.5V10l2.5 2.5" />
     </svg>
   ),
+  debt: (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <rect x="2.5" y="5" width="15" height="10" rx="2" /><path d="M2.5 8.5h15" /><path d="M5.5 12h3" />
+    </svg>
+  ),
 };
 
 const tabs = [
@@ -60,6 +65,7 @@ const tabs = [
   { to: '/business',     label: 'Biz',     iconKey: 'biz'     },
   { to: '/dragon',       label: 'Ledger',  iconKey: 'ledger'  },
   { to: '/goals',        label: 'Goals',   iconKey: 'goals'   },
+  { to: '/debts',        label: 'Debts',   iconKey: 'debt'    },
   { to: '/actions',      label: 'History', iconKey: 'history' },
 ];
 

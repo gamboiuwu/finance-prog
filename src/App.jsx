@@ -16,6 +16,7 @@ import BusinessExpenses from './pages/BusinessExpenses';
 import Actions from './pages/Actions';
 import DragonBot from './pages/DragonBot';
 import Goals from './pages/Goals';
+import Debts from './pages/Debts';
 import DataRepair from './components/DataRepair';
 import IssueReporter from './components/IssueReporter';
 import Nav from './components/Nav';
@@ -35,6 +36,7 @@ function AnimatedRoutes({ token }) {
         <Route path="/actions"              element={<Actions           token={token} />} />
         <Route path="/dragon"                element={<DragonBot         token={token} />} />
         <Route path="/goals"                 element={<Goals            token={token} />} />
+        <Route path="/debts"                 element={<Debts            token={token} />} />
         <Route path="/month/:sheetId/:month" element={<MonthlyDetail    token={token} />} />
       </Routes>
     </main>

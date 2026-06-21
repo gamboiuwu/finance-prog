@@ -1498,6 +1498,50 @@ function TopGoalCard({ goals, onOpen }) {
   );
 }
 
+// ── Debt summary card (Task 26) — compact Dashboard tile that deep-links to the
+// full Debts page. Parses the raw `Debts!A:H` rows; returns null when there's no
+// open debt so it never clutters the Dashboard for debt-free users. Colour-codes
+// by the monthly burden (total minimum payments vs this month's income).
+function DebtSummaryCard({ rows, income, onOpen }) {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const startsHdr = String(rows[0]?.[0] || '').trim().toLowerCase() === 'name';
+  const data = startsHdr ? rows.slice(1) : rows;
+  let total = 0, minSum = 0, count = 0;
+  data.forEach(r => {
+    if (!r || !r[0]) return;
+    const bal = pm(r[2]);
+    if (bal <= 0.005) return;
+    total += bal; minSum += pm(r[4]); count++;
+  });
+  if (count === 0) return null;
+
+  // Monthly affordability colour: rose if minimums exceed income, amber if they
+  // eat 30–100 %, teal if under 30 % (or income unknown).
+  const ratio = income > 0 ? minSum / income : 0;
+  const tone = income > 0 && ratio >= 1 ? 'rose' : income > 0 && ratio >= 0.3 ? 'amber' : 'teal';
+  const toneCls = {
+    rose:  'from-rose-900/50 border-rose-700/40',
+    amber: 'from-amber-900/40 border-amber-700/40',
+    teal:  'from-slate-800 border-slate-700/50',
+  }[tone];
+  const numCls = { rose: 'text-rose-300', amber: 'text-amber-300', teal: 'text-white' }[tone];
+
+  return (
+    <button onClick={onOpen}
+      className={`w-full bg-gradient-to-br ${toneCls} to-slate-800 border rounded-xl px-4 py-3 text-left transition-colors hover:brightness-110`}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-base">💳</span>
+        <span className="text-white text-sm font-semibold flex-1">Debt</span>
+        <span className="text-slate-400 text-[10px]">{count} {count === 1 ? 'account' : 'accounts'} ›</span>
+      </div>
+      <div className="flex items-end justify-between">
+        <span className={`text-xl font-bold tabular-nums ${numCls}`}>{fmt(total)}</span>
+        <span className="text-slate-400 text-[11px]">{fmt(minSum)}/mo minimum</span>
+      </div>
+    </button>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -1575,6 +1619,7 @@ export default function Dashboard({ token }) {
   const [netWorthRows, setNetWorthRows] = useState([]);
   const [nwExpanded, setNwExpanded]     = useState(false);
   const [goalRows, setGoalRows]         = useState([]); // savings goals (Plans sheet, Task 9)
+  const [debtRows, setDebtRows]         = useState([]); // raw Debts sheet rows (Task 26)
   const [showNetWorth, setShowNetWorth] = useState(false);
   const [nwSaving, setNwSaving]         = useState(false);
   const [nwError, setNwError]           = useState(null);
@@ -1610,9 +1655,13 @@ export default function Dashboard({ token }) {
       readRange(token, 'Allocation Transactions!A:F', 'UNFORMATTED_VALUE').catch(() => []),
       readRange(token, 'Net Worth!A:E', 'UNFORMATTED_VALUE').catch(() => []),
       readRange(token, 'Plans!A:K', 'UNFORMATTED_VALUE').catch(() => []),
+      readRange(token, 'Debts!A:H', 'UNFORMATTED_VALUE').catch(() => []),
     ])
-      .then(([summaryRows, expRows, links, subRows, allocRows, nwRows, planRows]) => {
+      .then(([summaryRows, expRows, links, subRows, allocRows, nwRows, planRows, debtRows]) => {
         setReportLinks(links);
+
+        // Debts (Task 26) — keep raw rows; DebtSummaryCard parses + summarises.
+        setDebtRows(Array.isArray(debtRows) ? debtRows : []);
 
         // Savings goals (Task 9) — skip a leading header row; keep only the
         // fields the Top-Goal widget needs. Plans cols: ID,Name,Scope,Target,
@@ -2752,6 +2801,9 @@ ${stmtTxns.length ? `
 
       {/* ── Top-Goal widget (Task 9) — nearest-deadline savings goal ── */}
       <TopGoalCard goals={goalRows} onOpen={() => navigate('/goals')} />
+
+      {/* ── Debt summary (Task 26) — total owed + monthly minimum; deep-links to /debts ── */}
+      <DebtSummaryCard rows={debtRows} income={income} onOpen={() => navigate('/debts')} />
 
       {/* ── Gas price chip + Log Gas spend ─────────────────── */}
       {gasPrice?.value && (
