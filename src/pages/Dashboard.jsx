@@ -836,6 +836,114 @@ function AnomalyCard({ allAllocTx, expanded, onToggle }) {
   );
 }
 
+// ── Category Spend-Pace / End-of-Month Burn-Down Projection (Task 57) ─────────
+// Read-only: for each spendable budget category, take this month's actual spend
+// so far and project the month-end total with a linear run-rate
+// (projected = spent ÷ fraction-of-month-elapsed), then compare to the allowance.
+// Flags categories on pace to blow their budget so they can be reined in mid-month.
+//   • Spendable = Monthly Expenses items with an allowance > 0 and Expense !== 'Savings'
+//     (savings buckets aren't "spending", so they're excluded — plan Q4 default).
+//   • Only categories with real spend this month are paced (skips zero-spend noise).
+//   • Suppressed in the first 2 days of the month (run-rate is too jumpy — plan Q5).
+// Pure presentation — zero new API calls, no new sheet tab, no localStorage.
+function computeSpendPace(expenses, allAllocTx, dayOfMonth, daysInMo) {
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const spentByType = {};
+  allAllocTx.forEach(r => {
+    if (r.dateStr.slice(0, 7) !== curKey) return;
+    if (r.amount < 0) spentByType[r.type] = (spentByType[r.type] || 0) + Math.abs(r.amount);
+  });
+  const elapsedFrac = Math.min(1, dayOfMonth / daysInMo);   // share of month gone
+
+  const rows = expenses
+    .filter(e => e['Expense'] !== 'Savings' && pm(e['Monthly Allowance ($)']) > 0)
+    .map(e => {
+      const type  = String(e['Type']);
+      const allow = pm(e['Monthly Allowance ($)']);
+      const spent = spentByType[type] || 0;
+      const projected = elapsedFrac > 0 ? spent / elapsedFrac : spent;
+      return { type, allow, spent, projected, over: projected - allow,
+        spentPct: allow > 0 ? (spent / allow) * 100 : 0 };
+    })
+    .filter(r => r.spent > 0)                       // only pace categories with activity
+    .sort((a, b) => b.over - a.over);
+
+  const flagged = rows.filter(r => r.over > 0.5);  // projected to exceed allowance
+  const totalAllow     = rows.reduce((s, r) => s + r.allow, 0);
+  const totalProjected = rows.reduce((s, r) => s + r.projected, 0);
+  const totalSpent     = rows.reduce((s, r) => s + r.spent, 0);
+  return { rows, flagged, totalAllow, totalProjected, totalSpent, elapsedFrac };
+}
+
+function SpendPaceCard({ expenses, allAllocTx, dayOfMonth, daysInMo, expanded, onToggle }) {
+  const { rows, flagged, totalAllow, totalProjected } =
+    computeSpendPace(expenses, allAllocTx, dayOfMonth, daysInMo);
+  if (rows.length === 0) return null;                // nothing spent yet this month
+
+  const overBudgetTotal = totalProjected > totalAllow;
+  const headColor = flagged.length > 0 ? 'text-amber-300' : 'text-emerald-400';
+
+  return (
+    <div className={`rounded-2xl p-4 border ${
+      flagged.length > 0 ? 'bg-amber-950/25 border-amber-800/40' : 'bg-slate-800 border-slate-700/60'}`}>
+      <button className="w-full text-left" onClick={onToggle}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-white font-bold text-sm">📉 Spend Pace</p>
+            <p className={`text-lg font-bold mt-0.5 ${headColor}`}>
+              {flagged.length > 0
+                ? <>{flagged.length} {flagged.length === 1 ? 'category' : 'categories'} on pace to overspend</>
+                : <>On pace — every category within budget</>}
+            </p>
+            <p className="text-slate-400 text-xs mt-0.5">
+              Projected <span className="text-slate-200 font-semibold">{fmt(totalProjected)}</span> vs{' '}
+              <span className="text-slate-200 font-semibold">{fmt(totalAllow)}</span> budgeted this month
+              {overBudgetTotal && <span className="text-amber-300"> · {fmt(totalProjected - totalAllow)} over</span>}
+            </p>
+          </div>
+          <span className="text-slate-500 text-lg leading-none shrink-0">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-2.5">
+          {(flagged.length > 0 ? flagged : rows.slice(0, 6)).map(r => {
+            const spentPctClamped = Math.min(100, r.spentPct);
+            const elapsedPct = Math.min(100, (dayOfMonth / daysInMo) * 100);
+            const over = r.over > 0.5;
+            return (
+              <div key={r.type} className="bg-slate-900/60 rounded-xl p-3">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-white text-sm font-medium truncate">{r.type}</span>
+                  <span className={`text-xs font-mono shrink-0 ${over ? 'text-amber-300' : 'text-slate-400'}`}>
+                    {fmt(r.spent)} / {fmt(r.allow)}
+                  </span>
+                </div>
+                {/* Pace bar: filled = spent% of allowance, vertical marker = month elapsed% */}
+                <div className="relative w-full bg-slate-700/70 rounded-full h-2 mt-2 overflow-hidden">
+                  <div className={`h-2 rounded-full ${over ? 'bg-amber-400' : 'bg-emerald-500'}`}
+                    style={{ width: `${spentPctClamped}%` }} />
+                  <div className="absolute top-0 bottom-0 w-0.5 bg-slate-300/80"
+                    style={{ left: `${elapsedPct}%` }} title="Month elapsed" />
+                </div>
+                <p className="text-[11px] mt-1.5 text-slate-400">
+                  {over
+                    ? <>On track to spend <span className="text-amber-300 font-semibold">~{fmt(r.projected)}</span> — trim <span className="text-amber-300 font-semibold">~{fmt(r.over)}</span> to stay in budget</>
+                    : <>On pace for <span className="text-slate-200 font-semibold">~{fmt(r.projected)}</span> ({Math.round(r.spentPct)}% spent, {Math.round(elapsedPct)}% of month gone)</>}
+                </p>
+              </div>
+            );
+          })}
+          <p className="text-[10px] text-slate-600 pt-0.5">
+            Projection = spend so far ÷ share of month elapsed (Day {dayOfMonth}/{daysInMo}). The vertical line marks how far through the month you are — a fill past it means you're spending faster than the calendar.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Savings-Rate Trend & 50/30/20 Budget Check (Task 42) ──────────────────────
 // Read-only: buckets each month's allocation DEPOSITS into Needs / Wants / Savings
 // using the type→category map from Monthly Expenses, benchmarks the latest mix
@@ -1793,6 +1901,7 @@ export default function Dashboard({ token }) {
   const [anomalyExpanded, setAnomalyExpanded] = useState(false);
   const [mixExpanded, setMixExpanded]         = useState(false);
   const [safeExpanded, setSafeExpanded]       = useState(false);
+  const [paceExpanded, setPaceExpanded]       = useState(false);
   const [envelopeExpanded, setEnvelopeExpanded] = useState(false);
   const [paydayConfig, setPaydayConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_payday_config') || 'null') || null; } catch { return null; }
@@ -2795,6 +2904,18 @@ ${stmtTxns.length ? `
           daysInMo={daysInMo}
           expanded={safeExpanded}
           onToggle={() => setSafeExpanded(v => !v)}
+        />
+      )}
+
+      {/* ── Category Spend-Pace / Burn-Down (Task 57) ───────── */}
+      {expenses.length > 0 && allAllocTx.length > 0 && dayOfMonth >= 3 && (
+        <SpendPaceCard
+          expenses={expenses}
+          allAllocTx={allAllocTx}
+          dayOfMonth={dayOfMonth}
+          daysInMo={daysInMo}
+          expanded={paceExpanded}
+          onToggle={() => setPaceExpanded(v => !v)}
         />
       )}
 
