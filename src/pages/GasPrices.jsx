@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchGasPrices, clearGasCache, REGIONS, PRODUCTS } from '../lib/gasPrice';
+import { getGasBudget, daysInCurrentMonth, GAS_MILES_PER_DAY, DEFAULT_MPG } from '../lib/gasBudget';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -16,6 +17,146 @@ function PriceBar({ value, max }) {
   return (
     <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden mt-1">
       <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+// ── Gas Budget Adequacy Check (Task 72) ──────────────────────────────────────
+// Answers the user's direct request: "is my gas budget enough for how much I
+// drive, and how many gallons does it get me?" Self-contained on the Gas screen —
+// it reads the live $/gal here plus the mpg/budget the Summary/Dashboard already
+// cached via gasBudget.js (getGasBudget). The user can override both the monthly
+// budget $ and the miles they drive; both stay on-device (localStorage), never the
+// sheet or GitHub. Same formula as computeGasBudget so the figures reconcile.
+//
+//   gallons the budget buys = budget ÷ $/gal
+//   miles it covers         = gallons × mpg
+//   gallons needed          = milesDriven ÷ mpg
+//   cost needed (true cost)  = gallonsNeeded × $/gal
+//   shortfall               = costNeeded − budget   (+ = add this to the gas line)
+const GAS_MILES_KEY = '_fin_gas_miles';      // user's monthly miles (no $)
+const GAS_BUDGET_KEY = '_fin_gas_budget_amt'; // user's monthly gas budget $
+
+function readGasNum(key) {
+  try {
+    const v = parseFloat(localStorage.getItem(key));
+    return Number.isFinite(v) && v > 0 ? v : null;
+  } catch { return null; }
+}
+
+function GasCoverageCard({ livePrice }) {
+  const cached = getGasBudget();
+  const price = (livePrice && livePrice > 0) ? livePrice : (cached?.gasPerGal || 4.09);
+  const mpg = (cached?.mpg && cached.mpg > 0) ? cached.mpg : DEFAULT_MPG;
+  const dim = daysInCurrentMonth();
+  const defaultMiles = Math.round(GAS_MILES_PER_DAY * dim);
+  const defaultBudget = (cached?.value && cached.value > 0)
+    ? Math.round(cached.value)
+    : Math.round((defaultMiles / mpg) * price);
+
+  const [editing, setEditing] = useState(false);
+  const [miles, setMiles] = useState(() => readGasNum(GAS_MILES_KEY) ?? defaultMiles);
+  const [budget, setBudget] = useState(() => readGasNum(GAS_BUDGET_KEY) ?? defaultBudget);
+
+  const gallonsBudgetBuys = price > 0 ? budget / price : 0;
+  const milesCovered = gallonsBudgetBuys * mpg;
+  const gallonsNeeded = mpg > 0 ? miles / mpg : 0;
+  const costNeeded = gallonsNeeded * price;
+  const shortfall = costNeeded - budget;          // positive ⇒ budget too small
+  const tolerance = Math.max(2, budget * 0.02);   // small grace so $1–2 rounding ≠ "short"
+  const enough = shortfall <= tolerance;
+
+  function save() {
+    try {
+      if (miles > 0) localStorage.setItem(GAS_MILES_KEY, String(miles));
+      else localStorage.removeItem(GAS_MILES_KEY);
+      if (budget > 0) localStorage.setItem(GAS_BUDGET_KEY, String(budget));
+      else localStorage.removeItem(GAS_BUDGET_KEY);
+    } catch {}
+    setEditing(false);
+  }
+
+  const accent = enough
+    ? { ring: 'border-emerald-700/40', chipBg: 'bg-emerald-900/40', chipTx: 'text-emerald-300' }
+    : { ring: 'border-amber-700/40',   chipBg: 'bg-amber-900/40',   chipTx: 'text-amber-300' };
+
+  return (
+    <div className={`bg-slate-800 rounded-2xl p-4 space-y-3 border ${accent.ring}`}>
+      <div className="flex justify-between items-start">
+        <div>
+          <p className="text-slate-300 text-sm font-medium">⛽ Gas Budget Coverage</p>
+          <p className="text-slate-500 text-xs mt-0.5">
+            at {fmt(price)}/gal · {mpg} mpg{cached?.mpg ? '' : ' (default)'}
+          </p>
+        </div>
+        <button
+          onClick={() => setEditing(v => !v)}
+          className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 px-2.5 py-1 rounded-lg transition-colors"
+        >
+          {editing ? '✕ Close' : '✏ Edit'}
+        </button>
+      </div>
+
+      {/* Verdict chip */}
+      <div className={`rounded-xl px-3 py-2.5 ${accent.chipBg}`}>
+        <p className={`text-sm font-semibold ${accent.chipTx}`}>
+          {enough
+            ? `✅ Enough — covers ~${Math.round(milesCovered)} mi/mo`
+            : `⚠ Short ~$${shortfall.toFixed(0)}/mo`}
+        </p>
+        <p className="text-slate-400 text-xs mt-1">
+          {enough
+            ? `Your $${budget.toFixed(0)} buys ~${gallonsBudgetBuys.toFixed(1)} gal (~${Math.round(milesCovered)} mi), and you drive ~${miles} mi/mo.`
+            : `Your $${budget.toFixed(0)} buys ~${gallonsBudgetBuys.toFixed(1)} gal — only ~${Math.round(milesCovered)} mi of the ~${miles} mi/mo you drive. Add ~$${shortfall.toFixed(0)} to your monthly gas expenses to cover it.`}
+        </p>
+      </div>
+
+      {/* Key figures */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-slate-900/60 rounded-lg p-2">
+          <p className="text-slate-500 text-[10px] uppercase tracking-wider">Gallons</p>
+          <p className="text-white text-sm font-bold">{gallonsBudgetBuys.toFixed(1)}</p>
+        </div>
+        <div className="bg-slate-900/60 rounded-lg p-2">
+          <p className="text-slate-500 text-[10px] uppercase tracking-wider">Covers</p>
+          <p className="text-white text-sm font-bold">{Math.round(milesCovered)} mi</p>
+        </div>
+        <div className="bg-slate-900/60 rounded-lg p-2">
+          <p className="text-slate-500 text-[10px] uppercase tracking-wider">True cost</p>
+          <p className={`text-sm font-bold ${enough ? 'text-emerald-400' : 'text-amber-400'}`}>${costNeeded.toFixed(0)}</p>
+        </div>
+      </div>
+
+      {/* Editor */}
+      {editing && (
+        <div className="space-y-3 pt-1">
+          <div>
+            <label className="text-slate-400 text-xs">Monthly gas budget ($)</label>
+            <input
+              type="number" inputMode="decimal" min="0"
+              value={budget}
+              onChange={e => setBudget(parseFloat(e.target.value) || 0)}
+              className="w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="text-slate-400 text-xs">Miles you drive per month</label>
+            <input
+              type="number" inputMode="decimal" min="0"
+              value={miles}
+              onChange={e => setMiles(parseFloat(e.target.value) || 0)}
+              className="w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            />
+            <p className="text-slate-600 text-[11px] mt-1">Default ≈ {defaultMiles} mi ({GAS_MILES_PER_DAY} mi/day × {dim} days)</p>
+          </div>
+          <button
+            onClick={save}
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+          >
+            Save
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -123,6 +264,9 @@ export default function GasPrices() {
           );
         })}
       </div>
+
+      {/* Gas Budget Adequacy Check (Task 72) */}
+      <GasCoverageCard livePrice={data.byRegion['Y35NY']?.products['EPMR']?.value || lowestRegular} />
 
       {/* Range indicator + history chart */}
       {(() => {
