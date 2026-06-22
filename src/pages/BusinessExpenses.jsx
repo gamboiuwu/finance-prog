@@ -1232,7 +1232,22 @@ function SalesView({ token, products }) {
     return { totalRevenue, categories, totalProfit, profitByCategory: { Profit: catMap['Profit'] || 0, Revenue: catMap['Revenue'] || 0 } };
   }, [filtered]);
 
-  const netProfit = Math.max(0, totalProfit - profitSpent);
+  // Profit you can PROCESS is a running all-time balance: total profit ever
+  // earned minus what's already been withdrawn (profitSpent is itself all-time).
+  // It must NOT be period-filtered — otherwise profit earned in a prior month
+  // but never processed reads $0.00 in the Monthly view even though it's still
+  // sitting unprocessed (visible under "All Time"). So base the processable
+  // amount on every transaction, independent of the period toggle.
+  const { allTimeProfit, allTimeProfitByCategory } = useMemo(() => {
+    let p = 0, r = 0;
+    transactions.forEach(t => {
+      p += parseFloat(t.allocs['Profit'] || 0) || 0;
+      r += parseFloat(t.allocs['Revenue'] || 0) || 0;
+    });
+    return { allTimeProfit: p + r, allTimeProfitByCategory: { Profit: p, Revenue: r } };
+  }, [transactions]);
+
+  const netProfit = Math.max(0, allTimeProfit - profitSpent);
 
   async function handleProfitProcessed(amountProcessed) {
     if (amountProcessed <= 0) return;
@@ -1246,9 +1261,11 @@ function SalesView({ token, products }) {
       if (!existing.length || !existing[0]?.length) {
         await appendRow(token, `${SPEND_SHEET}!A:E`, ['Date', 'Account', 'Amount', 'Vendor', 'Description']);
       }
-      // Split the processed amount across Profit and Revenue proportionally
-      const profitAmt  = profitByCategory.Profit;
-      const revenueAmt = profitByCategory.Revenue;
+      // Split the processed amount across Profit and Revenue proportionally.
+      // Use the all-time split (not the period-filtered one) so processing a
+      // prior-month balance from the Monthly view still records the owner draw.
+      const profitAmt  = allTimeProfitByCategory.Profit;
+      const revenueAmt = allTimeProfitByCategory.Revenue;
       const total      = profitAmt + revenueAmt;
       if (total <= 0) return;
       const profitShare  = total > 0 ? (profitAmt  / total) * amountProcessed : 0;
@@ -1416,12 +1433,12 @@ function SalesView({ token, products }) {
               </p>
             </div>
 
-            {/* Profit tile — includes Revenue allocations */}
+            {/* Profit tile — all-time unprocessed balance (not period-filtered), includes Revenue allocations */}
             <div className="bg-emerald-900/20 border border-emerald-700/40 rounded-2xl p-3">
-              <p className="text-emerald-300 text-[10px] uppercase tracking-wider font-broske mb-1">Profit</p>
+              <p className="text-emerald-300 text-[10px] uppercase tracking-wider font-broske mb-1">Profit to Process</p>
               <p className="text-white text-2xl font-bold font-mono tabular-nums">${netProfit.toFixed(2)}</p>
               {totalRevenue > 0 && (
-                <p className="text-emerald-600 text-[10px] mt-1">{((totalProfit / totalRevenue) * 100).toFixed(1)}% margin</p>
+                <p className="text-emerald-600 text-[10px] mt-1">{((totalProfit / totalRevenue) * 100).toFixed(1)}% margin{period !== 'all' ? ' · this period' : ''}</p>
               )}
               {profitSpent > 0 && (
                 <p className="text-amber-500 text-[10px] mt-0.5">${profitSpent.toFixed(2)} already processed</p>
@@ -1459,7 +1476,7 @@ function SalesView({ token, products }) {
             disabled={expLoading || netProfit <= 0}
             className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm transition-colors"
           >
-            {expLoading ? 'Loading budget…' : netProfit <= 0 ? (totalProfit > 0 ? 'Already processed' : 'No profit to process') : `Process $${netProfit.toFixed(2)} as Income →`}
+            {expLoading ? 'Loading budget…' : netProfit <= 0 ? (allTimeProfit > 0 ? 'Already processed' : 'No profit to process') : `Process $${netProfit.toFixed(2)} as Income →`}
           </button>
 
           {/* ── Orders & shipping toolbar ── */}

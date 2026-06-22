@@ -1268,8 +1268,9 @@ function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, da
 //   • gap ≈ 0  → every dollar assigned ✓ (the zero-based ideal)
 // Allowances are bucketed needs/wants/savings via the same `buildMixMap` the
 // Budget-Balance card uses, so the two never disagree. The income basis is the
-// month's processed deposits (alloc ground-truth) — the same figure the
-// Health-Score "allocation completeness" signal measures, so they reconcile.
+// caller's *expected/recurring monthly income* (the last-6-completed-month
+// average), NOT month-to-date processed deposits — otherwise a mid-month figure
+// would make a full-month plan read "over-assigned" before all income is in.
 // Pure derived view over already-loaded state — zero new API calls, no storage.
 function computeEnvelope(expenses, income, allAllocTx) {
   const mixMap = buildMixMap(expenses);
@@ -1335,10 +1336,10 @@ function EveryDollarCard({ income, expenses, allAllocTx, expanded, onToggle }) {
             </p>
             <p className="text-slate-400 text-xs mt-1.5">
               {state === 'surplus'
-                ? <>You've planned <span className="text-slate-200 font-semibold">{fmt(assigned)}</span> of <span className="text-slate-200 font-semibold">{fmt(income)}</span> — give the rest a job</>
+                ? <>You've planned <span className="text-slate-200 font-semibold">{fmt(assigned)}</span> of your typical <span className="text-slate-200 font-semibold">{fmt(income)}</span>/mo — give the rest a job</>
                 : state === 'over'
-                  ? <>Your plan assigns <span className="text-slate-200 font-semibold">{fmt(assigned)}</span> but only <span className="text-slate-200 font-semibold">{fmt(income)}</span> came in</>
-                  : <>Every dollar of <span className="text-slate-200 font-semibold">{fmt(income)}</span> has a job — zero-based ✓</>}
+                  ? <>Your plan assigns <span className="text-slate-200 font-semibold">{fmt(assigned)}</span> but you typically bring in <span className="text-slate-200 font-semibold">{fmt(income)}</span>/mo</>
+                  : <>Every dollar of your typical <span className="text-slate-200 font-semibold">{fmt(income)}</span>/mo has a job — zero-based ✓</>}
             </p>
           </div>
           <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
@@ -1354,7 +1355,7 @@ function EveryDollarCard({ income, expenses, allAllocTx, expanded, onToggle }) {
 
       {expanded && (
         <div className="mt-3 pt-3 border-t border-slate-700/60 text-xs space-y-1.5">
-          <div className="flex justify-between text-slate-400"><span>Income this month</span><span className="font-mono text-teal-300">${income.toFixed(0)}</span></div>
+          <div className="flex justify-between text-slate-400"><span>Typical monthly income</span><span className="font-mono text-teal-300">${income.toFixed(0)}</span></div>
           <div className="flex justify-between text-slate-400"><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm inline-block" style={{ background: MIX_COLORS.needs }} />Assigned to needs</span><span className="font-mono text-slate-300">${byCat.needs.toFixed(0)}</span></div>
           <div className="flex justify-between text-slate-400"><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm inline-block" style={{ background: MIX_COLORS.wants }} />Assigned to wants</span><span className="font-mono text-slate-300">${byCat.wants.toFixed(0)}</span></div>
           <div className="flex justify-between text-slate-400"><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm inline-block" style={{ background: MIX_COLORS.savings }} />Assigned to savings</span><span className="font-mono text-slate-300">${byCat.savings.toFixed(0)}</span></div>
@@ -1375,11 +1376,11 @@ function EveryDollarCard({ income, expenses, allAllocTx, expanded, onToggle }) {
                   ? `Give it a job: park the ${fmt(gap)} into "${suggestBucket}" so it's working, not drifting.`
                   : `Assign the ${fmt(gap)} to a savings bucket or goal so it's working, not drifting.`)
               : state === 'over'
-                ? `Your plan promises ${fmt(Math.abs(gap))} more than you earned — trim a category or this month runs a deficit.`
+                ? `Your plan promises ${fmt(Math.abs(gap))} more than you typically earn — trim a category or this month runs a deficit.`
                 : `Textbook zero-based budget — every dollar has a job. 🐉`}
           </p>
           <p className="text-[10px] text-slate-600 pt-0.5">
-            Assigned = sum of every category's monthly allowance, bucketed needs/wants/savings. Zero-based budgeting aims to assign income down to $0.
+            Assigned = sum of every category's monthly allowance, bucketed needs/wants/savings. Income basis = your last-6-month average (not this month's partial deposits). Zero-based budgeting aims to assign income down to $0.
           </p>
         </div>
       )}
@@ -2317,6 +2318,20 @@ export default function Dashboard({ token }) {
       return { month: m['Month']?.slice(0, 3), income: inc, spent: spt, net: inc - spt };
     });
 
+  // Expected/recurring monthly income = mean of the last-6 COMPLETED months'
+  // processed income. Excludes the current (still partial) month so a mid-month
+  // figure can't make the zero-based "Every Dollar Assigned" check read
+  // "over-assigned" before all of this month's income is in. Mirrors the
+  // Forecast card's last-6 convention; falls back to month-to-date income when
+  // there's no completed-month history yet.
+  const completedIncomes = chartData
+    .filter(d => d.month !== currentMonth?.slice(0, 3))
+    .map(d => d.income)
+    .slice(-6);
+  const expectedIncome = completedIncomes.length
+    ? completedIncomes.reduce((s, v) => s + v, 0) / completedIncomes.length
+    : income;
+
   const pastMonths = allMonths.filter(
     m => reportLinks[m['Month']] && m['Month'] !== currentMonth
   );
@@ -2985,9 +3000,9 @@ ${stmtTxns.length ? `
       )}
 
       {/* ── Every Dollar Assigned / Zero-Based Check (Task 47) ─ */}
-      {expenses.length > 0 && income > 0 && (
+      {expenses.length > 0 && expectedIncome > 0 && (
         <EveryDollarCard
-          income={income}
+          income={expectedIncome}
           expenses={expenses}
           allAllocTx={allAllocTx}
           expanded={envelopeExpanded}
