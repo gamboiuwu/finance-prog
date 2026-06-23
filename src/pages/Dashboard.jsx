@@ -1886,6 +1886,28 @@ export default function Dashboard({ token }) {
   const [trendExpanded, setTrendExpanded]   = useState(false);
   const [forecastExpanded, setForecastExpanded] = useState(false);
   const [efExpanded, setEfExpanded]             = useState(false);
+  // ── Dashboard density / Compact mode (Task 71) ───────────────────
+  // 'full' = each insight card keeps its own expand state; 'compact' =
+  // force-collapse every insight card for a one-glance overview.
+  // Layout-only preference (no financial data) persisted on-device.
+  const [density, setDensityState] = useState(() => {
+    try { return localStorage.getItem('_fin_dash_density') === 'compact' ? 'compact' : 'full'; }
+    catch { return 'full'; }
+  });
+  const setDensity = (v) => {
+    setDensityState(prev => {
+      const val = typeof v === 'function' ? v(prev) : v;
+      try { localStorage.setItem('_fin_dash_density', val); } catch { /* ignore */ }
+      return val;
+    });
+  };
+  // In compact mode every insight card renders collapsed; tapping any card
+  // header exits compact and opens just that card (intuitive drill-in).
+  const cardExpanded = (state) => (density === 'compact' ? false : state);
+  const cardToggle = (setter) => () => {
+    if (density === 'compact') { setDensity('full'); setter(true); }
+    else setter(v => !v);
+  };
   const [monthNote, setMonthNote] = useState(() => {
     try {
       const d = new Date();
@@ -2896,14 +2918,33 @@ ${stmtTxns.length ? `
         </button>
       )}
 
+      {/* ── Dashboard density toggle (Task 71) ──────────────── */}
+      {/* Repeated user feedback: the Dashboard has too many cards to take in
+          at a glance on desktop. The insight cards below render in a 2-column
+          grid on wide screens (always on), and the Compact button collapses
+          them all for a true one-glance overview. */}
+      <div className="flex items-center justify-end -mb-2">
+        <button
+          onClick={() => setDensity(d => (d === 'compact' ? 'full' : 'compact'))}
+          className="text-xs text-slate-400 hover:text-slate-200 bg-slate-900/60 border border-slate-700/60 rounded-full px-3 py-1 flex items-center gap-1.5 transition-colors"
+          title={density === 'compact' ? 'Show card details' : 'Collapse all cards for a one-glance view'}
+        >
+          <span>{density === 'compact' ? '⊞' : '⊟'}</span>
+          {density === 'compact' ? 'Expand cards' : 'Compact view'}
+        </button>
+      </div>
+
+      {/* ── Insight cards grid (2-up on desktop, single column on mobile) ── */}
+      <div className="space-y-5 md:space-y-0 md:grid md:grid-cols-2 md:gap-4 md:items-start">
+
       {/* ── Financial Health Score ─────────────────────────── */}
       {healthScore.loaded && (
         <HealthScoreCard
           score={healthScore.total}
           signals={healthScore.signals}
           history={healthScore.history}
-          expanded={healthExpanded}
-          onToggle={() => setHealthExpanded(v => !v)}
+          expanded={cardExpanded(healthExpanded)}
+          onToggle={cardToggle(setHealthExpanded)}
         />
       )}
 
@@ -2917,8 +2958,8 @@ ${stmtTxns.length ? `
           daysLeftIncl={daysLeftIncl}
           dayOfMonth={dayOfMonth}
           daysInMo={daysInMo}
-          expanded={safeExpanded}
-          onToggle={() => setSafeExpanded(v => !v)}
+          expanded={cardExpanded(safeExpanded)}
+          onToggle={cardToggle(setSafeExpanded)}
         />
       )}
 
@@ -2929,8 +2970,8 @@ ${stmtTxns.length ? `
           allAllocTx={allAllocTx}
           dayOfMonth={dayOfMonth}
           daysInMo={daysInMo}
-          expanded={paceExpanded}
-          onToggle={() => setPaceExpanded(v => !v)}
+          expanded={cardExpanded(paceExpanded)}
+          onToggle={cardToggle(setPaceExpanded)}
         />
       )}
 
@@ -2938,8 +2979,8 @@ ${stmtTxns.length ? `
       {chartData.length >= 2 && (
         <TrendChartCard
           data={chartData}
-          expanded={trendExpanded}
-          onToggle={() => setTrendExpanded(v => !v)}
+          expanded={cardExpanded(trendExpanded)}
+          onToggle={cardToggle(setTrendExpanded)}
         />
       )}
 
@@ -2949,8 +2990,8 @@ ${stmtTxns.length ? `
           chartData={chartData}
           subscriptions={subscriptions}
           expenses={expenses}
-          expanded={forecastExpanded}
-          onToggle={() => setForecastExpanded(v => !v)}
+          expanded={cardExpanded(forecastExpanded)}
+          onToggle={cardToggle(setForecastExpanded)}
         />
       )}
 
@@ -2959,24 +3000,24 @@ ${stmtTxns.length ? `
         <EmergencyFundCard
           expenses={expenses}
           allAllocTx={allAllocTx}
-          expanded={efExpanded}
-          onToggle={() => setEfExpanded(v => !v)}
+          expanded={cardExpanded(efExpanded)}
+          onToggle={cardToggle(setEfExpanded)}
         />
       )}
 
       {/* ── Net Worth Snapshot (Task 14) ────────────────────── */}
       <NetWorthCard
         rows={netWorthRows}
-        expanded={nwExpanded}
-        onToggle={() => setNwExpanded(v => !v)}
+        expanded={cardExpanded(nwExpanded)}
+        onToggle={cardToggle(setNwExpanded)}
         onUpdate={() => { setNwError(null); setShowNetWorth(true); }}
       />
 
       {/* ── Debt Payoff Tracker (Task 26) ───────────────────── */}
       <DebtCard
         rows={debtRows}
-        expanded={debtExpanded}
-        onToggle={() => setDebtExpanded(v => !v)}
+        expanded={cardExpanded(debtExpanded)}
+        onToggle={cardToggle(setDebtExpanded)}
         onUpdate={() => { setDebtError(null); setShowDebt(true); }}
       />
 
@@ -2984,8 +3025,8 @@ ${stmtTxns.length ? `
       {allAllocTx.length > 0 && (
         <AnomalyCard
           allAllocTx={allAllocTx}
-          expanded={anomalyExpanded}
-          onToggle={() => setAnomalyExpanded(v => !v)}
+          expanded={cardExpanded(anomalyExpanded)}
+          onToggle={cardToggle(setAnomalyExpanded)}
         />
       )}
 
@@ -2994,8 +3035,8 @@ ${stmtTxns.length ? `
         <BudgetMixCard
           allAllocTx={allAllocTx}
           expenses={expenses}
-          expanded={mixExpanded}
-          onToggle={() => setMixExpanded(v => !v)}
+          expanded={cardExpanded(mixExpanded)}
+          onToggle={cardToggle(setMixExpanded)}
         />
       )}
 
@@ -3005,8 +3046,8 @@ ${stmtTxns.length ? `
           income={expectedIncome}
           expenses={expenses}
           allAllocTx={allAllocTx}
-          expanded={envelopeExpanded}
-          onToggle={() => setEnvelopeExpanded(v => !v)}
+          expanded={cardExpanded(envelopeExpanded)}
+          onToggle={cardToggle(setEnvelopeExpanded)}
         />
       )}
 
@@ -3014,10 +3055,12 @@ ${stmtTxns.length ? `
       {allAllocTx.length > 0 && (
         <SpendingCalendarCard
           allAllocTx={allAllocTx}
-          expanded={heatmapExpanded}
-          onToggle={() => setHeatmapExpanded(v => !v)}
+          expanded={cardExpanded(heatmapExpanded)}
+          onToggle={cardToggle(setHeatmapExpanded)}
         />
       )}
+
+      </div>{/* ── end insight cards grid ── */}
 
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex justify-between items-start">
