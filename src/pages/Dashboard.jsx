@@ -1626,6 +1626,15 @@ function fmtMonths(m) {
   const y = Math.floor(m / 12), mo = m % 12;
   return [y ? `${y} yr` : '', mo ? `${mo} mo` : ''].filter(Boolean).join(' ') || '0 mo';
 }
+// Project the calendar month a payoff finishes, N months from today → "Mon YYYY"
+// (Task 69 — the always-visible debt-free-date countdown).
+function debtFreeLabel(months) {
+  if (months <= 0) return null;
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+}
 
 function DebtCard({ rows, expanded, onToggle, onUpdate }) {
   const snaps = buildDebtSnapshots(rows);
@@ -1658,6 +1667,14 @@ function DebtCard({ rows, expanded, onToggle, onUpdate }) {
   const interestSaved = ava.paidOff && sno.paidOff ? Math.abs(ava.totalInterest - sno.totalInterest) : null;
   const chart  = snaps.map(s => ({ label: nwLabel(s.date), debt: Math.round(s.total) }));
 
+  // ── Task 69: debt-free countdown + interest-cost awareness (read-only) ──
+  // Interest accruing this month at current balances (the "interest clock").
+  const monthInterest = debts.reduce((s, d) => s + d.balance * ((d.apr || 0) / 100 / 12), 0);
+  // What one fixed extra $50/mo buys, vs the current plan (chosen `extra`).
+  const boost          = simulatePayoff(debts, strategy, extra + 50);
+  const monthsSaved    = chosen.paidOff && boost.paidOff ? chosen.months - boost.months : null;
+  const interestSaved50 = chosen.paidOff && boost.paidOff ? chosen.totalInterest - boost.totalInterest : null;
+
   return (
     <div className="rounded-2xl p-4 border bg-gradient-to-br from-rose-950/30 to-slate-800 border-rose-900/40">
       <button className="w-full text-left" onClick={onToggle}>
@@ -1671,6 +1688,15 @@ function DebtCard({ rows, expanded, onToggle, onUpdate }) {
                 <> · <span className={delta < 0 ? 'text-emerald-300' : 'text-rose-300'}>{delta < 0 ? '▼' : '▲'} {fmt(Math.abs(delta))}</span></>
               )}
             </p>
+            {chosen.paidOff && chosen.months > 0 && (
+              <p className="text-[11px] text-slate-400 mt-1">
+                🏁 Debt-free <span className="text-emerald-300 font-semibold">{debtFreeLabel(chosen.months)}</span>
+                <span className="text-slate-500"> · {fmtMonths(chosen.months)} to go</span>
+              </p>
+            )}
+            {monthInterest > 0.5 && (
+              <p className="text-[11px] text-rose-300/80 mt-0.5">⏱ ≈{fmt(monthInterest)} interest accruing this month</p>
+            )}
           </div>
           <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
         </div>
@@ -1715,9 +1741,19 @@ function DebtCard({ rows, expanded, onToggle, onUpdate }) {
                     🏔 Avalanche saves {fmt(interestSaved)} interest vs ⛄ snowball.
                   </p>
                 )}
+                {monthsSaved != null && monthsSaved > 0 && (
+                  <p className="text-[11px] text-emerald-300/90">
+                    💡 An extra $50/mo → debt-free {fmtMonths(monthsSaved)} sooner{interestSaved50 > 1 ? `, ~${fmt(interestSaved50)} less interest` : ''}.
+                  </p>
+                )}
               </>
             ) : (
-              <p className="text-xs text-rose-300">⚠ Minimum payments don't cover the interest — add an extra payment to start making progress.</p>
+              <>
+                <p className="text-xs text-rose-300">⚠ Minimum payments don't cover the interest — add an extra payment to start making progress.</p>
+                {boost.paidOff && (
+                  <p className="text-[11px] text-emerald-300/90">💡 An extra $50/mo gets you on track — debt-free in {fmtMonths(boost.months)}.</p>
+                )}
+              </>
             )}
           </div>
 
