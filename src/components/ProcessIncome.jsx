@@ -195,10 +195,28 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   }, [token]);
 
   const amount         = parseFloat(income) || 0;
-  const deposits       = useMemo(
+  // Manual override (Task 77): let the user hand-steer where each dollar goes.
+  // `overrides` = { [type]: editedAmountString }. Off by default → pure auto-split.
+  const [manualMode, setManualMode] = useState(false);
+  const [overrides,  setOverrides]  = useState({});
+  const baseDeposits   = useMemo(
     () => calcDeposits(expenses, amount, mode, alreadyByType, gasBalance, gasBudget),
     [expenses, amount, mode, alreadyByType, gasBalance, gasBudget]
   );
+  // In manual mode, each category's deposit can be overridden by hand; rows the user
+  // hasn't touched keep their auto-suggested figure. Everything downstream (tier
+  // totals, account tiles, surplus, the success count, the sheet write) reads
+  // `deposits`, so a single manual edit flows through the whole modal + the log.
+  const deposits = useMemo(() => {
+    if (!manualMode) return baseDeposits;
+    return baseDeposits.map(d => {
+      const ov = overrides[d.type];
+      if (ov === undefined || ov === '') return d;
+      const dep      = Math.max(0, parseFloat(ov) || 0);
+      const coverage = d.allowance > 0 ? (d.already + dep) / d.allowance : 0;
+      return { ...d, deposit: dep, pct: amount > 0 ? dep / amount : 0, coverage };
+    });
+  }, [baseDeposits, manualMode, overrides, amount]);
   const gasDynamic     = typeof gasBudget === 'number' && gasBudget > 0;
   const totalAllowance = expenses.reduce((s, e) => {
     // Gas contributes its live dynamic budget to the monthly goal, not the static sheet value.
@@ -238,6 +256,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   // Surplus: income remaining after all budget goals are fully funded
   const totalDeposited = deposits.reduce((s, d) => s + d.deposit, 0);
   const surplus = Math.max(0, amount - totalDeposited);
+  // Manual-mode running tally (signed): +ve = still to assign, −ve = over-assigned.
+  const leftToAssign = amount - totalDeposited;
   const surplusTotalWeight = surplusItems.reduce((s, it) => s + (parseFloat(it.weight) || 0), 0);
   const surplusDeposits = surplusItems.map(it => {
     const weight = parseFloat(it.weight) || 0;
@@ -643,6 +663,50 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
               {coveragePct.toFixed(0)}% covered
             </span>
           </div>
+
+          {/* ── Manual allocation override (Task 77) ── */}
+          {amount > 0 && !histLoading && (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setManualMode(v => !v)}
+                  title="Override the auto-split: edit each category's deposit by hand. Your numbers are written to the log exactly as you set them."
+                  className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all border ${
+                    manualMode
+                      ? 'bg-indigo-600 text-white border-indigo-500'
+                      : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  {manualMode ? '✏️ Adjusting — edit any amount below' : '✏️ Adjust amounts manually'}
+                </button>
+                {manualMode && Object.keys(overrides).length > 0 && (
+                  <button
+                    onClick={() => setOverrides({})}
+                    className="py-2 px-3 rounded-xl text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700 hover:text-slate-200 transition-colors whitespace-nowrap"
+                  >↻ Reset to auto</button>
+                )}
+              </div>
+              {manualMode && (
+                <div className={`rounded-xl px-3 py-2 flex items-center justify-between text-xs border ${
+                  Math.abs(leftToAssign) < 0.01 ? 'bg-emerald-900/30 border-emerald-800/40'
+                    : leftToAssign > 0 ? 'bg-amber-900/30 border-amber-800/40'
+                    : 'bg-rose-900/30 border-rose-800/40'
+                }`}>
+                  <span className="text-slate-400">
+                    <span className="text-white font-semibold font-mono tabular-nums">{fmt(totalDeposited)}</span> of {fmt(amount)} assigned
+                  </span>
+                  <span className={`font-bold font-mono tabular-nums ${
+                    Math.abs(leftToAssign) < 0.01 ? 'text-emerald-400'
+                      : leftToAssign > 0 ? 'text-amber-400' : 'text-rose-400'
+                  }`}>
+                    {Math.abs(leftToAssign) < 0.01 ? '✓ fully assigned'
+                      : leftToAssign > 0 ? `${fmt(leftToAssign)} left to assign`
+                      : `${fmt(Math.abs(leftToAssign))} over`}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Breakdown by account */}
@@ -818,7 +882,20 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                         })()}
                       </div>
                       <div className="text-right shrink-0 flex flex-col items-end gap-1">
-                        <p className="text-white text-sm font-semibold">+{fmt(d.deposit)}</p>
+                        {manualMode ? (
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold pointer-events-none">$</span>
+                            <input
+                              type="number" min="0" step="0.01"
+                              value={overrides[d.type] !== undefined ? overrides[d.type] : d.deposit.toFixed(2)}
+                              onChange={e => setOverrides(prev => ({ ...prev, [d.type]: e.target.value }))}
+                              onFocus={e => e.target.select()}
+                              className="w-24 bg-slate-700 text-white text-sm font-semibold rounded-lg pl-5 pr-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 font-mono tabular-nums text-right"
+                            />
+                          </div>
+                        ) : (
+                          <p className="text-white text-sm font-semibold">+{fmt(d.deposit)}</p>
+                        )}
                         <CoverageChip coverage={d.coverage} />
                       </div>
                     </div>
