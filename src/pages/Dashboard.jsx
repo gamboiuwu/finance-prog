@@ -2943,6 +2943,19 @@ ${stmtTxns.length ? `
         />
       )}
 
+      {/* ── Insight cards grid (Task 71a) ───────────────────────
+            Repeated feedback ("A lot of things on the dashboard… compact
+            it for desktop", "Condense everything on this main page —
+            TOO much to see in one glance") asked for the long insight
+            stack to take less vertical space on desktop WITHOUT losing
+            information. So the collapsible insight cards lay out in two
+            columns from `md:` up (single column on mobile, unchanged).
+            `items-start` keeps each card sized to its own content, so
+            expanding one card grows only its cell — the neighbour in the
+            same row is unaffected. The hero cards above (Process-Income
+            strip, Health) stay full-width. ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+
       {/* ── Safe-to-Spend Today (Task 44) ───────────────────── */}
       {expenses.length > 0 && income > 0 && (
         <SafeToSpendCard
@@ -3054,6 +3067,8 @@ ${stmtTxns.length ? `
           onToggle={() => setHeatmapExpanded(v => !v)}
         />
       )}
+
+      </div>{/* end insight-cards grid (Task 71a) */}
 
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex justify-between items-start">
