@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { readRange } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
-import { computeGasBudget, saveGasBudget } from '../lib/gasBudget';
+import { computeGasBudget, saveGasBudget, GAS_MILES_PER_DAY } from '../lib/gasBudget';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -171,14 +171,14 @@ function buildInsights(c) {
 const DEFAULT_ORDER = {
   overview: ['goalProgress','monthlyGoal','pi','ci','ciPlusPi','ar','coveragePct','projectedEnd'],
   work:     ['weeklyReq','reqDay30','reqDayLeft','hourlyWage','adjHourly','hoursLeft','hrsPerWeek','shiftsNeeded','moneyPerShift','spendingDaily'],
-  gas:      ['gasPrice','mpg','claimableGas','gallonsLeft','estMiles','milesPerDay','qcPerDay','totalQC','budgetFor2QC'],
+  gas:      ['gasPrice','mpg','claimableGas','gasCoverage','gallonsLeft','estMiles','milesPerDay','qcPerDay','totalQC','budgetFor2QC'],
   accounts: ['acctChecking','acctOutsidePayment','acctSavings','acctCash','acctBusinessTax','acctSubscription','ciDays'],
   budget:   ['p1','p2','p3','catBreakdown'],
 };
 
 // Wide tiles (col-span-2 / full-width)
 const WIDE_TILES = new Set([
-  'goalProgress','weeklyReq','claimableGas','budgetFor2QC','ciDays','p1','p2','p3','catBreakdown',
+  'goalProgress','weeklyReq','claimableGas','gasCoverage','budgetFor2QC','ciDays','p1','p2','p3','catBreakdown',
 ]);
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
@@ -298,6 +298,95 @@ function ProgressTile({ label, current, goal }) {
   );
 }
 
+// ─── Gas Coverage verdict (Task 72) ────────────────────────────────────────────
+// "Is my gas budget enough?" — compares the claimable Gas balance against the
+// full-month fuel cost for the user's typical monthly mileage:
+//   gallonsNeeded = monthlyMiles ÷ mpg ;  needed = gallonsNeeded × $/gal
+//   coverage = claimableGas − needed     (≥0 = enough · <0 = short by |coverage|)
+// Monthly miles defaults to the app's 56.6 mi/day assumption (× days in month) so
+// it reconciles with the "Budget for 2 QC/day" tile, but is user-editable and stored
+// in localStorage `_fin_gas_miles` (a mileage count only — no financial data).
+const GAS_MILES_KEY = '_fin_gas_miles';
+function getGasMiles() {
+  try {
+    const v = parseFloat(localStorage.getItem(GAS_MILES_KEY));
+    return v > 0 ? v : null;
+  } catch { return null; }
+}
+
+function GasCoverageTile({ c }) {
+  const [miles, setMiles] = useState(() => getGasMiles());
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const dim = c.dim || 30;
+  const defaultMiles = Math.round(GAS_MILES_PER_DAY * dim);
+  const usingDefault = !(miles && miles > 0);
+  const monthlyMiles = usingDefault ? defaultMiles : miles;
+
+  const mpg = c.mpg > 0 ? c.mpg : 23.5;
+  const perGal = c.gasPerGal > 0 ? c.gasPerGal : 0;
+  const claimable = c.claimableGas || 0;
+
+  if (perGal <= 0) return null; // can't judge coverage without a price
+
+  // Full-month fuel cost for the typical mileage vs. what the budget on hand buys.
+  const gallonsNeeded = monthlyMiles / mpg;
+  const needed = gallonsNeeded * perGal;
+  const gallonsBuys = claimable / perGal;
+  const milesCovers = gallonsBuys * mpg;
+  const coverage = claimable - needed;      // ≥0 covered · <0 short
+  const enough = coverage >= 0;
+
+  function saveMiles() {
+    const v = parseFloat(draft);
+    if (v > 0) { localStorage.setItem(GAS_MILES_KEY, String(v)); setMiles(v); }
+    setEditing(false);
+  }
+  function resetMiles() {
+    localStorage.removeItem(GAS_MILES_KEY); setMiles(null); setEditing(false);
+  }
+
+  return (
+    <div className={`rounded-xl p-3 h-full border ${enough ? 'bg-emerald-950/40 border-emerald-800/40' : 'bg-amber-950/40 border-amber-800/40'}`}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-slate-400 text-[10px] uppercase tracking-widest leading-tight">⛽ Gas Coverage</p>
+        <button onClick={() => { setDraft(String(monthlyMiles)); setEditing(v => !v); }}
+          className="text-[10px] text-slate-500 hover:text-amber-400 shrink-0">✏ miles</button>
+      </div>
+
+      <p className={`text-base font-bold mt-1 ${enough ? 'text-emerald-300' : 'text-amber-300'}`}>
+        {enough
+          ? `✅ Enough — covers ~${fmtN(milesCovers, 0)} mi`
+          : `⚠ Short ~${fmt(Math.abs(coverage))}/mo`}
+      </p>
+      <p className="text-slate-400 text-[11px] leading-snug mt-0.5">
+        {enough
+          ? `Your ${fmt(claimable)} gas budget buys ~${fmtN(gallonsBuys, 1)} gal at ${fmt(perGal, 3)}/gal — enough for your ~${fmtN(monthlyMiles, 0)} mi/mo.`
+          : `Your ~${fmtN(monthlyMiles, 0)} mi/mo needs ~${fmtN(gallonsNeeded, 1)} gal ≈ ${fmt(needed)}; you have ${fmt(claimable)}. Add ${fmt(Math.abs(coverage))} to this month's gas budget.`}
+      </p>
+
+      {editing ? (
+        <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-1.5">
+          <p className="text-slate-500 text-[10px]">Typical miles you drive per month{usingDefault ? ` · default ${defaultMiles} (${GAS_MILES_PER_DAY} mi/day)` : ''}</p>
+          <div className="flex gap-1.5">
+            <input type="number" inputMode="decimal" value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveMiles(); if (e.key === 'Escape') setEditing(false); }}
+              className="flex-1 bg-slate-800 text-white px-2 py-1.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-amber-500" autoFocus placeholder={`${defaultMiles}`} />
+            <button onClick={saveMiles} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium">Save</button>
+            {!usingDefault && <button onClick={resetMiles} className="px-2 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-xs">Reset</button>}
+          </div>
+        </div>
+      ) : (
+        <p className="text-slate-600 text-[10px] mt-1.5">
+          {usingDefault ? `Assuming ${GAS_MILES_PER_DAY} mi/day · tap ✏ to set your real monthly miles` : `Based on your ${fmtN(monthlyMiles, 0)} mi/mo`}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Tile renderer ───────────────────────────────────────────────────────────
 
 function renderTile(id, c, sv, ov, onEdit) {
@@ -356,6 +445,8 @@ function renderTile(id, c, sv, ov, onEdit) {
       />;
     case 'mpg':
       return <MetricTile label="Average MPG" value={`${c.mpg} mpg`} onEdit={e('Avg MPG')} overrideVal={o} />;
+    case 'gasCoverage':
+      return <GasCoverageTile c={c} />;
     case 'claimableGas':
       return <MetricTile label="Claimable Gas Budget" value={fmt(c.claimableGas)} color={c.claimableGas < 20 ? 'text-rose-400' : 'text-white'} detail="From Allocation Summary — Gas row balance" wide onEdit={e('Claimable Gas')} overrideVal={o} />;
     case 'gallonsLeft':
@@ -1105,7 +1196,13 @@ export default function Summary({ token }) {
     setDragging(false);
   }
 
-  const activeOrder = tileOrder[tab] || DEFAULT_ORDER[tab];
+  // Use the user's saved per-tab order, but append any newly-added default tiles
+  // they don't have yet (so new tiles like Gas Coverage always appear).
+  const savedOrder = tileOrder[tab];
+  const defaultOrder = DEFAULT_ORDER[tab] || [];
+  const activeOrder = savedOrder
+    ? [...savedOrder, ...defaultOrder.filter(id => !savedOrder.includes(id))]
+    : defaultOrder;
 
   return (
     <div className="pb-24">
