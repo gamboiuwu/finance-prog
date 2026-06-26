@@ -1955,6 +1955,22 @@ export default function Dashboard({ token }) {
   const [showDebt, setShowDebt]         = useState(false);
   const [debtSaving, setDebtSaving]     = useState(false);
   const [debtError, setDebtError]       = useState(null);
+  // ── Insight-card collapse-all / expand-all (Task 78) ──
+  // Every collapsible insight card defaults collapsed, but once several are
+  // open the stack gets long on one screen (repeated "too much on the
+  // dashboard / condense this page" feedback). This pair lets the whole
+  // Insights section be collapsed or expanded in a single tap. Scoped to the
+  // 11 cards inside the insight grid; the Health gauge above stays a hero card.
+  const anyInsightExpanded =
+    safeExpanded || paceExpanded || trendExpanded || forecastExpanded ||
+    efExpanded || nwExpanded || debtExpanded || anomalyExpanded ||
+    mixExpanded || envelopeExpanded || heatmapExpanded;
+  const setAllInsightCards = (open) => {
+    setSafeExpanded(open); setPaceExpanded(open); setTrendExpanded(open);
+    setForecastExpanded(open); setEfExpanded(open); setNwExpanded(open);
+    setDebtExpanded(open); setAnomalyExpanded(open); setMixExpanded(open);
+    setEnvelopeExpanded(open); setHeatmapExpanded(open);
+  };
   const [qaActions, setQaActions] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('_fin_quickactions') || 'null');
@@ -2954,6 +2970,22 @@ ${stmtTxns.length ? `
             expanding one card grows only its cell — the neighbour in the
             same row is unaffected. The hero cards above (Process-Income
             strip, Health) stay full-width. ── */}
+
+      {/* ── Insights section header + Collapse-all / Expand-all (Task 78) ──
+            One-tap control to collapse or expand the whole insight section,
+            so the long stack can be tidied away on a glance. Cards already
+            default collapsed; this lets the user reopen them all at once or
+            fold them back without scrolling card-by-card. ── */}
+      <div className="flex items-center justify-between px-0.5">
+        <span className="text-slate-500 text-[11px] font-semibold uppercase tracking-wide">Insights</span>
+        <button
+          onClick={() => setAllInsightCards(!anyInsightExpanded)}
+          className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70"
+        >
+          {anyInsightExpanded ? '⊟ Collapse all' : '⊞ Expand all'}
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
 
       {/* ── Safe-to-Spend Today (Task 44) ───────────────────── */}
