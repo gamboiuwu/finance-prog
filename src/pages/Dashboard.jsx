@@ -1971,6 +1971,29 @@ export default function Dashboard({ token }) {
     setDebtExpanded(open); setAnomalyExpanded(open); setMixExpanded(open);
     setEnvelopeExpanded(open); setHeatmapExpanded(open);
   };
+  // ── Grouped insight sub-sections (Task 86) ──
+  // The 2026-06-22 feedback asked to "Condense everything on this main page,
+  // using sub-categories and such if needed." The 11 insight cards are grouped
+  // into 3 themed, independently-collapsible sections (💵 Spending & Pace /
+  // 🏦 Saving & Net Worth / 📈 Planning & Trends) so a whole group can be
+  // folded away at a glance. Open/closed state is layout-only and persists
+  // per-device (`true` = expanded). Defaults expanded so behaviour is unchanged
+  // on first load; the cards themselves still default collapsed.
+  const [insightSections, setInsightSections] = useState(() => {
+    const def = { spending: true, saving: true, planning: true };
+    try {
+      const s = JSON.parse(localStorage.getItem('_fin_insight_sections') || 'null');
+      if (s && typeof s === 'object') return { ...def, ...s };
+    } catch {}
+    return def;
+  });
+  const toggleInsightSection = (key) => {
+    setInsightSections(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem('_fin_insight_sections', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
   const [qaActions, setQaActions] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('_fin_quickactions') || 'null');
@@ -2859,6 +2882,27 @@ ${stmtTxns.length ? `
     setTimeout(() => setStmtCopied(false), 2000);
   }
 
+  // Per-card render guards (mirror each insight card's own condition) so a
+  // section header + grid only renders when at least one card inside it shows.
+  const cardGuards = {
+    safe:     expenses.length > 0 && income > 0,
+    pace:     expenses.length > 0 && allAllocTx.length > 0 && dayOfMonth >= 3,
+    heatmap:  allAllocTx.length > 0,
+    anomaly:  allAllocTx.length > 0,
+    ef:       expenses.length > 0 && allAllocTx.length > 0,
+    nw:       true,
+    debt:     true,
+    mix:      allAllocTx.length > 0 && expenses.length > 0,
+    envelope: expenses.length > 0 && expectedIncome > 0,
+    trend:    chartData.length >= 2,
+    forecast: chartData.length >= 2,
+  };
+  const sectionCounts = {
+    spending: ['safe', 'pace', 'heatmap', 'anomaly'].filter(k => cardGuards[k]).length,
+    saving:   ['ef', 'nw', 'debt', 'mix', 'envelope'].filter(k => cardGuards[k]).length,
+    planning: ['trend', 'forecast'].filter(k => cardGuards[k]).length,
+  };
+
   return (
     <div className="stagger p-4 space-y-5 pb-24 md:max-w-4xl md:mx-auto">
 
@@ -2986,121 +3030,167 @@ ${stmtTxns.length ? `
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+      {/* ── Grouped insight sub-sections (Task 86) ──────────────
+            The cards are split into 3 themed, independently-collapsible
+            sections so a whole group can be folded at a glance ("condense
+            this page, using sub-categories"). Each section header toggles
+            its own 2-column grid (Task 71a layout). A section only renders
+            when at least one card inside it passes its render guard. ── */}
 
-      {/* ── Safe-to-Spend Today (Task 44) ───────────────────── */}
-      {expenses.length > 0 && income > 0 && (
-        <SafeToSpendCard
-          income={income}
-          spent={spent}
-          expenses={expenses}
-          allAllocTx={allAllocTx}
-          daysLeftIncl={daysLeftIncl}
-          dayOfMonth={dayOfMonth}
-          daysInMo={daysInMo}
-          expanded={safeExpanded}
-          onToggle={() => setSafeExpanded(v => !v)}
-        />
+      {/* Section: 💵 Spending & Pace */}
+      {sectionCounts.spending > 0 && (
+        <div>
+          <button
+            onClick={() => toggleInsightSection('spending')}
+            className="w-full flex items-center gap-2 px-1 py-1.5 text-left active:opacity-70"
+          >
+            <span className="text-slate-400 text-xs w-3 text-center">{insightSections.spending ? '▾' : '▸'}</span>
+            <span className="text-slate-300 text-sm font-semibold">💵 Spending & Pace</span>
+            <span className="text-slate-500 text-[11px] font-medium">· {sectionCounts.spending}</span>
+          </button>
+          {insightSections.spending && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start mt-1">
+              {/* ── Safe-to-Spend Today (Task 44) ───────────────────── */}
+              {cardGuards.safe && (
+                <SafeToSpendCard
+                  income={income}
+                  spent={spent}
+                  expenses={expenses}
+                  allAllocTx={allAllocTx}
+                  daysLeftIncl={daysLeftIncl}
+                  dayOfMonth={dayOfMonth}
+                  daysInMo={daysInMo}
+                  expanded={safeExpanded}
+                  onToggle={() => setSafeExpanded(v => !v)}
+                />
+              )}
+              {/* ── Category Spend-Pace / Burn-Down (Task 57) ───────── */}
+              {cardGuards.pace && (
+                <SpendPaceCard
+                  expenses={expenses}
+                  allAllocTx={allAllocTx}
+                  dayOfMonth={dayOfMonth}
+                  daysInMo={daysInMo}
+                  expanded={paceExpanded}
+                  onToggle={() => setPaceExpanded(v => !v)}
+                />
+              )}
+              {/* ── Spending Calendar Heatmap (Task 24) ─────────────── */}
+              {cardGuards.heatmap && (
+                <SpendingCalendarCard
+                  allAllocTx={allAllocTx}
+                  expanded={heatmapExpanded}
+                  onToggle={() => setHeatmapExpanded(v => !v)}
+                />
+              )}
+              {/* ── Spending Anomaly Detection (Task 40) ────────────── */}
+              {cardGuards.anomaly && (
+                <AnomalyCard
+                  allAllocTx={allAllocTx}
+                  expanded={anomalyExpanded}
+                  onToggle={() => setAnomalyExpanded(v => !v)}
+                />
+              )}
+            </div>
+          )}
+        </div>
       )}
 
-      {/* ── Category Spend-Pace / Burn-Down (Task 57) ───────── */}
-      {expenses.length > 0 && allAllocTx.length > 0 && dayOfMonth >= 3 && (
-        <SpendPaceCard
-          expenses={expenses}
-          allAllocTx={allAllocTx}
-          dayOfMonth={dayOfMonth}
-          daysInMo={daysInMo}
-          expanded={paceExpanded}
-          onToggle={() => setPaceExpanded(v => !v)}
-        />
+      {/* Section: 🏦 Saving & Net Worth */}
+      {sectionCounts.saving > 0 && (
+        <div>
+          <button
+            onClick={() => toggleInsightSection('saving')}
+            className="w-full flex items-center gap-2 px-1 py-1.5 text-left active:opacity-70"
+          >
+            <span className="text-slate-400 text-xs w-3 text-center">{insightSections.saving ? '▾' : '▸'}</span>
+            <span className="text-slate-300 text-sm font-semibold">🏦 Saving & Net Worth</span>
+            <span className="text-slate-500 text-[11px] font-medium">· {sectionCounts.saving}</span>
+          </button>
+          {insightSections.saving && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start mt-1">
+              {/* ── Emergency Fund / Runway Tracker (Task 35) ───────── */}
+              {cardGuards.ef && (
+                <EmergencyFundCard
+                  expenses={expenses}
+                  allAllocTx={allAllocTx}
+                  expanded={efExpanded}
+                  onToggle={() => setEfExpanded(v => !v)}
+                />
+              )}
+              {/* ── Net Worth Snapshot (Task 14) ────────────────────── */}
+              <NetWorthCard
+                rows={netWorthRows}
+                expanded={nwExpanded}
+                onToggle={() => setNwExpanded(v => !v)}
+                onUpdate={() => { setNwError(null); setShowNetWorth(true); }}
+              />
+              {/* ── Debt Payoff Tracker (Task 26) ───────────────────── */}
+              <DebtCard
+                rows={debtRows}
+                expanded={debtExpanded}
+                onToggle={() => setDebtExpanded(v => !v)}
+                onUpdate={() => { setDebtError(null); setShowDebt(true); }}
+              />
+              {/* ── Savings-Rate Trend & 50/30/20 Check (Task 42) ───── */}
+              {cardGuards.mix && (
+                <BudgetMixCard
+                  allAllocTx={allAllocTx}
+                  expenses={expenses}
+                  expanded={mixExpanded}
+                  onToggle={() => setMixExpanded(v => !v)}
+                />
+              )}
+              {/* ── Every Dollar Assigned / Zero-Based Check (Task 47) ─ */}
+              {cardGuards.envelope && (
+                <EveryDollarCard
+                  income={expectedIncome}
+                  expenses={expenses}
+                  allAllocTx={allAllocTx}
+                  expanded={envelopeExpanded}
+                  onToggle={() => setEnvelopeExpanded(v => !v)}
+                />
+              )}
+            </div>
+          )}
+        </div>
       )}
 
-      {/* ── 6-Month Income vs Expense Trend ─────────────────── */}
-      {chartData.length >= 2 && (
-        <TrendChartCard
-          data={chartData}
-          expanded={trendExpanded}
-          onToggle={() => setTrendExpanded(v => !v)}
-        />
-      )}
-
-      {/* ── Recurring Income Forecast (Task 16) ─────────────── */}
-      {chartData.length >= 2 && (
-        <ForecastCard
-          chartData={chartData}
-          subscriptions={subscriptions}
-          expenses={expenses}
-          expanded={forecastExpanded}
-          onToggle={() => setForecastExpanded(v => !v)}
-        />
-      )}
-
-      {/* ── Emergency Fund / Runway Tracker (Task 35) ───────── */}
-      {expenses.length > 0 && allAllocTx.length > 0 && (
-        <EmergencyFundCard
-          expenses={expenses}
-          allAllocTx={allAllocTx}
-          expanded={efExpanded}
-          onToggle={() => setEfExpanded(v => !v)}
-        />
-      )}
-
-      {/* ── Net Worth Snapshot (Task 14) ────────────────────── */}
-      <NetWorthCard
-        rows={netWorthRows}
-        expanded={nwExpanded}
-        onToggle={() => setNwExpanded(v => !v)}
-        onUpdate={() => { setNwError(null); setShowNetWorth(true); }}
-      />
-
-      {/* ── Debt Payoff Tracker (Task 26) ───────────────────── */}
-      <DebtCard
-        rows={debtRows}
-        expanded={debtExpanded}
-        onToggle={() => setDebtExpanded(v => !v)}
-        onUpdate={() => { setDebtError(null); setShowDebt(true); }}
-      />
-
-      {/* ── Spending Anomaly Detection (Task 40) ────────────── */}
-      {allAllocTx.length > 0 && (
-        <AnomalyCard
-          allAllocTx={allAllocTx}
-          expanded={anomalyExpanded}
-          onToggle={() => setAnomalyExpanded(v => !v)}
-        />
-      )}
-
-      {/* ── Savings-Rate Trend & 50/30/20 Check (Task 42) ───── */}
-      {allAllocTx.length > 0 && expenses.length > 0 && (
-        <BudgetMixCard
-          allAllocTx={allAllocTx}
-          expenses={expenses}
-          expanded={mixExpanded}
-          onToggle={() => setMixExpanded(v => !v)}
-        />
-      )}
-
-      {/* ── Every Dollar Assigned / Zero-Based Check (Task 47) ─ */}
-      {expenses.length > 0 && expectedIncome > 0 && (
-        <EveryDollarCard
-          income={expectedIncome}
-          expenses={expenses}
-          allAllocTx={allAllocTx}
-          expanded={envelopeExpanded}
-          onToggle={() => setEnvelopeExpanded(v => !v)}
-        />
-      )}
-
-      {/* ── Spending Calendar Heatmap (Task 24) ─────────────── */}
-      {allAllocTx.length > 0 && (
-        <SpendingCalendarCard
-          allAllocTx={allAllocTx}
-          expanded={heatmapExpanded}
-          onToggle={() => setHeatmapExpanded(v => !v)}
-        />
-      )}
-
-      </div>{/* end insight-cards grid (Task 71a) */}
+      {/* Section: 📈 Planning & Trends */}
+      {sectionCounts.planning > 0 && (
+        <div>
+          <button
+            onClick={() => toggleInsightSection('planning')}
+            className="w-full flex items-center gap-2 px-1 py-1.5 text-left active:opacity-70"
+          >
+            <span className="text-slate-400 text-xs w-3 text-center">{insightSections.planning ? '▾' : '▸'}</span>
+            <span className="text-slate-300 text-sm font-semibold">📈 Planning & Trends</span>
+            <span className="text-slate-500 text-[11px] font-medium">· {sectionCounts.planning}</span>
+          </button>
+          {insightSections.planning && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start mt-1">
+              {/* ── 6-Month Income vs Expense Trend ─────────────────── */}
+              {cardGuards.trend && (
+                <TrendChartCard
+                  data={chartData}
+                  expanded={trendExpanded}
+                  onToggle={() => setTrendExpanded(v => !v)}
+                />
+              )}
+              {/* ── Recurring Income Forecast (Task 16) ─────────────── */}
+              {cardGuards.forecast && (
+                <ForecastCard
+                  chartData={chartData}
+                  subscriptions={subscriptions}
+                  expenses={expenses}
+                  expanded={forecastExpanded}
+                  onToggle={() => setForecastExpanded(v => !v)}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      )}{/* end grouped insight sections (Task 86) */}
 
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex justify-between items-start">
