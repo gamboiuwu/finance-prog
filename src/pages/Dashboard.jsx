@@ -1869,6 +1869,33 @@ function TopGoalCard({ goals, onOpen }) {
   );
 }
 
+// ── Grouped insight sub-section (Task 86) ─────────────────────────────
+// The Dashboard's insight cards were a flat two-column stack (Task 71a);
+// repeated feedback asked to "condense everything on this main page, using
+// sub-categories and such if needed". This wraps a labelled, independently
+// collapsible group of cards: a thin chevron header that hides its whole
+// card group when collapsed, so the home page can show just the section
+// titles (the ultimate glance view) and the user expands only what matters.
+// The two-column grid (Task 71a) is preserved inside each open section.
+function InsightSection({ title, open, onToggle, children }) {
+  return (
+    <div>
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 px-0.5 py-1 text-left active:opacity-70"
+      >
+        <span className="text-slate-500 text-xs w-3 shrink-0">{open ? '▾' : '▸'}</span>
+        <span className="text-slate-300 text-sm font-semibold">{title}</span>
+      </button>
+      {open && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start mt-1">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -1970,6 +1997,32 @@ export default function Dashboard({ token }) {
     setForecastExpanded(open); setEfExpanded(open); setNwExpanded(open);
     setDebtExpanded(open); setAnomalyExpanded(open); setMixExpanded(open);
     setEnvelopeExpanded(open); setHeatmapExpanded(open);
+  };
+  // ── Insight sub-section open/closed state (Task 86) ──
+  // Three labelled groups (Spending & Pace / Saving & Net Worth / Planning &
+  // Trends). Sections default open (purely additive over today's view); once
+  // a user folds one it stays folded across reloads — that's how this
+  // condenses the page per the "too much on one screen" feedback. Persisted
+  // per-device; stores 3 booleans only — no financial data.
+  const [insightSections, setInsightSections] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('_fin_insight_sections') || 'null');
+      if (s && typeof s === 'object') {
+        return {
+          spending: s.spending !== false,
+          saving:   s.saving   !== false,
+          planning: s.planning !== false,
+        };
+      }
+    } catch {}
+    return { spending: true, saving: true, planning: true };
+  });
+  const toggleInsightSection = (key) => {
+    setInsightSections(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem('_fin_insight_sections', JSON.stringify(next)); } catch {}
+      return next;
+    });
   };
   const [qaActions, setQaActions] = useState(() => {
     try {
@@ -2986,121 +3039,144 @@ ${stmtTxns.length ? `
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+      {/* ── 💵 Spending & Pace (Task 86) ───────────────────────
+            Day-to-day cash flow: what's safe to spend, whether categories
+            are on pace, where the money went, and any unusual charge. */}
+      {((expenses.length > 0 && income > 0) || allAllocTx.length > 0) && (
+        <InsightSection
+          title="💵 Spending & Pace"
+          open={insightSections.spending}
+          onToggle={() => toggleInsightSection('spending')}
+        >
+          {/* ── Safe-to-Spend Today (Task 44) ───────────────────── */}
+          {expenses.length > 0 && income > 0 && (
+            <SafeToSpendCard
+              income={income}
+              spent={spent}
+              expenses={expenses}
+              allAllocTx={allAllocTx}
+              daysLeftIncl={daysLeftIncl}
+              dayOfMonth={dayOfMonth}
+              daysInMo={daysInMo}
+              expanded={safeExpanded}
+              onToggle={() => setSafeExpanded(v => !v)}
+            />
+          )}
 
-      {/* ── Safe-to-Spend Today (Task 44) ───────────────────── */}
-      {expenses.length > 0 && income > 0 && (
-        <SafeToSpendCard
-          income={income}
-          spent={spent}
-          expenses={expenses}
-          allAllocTx={allAllocTx}
-          daysLeftIncl={daysLeftIncl}
-          dayOfMonth={dayOfMonth}
-          daysInMo={daysInMo}
-          expanded={safeExpanded}
-          onToggle={() => setSafeExpanded(v => !v)}
-        />
+          {/* ── Category Spend-Pace / Burn-Down (Task 57) ───────── */}
+          {expenses.length > 0 && allAllocTx.length > 0 && dayOfMonth >= 3 && (
+            <SpendPaceCard
+              expenses={expenses}
+              allAllocTx={allAllocTx}
+              dayOfMonth={dayOfMonth}
+              daysInMo={daysInMo}
+              expanded={paceExpanded}
+              onToggle={() => setPaceExpanded(v => !v)}
+            />
+          )}
+
+          {/* ── Spending Anomaly Detection (Task 40) ────────────── */}
+          {allAllocTx.length > 0 && (
+            <AnomalyCard
+              allAllocTx={allAllocTx}
+              expanded={anomalyExpanded}
+              onToggle={() => setAnomalyExpanded(v => !v)}
+            />
+          )}
+
+          {/* ── Spending Calendar Heatmap (Task 24) ─────────────── */}
+          {allAllocTx.length > 0 && (
+            <SpendingCalendarCard
+              allAllocTx={allAllocTx}
+              expanded={heatmapExpanded}
+              onToggle={() => setHeatmapExpanded(v => !v)}
+            />
+          )}
+        </InsightSection>
       )}
 
-      {/* ── Category Spend-Pace / Burn-Down (Task 57) ───────── */}
-      {expenses.length > 0 && allAllocTx.length > 0 && dayOfMonth >= 3 && (
-        <SpendPaceCard
-          expenses={expenses}
-          allAllocTx={allAllocTx}
-          dayOfMonth={dayOfMonth}
-          daysInMo={daysInMo}
-          expanded={paceExpanded}
-          onToggle={() => setPaceExpanded(v => !v)}
-        />
-      )}
+      {/* ── 🏦 Saving & Net Worth (Task 86) ─────────────────────
+            The balance-sheet side: cushion, net worth, debt, and whether
+            the budget's dollars are all assigned & balanced. */}
+      <InsightSection
+        title="🏦 Saving & Net Worth"
+        open={insightSections.saving}
+        onToggle={() => toggleInsightSection('saving')}
+      >
+        {/* ── Emergency Fund / Runway Tracker (Task 35) ───────── */}
+        {expenses.length > 0 && allAllocTx.length > 0 && (
+          <EmergencyFundCard
+            expenses={expenses}
+            allAllocTx={allAllocTx}
+            expanded={efExpanded}
+            onToggle={() => setEfExpanded(v => !v)}
+          />
+        )}
 
-      {/* ── 6-Month Income vs Expense Trend ─────────────────── */}
+        {/* ── Net Worth Snapshot (Task 14) ────────────────────── */}
+        <NetWorthCard
+          rows={netWorthRows}
+          expanded={nwExpanded}
+          onToggle={() => setNwExpanded(v => !v)}
+          onUpdate={() => { setNwError(null); setShowNetWorth(true); }}
+        />
+
+        {/* ── Debt Payoff Tracker (Task 26) ───────────────────── */}
+        <DebtCard
+          rows={debtRows}
+          expanded={debtExpanded}
+          onToggle={() => setDebtExpanded(v => !v)}
+          onUpdate={() => { setDebtError(null); setShowDebt(true); }}
+        />
+
+        {/* ── Savings-Rate Trend & 50/30/20 Check (Task 42) ───── */}
+        {allAllocTx.length > 0 && expenses.length > 0 && (
+          <BudgetMixCard
+            allAllocTx={allAllocTx}
+            expenses={expenses}
+            expanded={mixExpanded}
+            onToggle={() => setMixExpanded(v => !v)}
+          />
+        )}
+
+        {/* ── Every Dollar Assigned / Zero-Based Check (Task 47) ─ */}
+        {expenses.length > 0 && expectedIncome > 0 && (
+          <EveryDollarCard
+            income={expectedIncome}
+            expenses={expenses}
+            allAllocTx={allAllocTx}
+            expanded={envelopeExpanded}
+            onToggle={() => setEnvelopeExpanded(v => !v)}
+          />
+        )}
+      </InsightSection>
+
+      {/* ── 📈 Planning & Trends (Task 86) ──────────────────────
+            Forward & historical view: the 6-month trend and the income
+            forecast. */}
       {chartData.length >= 2 && (
-        <TrendChartCard
-          data={chartData}
-          expanded={trendExpanded}
-          onToggle={() => setTrendExpanded(v => !v)}
-        />
+        <InsightSection
+          title="📈 Planning & Trends"
+          open={insightSections.planning}
+          onToggle={() => toggleInsightSection('planning')}
+        >
+          {/* ── 6-Month Income vs Expense Trend ─────────────────── */}
+          <TrendChartCard
+            data={chartData}
+            expanded={trendExpanded}
+            onToggle={() => setTrendExpanded(v => !v)}
+          />
+
+          {/* ── Recurring Income Forecast (Task 16) ─────────────── */}
+          <ForecastCard
+            chartData={chartData}
+            subscriptions={subscriptions}
+            expenses={expenses}
+            expanded={forecastExpanded}
+            onToggle={() => setForecastExpanded(v => !v)}
+          />
+        </InsightSection>
       )}
-
-      {/* ── Recurring Income Forecast (Task 16) ─────────────── */}
-      {chartData.length >= 2 && (
-        <ForecastCard
-          chartData={chartData}
-          subscriptions={subscriptions}
-          expenses={expenses}
-          expanded={forecastExpanded}
-          onToggle={() => setForecastExpanded(v => !v)}
-        />
-      )}
-
-      {/* ── Emergency Fund / Runway Tracker (Task 35) ───────── */}
-      {expenses.length > 0 && allAllocTx.length > 0 && (
-        <EmergencyFundCard
-          expenses={expenses}
-          allAllocTx={allAllocTx}
-          expanded={efExpanded}
-          onToggle={() => setEfExpanded(v => !v)}
-        />
-      )}
-
-      {/* ── Net Worth Snapshot (Task 14) ────────────────────── */}
-      <NetWorthCard
-        rows={netWorthRows}
-        expanded={nwExpanded}
-        onToggle={() => setNwExpanded(v => !v)}
-        onUpdate={() => { setNwError(null); setShowNetWorth(true); }}
-      />
-
-      {/* ── Debt Payoff Tracker (Task 26) ───────────────────── */}
-      <DebtCard
-        rows={debtRows}
-        expanded={debtExpanded}
-        onToggle={() => setDebtExpanded(v => !v)}
-        onUpdate={() => { setDebtError(null); setShowDebt(true); }}
-      />
-
-      {/* ── Spending Anomaly Detection (Task 40) ────────────── */}
-      {allAllocTx.length > 0 && (
-        <AnomalyCard
-          allAllocTx={allAllocTx}
-          expanded={anomalyExpanded}
-          onToggle={() => setAnomalyExpanded(v => !v)}
-        />
-      )}
-
-      {/* ── Savings-Rate Trend & 50/30/20 Check (Task 42) ───── */}
-      {allAllocTx.length > 0 && expenses.length > 0 && (
-        <BudgetMixCard
-          allAllocTx={allAllocTx}
-          expenses={expenses}
-          expanded={mixExpanded}
-          onToggle={() => setMixExpanded(v => !v)}
-        />
-      )}
-
-      {/* ── Every Dollar Assigned / Zero-Based Check (Task 47) ─ */}
-      {expenses.length > 0 && expectedIncome > 0 && (
-        <EveryDollarCard
-          income={expectedIncome}
-          expenses={expenses}
-          allAllocTx={allAllocTx}
-          expanded={envelopeExpanded}
-          onToggle={() => setEnvelopeExpanded(v => !v)}
-        />
-      )}
-
-      {/* ── Spending Calendar Heatmap (Task 24) ─────────────── */}
-      {allAllocTx.length > 0 && (
-        <SpendingCalendarCard
-          allAllocTx={allAllocTx}
-          expanded={heatmapExpanded}
-          onToggle={() => setHeatmapExpanded(v => !v)}
-        />
-      )}
-
-      </div>{/* end insight-cards grid (Task 71a) */}
 
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex justify-between items-start">
