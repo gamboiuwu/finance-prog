@@ -561,6 +561,20 @@ function getEFTarget() {
   return [1, 3, 6].includes(n) ? n : 3;
 }
 
+// ── Per-card expand-state persistence (Task 88a) ──
+// Every insight card defaults collapsed, but a card the user expanded re-opens
+// collapsed on every reload. This remembers each card's last expand state in
+// `_fin_card_expanded` (a map of card key → bool — layout only, no financial
+// data) so the dashboard reopens exactly as the user left it. `cardInit(key)`
+// seeds a card's useState; a single effect in the component persists the map.
+function getCardExpanded() {
+  try {
+    const m = JSON.parse(localStorage.getItem('_fin_card_expanded') || '{}');
+    return m && typeof m === 'object' ? m : {};
+  } catch { return {}; }
+}
+function cardInit(key) { return getCardExpanded()[key] === true; }
+
 function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
   const [target, setTarget] = useState(getEFTarget);
 
@@ -1946,9 +1960,9 @@ export default function Dashboard({ token }) {
   const [hasCurrentMonthAllocRows, setHasCurrentMonthAllocRows] = useState(null);
   const [healthScore, setHealthScore]   = useState({ total: 0, signals: [], history: [], loaded: false });
   const [healthExpanded, setHealthExpanded] = useState(false);
-  const [trendExpanded, setTrendExpanded]   = useState(false);
-  const [forecastExpanded, setForecastExpanded] = useState(false);
-  const [efExpanded, setEfExpanded]             = useState(false);
+  const [trendExpanded, setTrendExpanded]   = useState(() => cardInit('trend'));
+  const [forecastExpanded, setForecastExpanded] = useState(() => cardInit('forecast'));
+  const [efExpanded, setEfExpanded]             = useState(() => cardInit('ef'));
   const [monthNote, setMonthNote] = useState(() => {
     try {
       const d = new Date();
@@ -1961,24 +1975,24 @@ export default function Dashboard({ token }) {
   const [showArchive, setShowArchive]         = useState(false);
   const [archiveEntry, setArchiveEntry]       = useState(null);
   const [allAllocTx, setAllAllocTx] = useState([]);
-  const [heatmapExpanded, setHeatmapExpanded] = useState(false);
-  const [anomalyExpanded, setAnomalyExpanded] = useState(false);
-  const [mixExpanded, setMixExpanded]         = useState(false);
-  const [safeExpanded, setSafeExpanded]       = useState(false);
-  const [paceExpanded, setPaceExpanded]       = useState(false);
-  const [envelopeExpanded, setEnvelopeExpanded] = useState(false);
+  const [heatmapExpanded, setHeatmapExpanded] = useState(() => cardInit('heatmap'));
+  const [anomalyExpanded, setAnomalyExpanded] = useState(() => cardInit('anomaly'));
+  const [mixExpanded, setMixExpanded]         = useState(() => cardInit('mix'));
+  const [safeExpanded, setSafeExpanded]       = useState(() => cardInit('safe'));
+  const [paceExpanded, setPaceExpanded]       = useState(() => cardInit('pace'));
+  const [envelopeExpanded, setEnvelopeExpanded] = useState(() => cardInit('envelope'));
   const [paydayConfig, setPaydayConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_payday_config') || 'null') || null; } catch { return null; }
   });
   const [showPaydayConfig, setShowPaydayConfig] = useState(false);
   const [netWorthRows, setNetWorthRows] = useState([]);
-  const [nwExpanded, setNwExpanded]     = useState(false);
+  const [nwExpanded, setNwExpanded]     = useState(() => cardInit('nw'));
   const [goalRows, setGoalRows]         = useState([]); // savings goals (Plans sheet, Task 9)
   const [showNetWorth, setShowNetWorth] = useState(false);
   const [nwSaving, setNwSaving]         = useState(false);
   const [nwError, setNwError]           = useState(null);
   const [debtRows, setDebtRows]         = useState([]); // debt payoff (Debts sheet, Task 26)
-  const [debtExpanded, setDebtExpanded] = useState(false);
+  const [debtExpanded, setDebtExpanded] = useState(() => cardInit('debt'));
   const [showDebt, setShowDebt]         = useState(false);
   const [debtSaving, setDebtSaving]     = useState(false);
   const [debtError, setDebtError]       = useState(null);
@@ -1998,6 +2012,21 @@ export default function Dashboard({ token }) {
     setDebtExpanded(open); setAnomalyExpanded(open); setMixExpanded(open);
     setEnvelopeExpanded(open); setHeatmapExpanded(open);
   };
+  // Persist each insight card's expand state (Task 88a) so the dashboard
+  // reopens as the user left it. Fires on every toggle, including the
+  // Collapse-all/Expand-all control above, so a bulk change sticks too.
+  useEffect(() => {
+    try {
+      localStorage.setItem('_fin_card_expanded', JSON.stringify({
+        safe: safeExpanded, pace: paceExpanded, trend: trendExpanded,
+        forecast: forecastExpanded, ef: efExpanded, nw: nwExpanded,
+        debt: debtExpanded, anomaly: anomalyExpanded, mix: mixExpanded,
+        envelope: envelopeExpanded, heatmap: heatmapExpanded,
+      }));
+    } catch {}
+  }, [safeExpanded, paceExpanded, trendExpanded, forecastExpanded, efExpanded,
+      nwExpanded, debtExpanded, anomalyExpanded, mixExpanded, envelopeExpanded,
+      heatmapExpanded]);
   // ── Insight sub-section open/closed state (Task 86) ──
   // Three labelled groups (Spending & Pace / Saving & Net Worth / Planning &
   // Trends). Sections default open (purely additive over today's view); once
