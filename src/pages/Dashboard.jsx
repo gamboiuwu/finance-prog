@@ -1891,7 +1891,7 @@ function TopGoalCard({ goals, onOpen }) {
 // card group when collapsed, so the home page can show just the section
 // titles (the ultimate glance view) and the user expands only what matters.
 // The two-column grid (Task 71a) is preserved inside each open section.
-function InsightSection({ title, open, onToggle, children }) {
+function InsightSection({ title, open, onToggle, badge = 0, children }) {
   return (
     <div>
       <button
@@ -1900,6 +1900,11 @@ function InsightSection({ title, open, onToggle, children }) {
       >
         <span className="text-slate-500 text-xs w-3 shrink-0">{open ? '▾' : '▸'}</span>
         <span className="text-slate-300 text-sm font-semibold">{title}</span>
+        {badge > 0 && (
+          <span className="ml-auto text-[11px] font-semibold text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded-full px-2 py-0.5 shrink-0">
+            ⚠ {badge}
+          </span>
+        )}
       </button>
       {open && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start mt-1">
@@ -2053,6 +2058,52 @@ export default function Dashboard({ token }) {
       return next;
     });
   };
+
+  // ── Auto-expand a folded section that hides a live alert (Task 90) ──
+  // A collapsed section (Task 86) could hide a fresh warning — an unusual
+  // charge, a category projected over budget, or runway under 1 month. When
+  // one is present we (a) badge the section header with "⚠ N" and (b) force
+  // that section open IN MEMORY ONLY — the saved collapse preference is left
+  // untouched, and we force it just once per session, so the user can still
+  // re-collapse it. On the next load, if the alert persists, it re-opens.
+  // Reuses the existing pure detectors — read-only, no financial-calc change.
+  const [sectionAlerts, setSectionAlerts] = useState({ spending: 0, saving: 0 });
+  const sectionAutoOpened = useRef({});
+  useEffect(() => {
+    // Spending & Pace: undismissed unusual charges + over-pace categories.
+    const seen = getAnomalySeen();
+    const anomalyN = detectAnomalies(allAllocTx).filter(f => !seen.includes(f.hash)).length;
+    const d = new Date();
+    const dom = d.getDate();
+    const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const paceN = dom >= 3 ? computeSpendPace(expenses, allAllocTx, dom, dim).flagged.length : 0;
+    const spendingN = anomalyN + paceN;
+
+    // Saving & Net Worth: emergency-fund runway under 1 month (mirrors EmergencyFundCard).
+    const burn = expenses
+      .filter(e => ['1', '2'].includes(String(e['Priority'] ?? '3')) && e['Expense'] !== 'Savings' && pm(e['Monthly Allowance ($)']) > 0)
+      .reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+    let savingN = 0;
+    if (burn > 0) {
+      const savTypes = new Set(expenses.filter(e => e['Expense'] === 'Savings' && e['Type']).map(e => String(e['Type'])));
+      let sav = 0;
+      allAllocTx.forEach(r => { if (savTypes.has(r.type)) sav += r.amount; });
+      if (sav / burn < 1) savingN = 1;
+    }
+
+    setSectionAlerts({ spending: spendingN, saving: savingN });
+    setInsightSections(prev => {
+      let changed = false;
+      const next = { ...prev };
+      if (spendingN > 0 && !prev.spending && !sectionAutoOpened.current.spending) {
+        next.spending = true; sectionAutoOpened.current.spending = true; changed = true;
+      }
+      if (savingN > 0 && !prev.saving && !sectionAutoOpened.current.saving) {
+        next.saving = true; sectionAutoOpened.current.saving = true; changed = true;
+      }
+      return changed ? next : prev;        // open in memory only — do NOT persist
+    });
+  }, [expenses, allAllocTx]);
   const [qaActions, setQaActions] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('_fin_quickactions') || 'null');
@@ -3059,7 +3110,14 @@ ${stmtTxns.length ? `
             default collapsed; this lets the user reopen them all at once or
             fold them back without scrolling card-by-card. ── */}
       <div className="flex items-center justify-between px-0.5">
-        <span className="text-slate-500 text-[11px] font-semibold uppercase tracking-wide">Insights</span>
+        <span className="flex items-center gap-2">
+          <span className="text-slate-500 text-[11px] font-semibold uppercase tracking-wide">Insights</span>
+          {(sectionAlerts.spending + sectionAlerts.saving) > 0 && (
+            <span className="text-[11px] font-semibold text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded-full px-2 py-0.5">
+              ⚠ {sectionAlerts.spending + sectionAlerts.saving}
+            </span>
+          )}
+        </span>
         <button
           onClick={() => setAllInsightCards(!anyInsightExpanded)}
           className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70"
@@ -3076,6 +3134,7 @@ ${stmtTxns.length ? `
           title="💵 Spending & Pace"
           open={insightSections.spending}
           onToggle={() => toggleInsightSection('spending')}
+          badge={sectionAlerts.spending}
         >
           {/* ── Safe-to-Spend Today (Task 44) ───────────────────── */}
           {expenses.length > 0 && income > 0 && (
@@ -3131,6 +3190,7 @@ ${stmtTxns.length ? `
         title="🏦 Saving & Net Worth"
         open={insightSections.saving}
         onToggle={() => toggleInsightSection('saving')}
+        badge={sectionAlerts.saving}
       >
         {/* ── Emergency Fund / Runway Tracker (Task 35) ───────── */}
         {expenses.length > 0 && allAllocTx.length > 0 && (
