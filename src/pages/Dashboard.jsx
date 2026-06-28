@@ -2058,6 +2058,17 @@ export default function Dashboard({ token }) {
       return next;
     });
   };
+  // ── Section-level fold-all / show-all (Task 95) ──
+  // The collapse-all above flips card BODIES; this folds the whole sections
+  // (Task 86) in one tap — the most compact "just show me the headers" view,
+  // which otherwise took a tap per section. Persists the same 3 booleans.
+  const anySectionOpen =
+    insightSections.spending || insightSections.saving || insightSections.planning;
+  const setAllSections = (open) => {
+    const next = { spending: open, saving: open, planning: open };
+    try { localStorage.setItem('_fin_insight_sections', JSON.stringify(next)); } catch {}
+    setInsightSections(next);
+  };
 
   // ── Auto-expand a folded section that hides a live alert (Task 90) ──
   // A collapsed section (Task 86) could hide a fresh warning — an unusual
@@ -3118,12 +3129,25 @@ ${stmtTxns.length ? `
             </span>
           )}
         </span>
-        <button
-          onClick={() => setAllInsightCards(!anyInsightExpanded)}
-          className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70"
-        >
-          {anyInsightExpanded ? '⊟ Collapse all' : '⊞ Expand all'}
-        </button>
+        <span className="flex items-center gap-3">
+          {/* Card collapse-all (Task 78a) — only meaningful while a section is
+              open, since folded sections (below) hide their cards entirely. */}
+          {anySectionOpen && (
+            <button
+              onClick={() => setAllInsightCards(!anyInsightExpanded)}
+              className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70"
+            >
+              {anyInsightExpanded ? '⊟ Collapse all' : '⊞ Expand all'}
+            </button>
+          )}
+          {/* Section fold-all / show-all (Task 95) — one-tap "headers only". */}
+          <button
+            onClick={() => setAllSections(!anySectionOpen)}
+            className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70"
+          >
+            {anySectionOpen ? '⊟ Fold sections' : '⊞ Show sections'}
+          </button>
+        </span>
       </div>
 
       {/* ── 💵 Spending & Pace (Task 86) ───────────────────────
