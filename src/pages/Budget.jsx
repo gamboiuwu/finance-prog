@@ -136,6 +136,13 @@ function parseSheetDate(val) {
   return null;
 }
 
+// Today as M/D/YYYY — the same string format ProcessIncome appends, so quick-logged
+// rows parse identically across every screen (parseSheetDate handles M/D/YYYY).
+function todayStr() {
+  const d = new Date();
+  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+}
+
 // ── Allocation donut ──────────────────────────────────────────────────────────
 
 function AllocationDonut({ items, total }) {
@@ -553,6 +560,7 @@ function CategoryItemCard({
   item, allocated, budgeted,
   pinned = false, reorderMode = false, isFirst = false, isLast = false,
   onMove = null, onPin = null,
+  token = null, onLogged = null,
 }) {
   const type  = item['Type'] || '';
   const [dueDay, setDueDayState] = useState(() => getDueDates()[type] ?? null);
@@ -560,6 +568,44 @@ function CategoryItemCard({
   const [note, setNote]           = useState(() => getCatNotes()[type] || '');
   const [showNoteDrawer, setShowNoteDrawer] = useState(false);
   const [noteInput, setNoteInput] = useState('');
+
+  // ── Quick-Log (Task 99): log a spend/fund straight from the category card ──
+  const [showLogDrawer, setShowLogDrawer] = useState(false);
+  const [logKind, setLogKind]       = useState('spend'); // 'spend' (−) | 'fund' (+)
+  const [logAmount, setLogAmount]   = useState('');
+  const [logNote, setLogNote]       = useState('');
+  const [logAccount, setLogAccount] = useState(item['Account'] || '');
+  const [logSaving, setLogSaving]   = useState(false);
+  const [logError, setLogError]     = useState(null);
+
+  function openLogDrawer() {
+    setLogKind('spend');
+    setLogAmount('');
+    setLogNote('');
+    setLogAccount(item['Account'] || '');
+    setLogError(null);
+    setShowLogDrawer(true);
+  }
+
+  async function saveLog() {
+    const val = parseFloat(logAmount);
+    if (!val || val <= 0 || !token) return;
+    setLogSaving(true);
+    setLogError(null);
+    const signed = logKind === 'spend' ? -val : val;
+    const desc   = logNote.trim() || (logKind === 'spend' ? `Spent — ${type}` : `Funded — ${type}`);
+    try {
+      await appendRow(token, 'Allocation Transactions!A:F', [
+        todayStr(), type, parseFloat(signed.toFixed(2)), desc, logAccount.trim(), true,
+      ]);
+      setShowLogDrawer(false);
+      onLogged?.(); // re-pull the Budget page so every tab reflects the new row
+    } catch (e) {
+      setLogError(e.message || 'Could not save. Try again.');
+    } finally {
+      setLogSaving(false);
+    }
+  }
 
   function saveDueDay(val) {
     const all = getDueDates();
@@ -614,13 +660,24 @@ function CategoryItemCard({
                   ⏰ {daysUntil === 0 ? 'Due today' : `Due in ${daysUntil}d`}
                 </span>
               )}
-              <button
-                onClick={openNoteDrawer}
-                className="text-slate-600 hover:text-slate-300 text-[11px] leading-none transition-colors shrink-0 ml-auto"
-                title="Add note"
-              >
-                ✎
-              </button>
+              <span className="ml-auto flex items-center gap-2 shrink-0">
+                {token && !reorderMode && (
+                  <button
+                    onClick={openLogDrawer}
+                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 hover:bg-blue-600 hover:text-white transition-colors font-medium leading-none"
+                    title="Log a spend or fund this category"
+                  >
+                    ＋ Log
+                  </button>
+                )}
+                <button
+                  onClick={openNoteDrawer}
+                  className="text-slate-600 hover:text-slate-300 text-[11px] leading-none transition-colors"
+                  title="Add note"
+                >
+                  ✎
+                </button>
+              </span>
             </div>
             {item['Account'] && (
               <p className="text-slate-500 text-[10px] mt-0.5">{item['Account']}</p>
@@ -764,13 +821,105 @@ function CategoryItemCard({
           </div>
         </div>
       )}
+
+      {showLogDrawer && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col justify-end"
+          style={{ background: 'rgba(0,0,0,0.6)' }}
+          onClick={() => !logSaving && setShowLogDrawer(false)}
+        >
+          <div
+            className="bg-slate-900 rounded-t-2xl p-5 pb-10 w-full max-w-lg mx-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-white font-semibold text-sm">Log — {type}</p>
+              <button onClick={() => !logSaving && setShowLogDrawer(false)} className="text-slate-500 hover:text-slate-300 text-lg leading-none">✕</button>
+            </div>
+
+            {/* Spend / Fund toggle */}
+            <div className="flex bg-slate-800 rounded-xl p-1 mb-3">
+              <button
+                onClick={() => setLogKind('spend')}
+                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  logKind === 'spend' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                − Spent
+              </button>
+              <button
+                onClick={() => setLogKind('fund')}
+                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  logKind === 'fund' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                ＋ Fund
+              </button>
+            </div>
+
+            <label className="text-slate-500 text-[10px] uppercase tracking-wider">Amount</label>
+            <div className="flex items-center bg-slate-800 border border-slate-700 rounded-xl px-3 mt-1 mb-3 focus-within:border-blue-500">
+              <span className="text-slate-500 text-sm">$</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                className="w-full bg-transparent py-2.5 px-1 text-white text-sm focus:outline-none font-mono"
+                value={logAmount}
+                onChange={e => setLogAmount(e.target.value)}
+                onFocus={e => e.target.select()}
+                placeholder="0.00"
+                autoFocus
+              />
+            </div>
+
+            <label className="text-slate-500 text-[10px] uppercase tracking-wider">Account</label>
+            <input
+              type="text"
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm mt-1 mb-3 focus:outline-none focus:border-blue-500"
+              value={logAccount}
+              onChange={e => setLogAccount(e.target.value)}
+              placeholder="Account"
+            />
+
+            <label className="text-slate-500 text-[10px] uppercase tracking-wider">Note (optional)</label>
+            <input
+              type="text"
+              maxLength={80}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm mt-1 focus:outline-none focus:border-blue-500"
+              value={logNote}
+              onChange={e => setLogNote(e.target.value)}
+              placeholder={logKind === 'spend' ? 'What was it for?' : 'Funding note'}
+            />
+
+            {logError && <p className="text-rose-400 text-xs mt-2">{logError}</p>}
+
+            <button
+              onClick={saveLog}
+              disabled={logSaving || !(parseFloat(logAmount) > 0)}
+              className={`w-full py-3 rounded-xl text-sm font-bold mt-4 transition-colors ${
+                logSaving || !(parseFloat(logAmount) > 0)
+                  ? 'bg-slate-800 text-slate-600'
+                  : logKind === 'spend' ? 'bg-rose-600 text-white hover:bg-rose-500' : 'bg-emerald-600 text-white hover:bg-emerald-500'
+              }`}
+            >
+              {logSaving
+                ? 'Saving…'
+                : parseFloat(logAmount) > 0
+                  ? `${logKind === 'spend' ? 'Log spend of' : 'Fund'} ${fmt(parseFloat(logAmount))}`
+                  : 'Enter an amount'}
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
 // ── Category tab: expense-type group ─────────────────────────────────────────
 
-function CategoryGroup({ label, items, allocByType, reorderMode = false, orderTick = 0, onBump = null }) {
+function CategoryGroup({ label, items, allocByType, reorderMode = false, orderTick = 0, onBump = null, token = null, onLogged = null }) {
   const [open, setOpen] = useState(true);
   const color  = CAT_COLORS[label] || '#64748b';
   // Pinned-first + manual order; re-sorts whenever orderTick bumps.
@@ -868,6 +1017,8 @@ function CategoryGroup({ label, items, allocByType, reorderMode = false, orderTi
                 isLast={i === displayed.length - 1}
                 onPin={(type) => { toggleCatPin(type); onBump && onBump(); }}
                 onMove={(type, dir) => { moveCatInOrder(displayedTypes, type, dir); onBump && onBump(); }}
+                token={token}
+                onLogged={onLogged}
               />
             );
           })}
@@ -881,7 +1032,7 @@ const CAT_ORDER = ['Essentials', 'Stability', 'Discretionary', 'Subscription'];
 
 // ── By Category view ──────────────────────────────────────────────────────────
 
-function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
+function CategoryView({ items, allocTx, gasBalanceAllTime = 0, token = null, onLogged = null }) {
   const [showSavings, setShowSavings] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
   const [orderTick, setOrderTick]     = useState(0);
@@ -998,6 +1149,8 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
           reorderMode={reorderMode}
           orderTick={orderTick}
           onBump={bump}
+          token={token}
+          onLogged={onLogged}
         />
       ))}
 
@@ -1029,6 +1182,8 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0 }) {
                   item={item}
                   allocated={allocByType[item['Type'] || ''] || 0}
                   budgeted={pm(item['Monthly Allowance ($)'])}
+                  token={token}
+                  onLogged={onLogged}
                 />
               ))}
             </div>
@@ -1836,7 +1991,7 @@ export default function Budget({ token }) {
 
         {/* ── By Category tab ── */}
         {activeTab === 'categories' && (
-          <CategoryView items={items} allocTx={allocTx} gasBalanceAllTime={gasBalanceAllTime} />
+          <CategoryView items={items} allocTx={allocTx} gasBalanceAllTime={gasBalanceAllTime} token={token} onLogged={load} />
         )}
 
         {/* ── Entries & Trends tab ── */}
