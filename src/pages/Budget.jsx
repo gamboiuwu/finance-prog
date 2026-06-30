@@ -549,7 +549,7 @@ function QuickLogDrawer({ type, defaultAccount = '', token = null, onLogged = nu
         )}
 
         <label className="text-slate-500 text-[10px] uppercase tracking-wider">Amount</label>
-        <div className="flex items-center bg-slate-800 border border-slate-700 rounded-xl px-3 mt-1 mb-3 focus-within:border-blue-500">
+        <div className="flex items-center bg-slate-800 border border-slate-700 rounded-xl px-3 mt-1 mb-2 focus-within:border-blue-500">
           <span className="text-slate-500 text-sm">$</span>
           <input
             type="number"
@@ -563,6 +563,39 @@ function QuickLogDrawer({ type, defaultAccount = '', token = null, onLogged = nu
             placeholder="0.00"
             autoFocus
           />
+        </div>
+
+        {/* Amount steppers / round-up (Task 108) — fast first-time entry without
+            typing. Pure local-state manipulation of `amount`; nothing stored. */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+          {[1, 5, 10, 20].map(n => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setAmount(v => (Math.max(0, (parseFloat(v) || 0) + n)).toFixed(2))}
+              className="text-[11px] px-2.5 py-1 rounded-full font-mono tabular-nums bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
+            >
+              +${n}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setAmount(v => { const c = parseFloat(v) || 0; return c > 0 ? Math.ceil(c).toFixed(2) : v; })}
+            className="text-[11px] px-2.5 py-1 rounded-full bg-slate-800 text-blue-300 hover:bg-blue-700 hover:text-white transition-colors"
+            title="Round up to the next dollar"
+          >
+            ⤴ Round up
+          </button>
+          {parseFloat(amount) > 0 && (
+            <button
+              type="button"
+              onClick={() => setAmount('')}
+              className="text-[11px] px-2.5 py-1 rounded-full bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-slate-300 transition-colors ml-auto"
+              title="Clear amount"
+            >
+              ✕ Clear
+            </button>
+          )}
         </div>
 
         <label className="text-slate-500 text-[10px] uppercase tracking-wider">Account</label>
