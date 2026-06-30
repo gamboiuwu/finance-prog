@@ -143,6 +143,36 @@ function todayStr() {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 
+// ── Quick-Log recent amounts (Task 102) ──────────────────────────────────────
+// Remembers the last few quick-logged {amount, kind} per category so a repeating
+// spend (same Groceries run, same gas fill) is two taps: chip → save. Stored
+// on-device only in `_fin_quicklog_recent = { "TypeName": [{a, k}] }` — amounts the
+// user already typed, opaque to GitHub, never synced anywhere new. Capped at 3
+// most-recent, deduped by amount+kind so the same figure isn't listed twice.
+const QUICKLOG_RECENT_KEY = '_fin_quicklog_recent';
+const QUICKLOG_RECENT_MAX = 3;
+function getQuickLogRecent(type) {
+  if (!type) return [];
+  try {
+    const all = JSON.parse(localStorage.getItem(QUICKLOG_RECENT_KEY) || '{}');
+    const list = all && typeof all === 'object' ? all[type] : null;
+    return Array.isArray(list) ? list.filter(r => r && typeof r.a === 'number' && r.a > 0) : [];
+  } catch { return []; }
+}
+function pushQuickLogRecent(type, amount, kind) {
+  if (!type || !(amount > 0)) return;
+  try {
+    const all = (() => { try { const v = JSON.parse(localStorage.getItem(QUICKLOG_RECENT_KEY) || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; } })();
+    const a = parseFloat(amount.toFixed(2));
+    const prev = Array.isArray(all[type]) ? all[type] : [];
+    // dedup by amount + kind, newest first, cap the list
+    const next = [{ a, k: kind }, ...prev.filter(r => !(r && r.k === kind && Math.abs(r.a - a) < 0.005))]
+      .slice(0, QUICKLOG_RECENT_MAX);
+    all[type] = next;
+    localStorage.setItem(QUICKLOG_RECENT_KEY, JSON.stringify(all));
+  } catch { /* localStorage unavailable — recents are a non-critical convenience */ }
+}
+
 // ── Allocation donut ──────────────────────────────────────────────────────────
 
 function AllocationDonut({ items, total }) {
@@ -437,6 +467,8 @@ function QuickLogDrawer({ type, defaultAccount = '', token = null, onLogged = nu
   const [account, setAccount] = useState(defaultAccount || '');
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState(null);
+  // One-tap "repeat" chips of recent amounts logged to this category (Task 102).
+  const recents = useMemo(() => getQuickLogRecent(type), [type]);
 
   async function save() {
     const val = parseFloat(amount);
@@ -449,6 +481,7 @@ function QuickLogDrawer({ type, defaultAccount = '', token = null, onLogged = nu
       await appendRow(token, 'Allocation Transactions!A:F', [
         todayStr(), type, parseFloat(signed.toFixed(2)), desc, account.trim(), true,
       ]);
+      pushQuickLogRecent(type, val, kind); // remember for next time
       onClose();
       onLogged?.(); // re-pull the Budget page so every tab reflects the new row
     } catch (e) {
@@ -492,6 +525,28 @@ function QuickLogDrawer({ type, defaultAccount = '', token = null, onLogged = nu
             ＋ Fund
           </button>
         </div>
+
+        {recents.length > 0 && (
+          <div className="mb-3">
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-1.5">Repeat a recent amount</p>
+            <div className="flex flex-wrap gap-1.5">
+              {recents.map((r, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setAmount(r.a.toFixed(2)); setKind(r.k === 'fund' ? 'fund' : 'spend'); }}
+                  className={`text-[11px] px-2 py-1 rounded-full font-mono tabular-nums transition-colors ${
+                    r.k === 'fund'
+                      ? 'bg-emerald-900/40 text-emerald-300 hover:bg-emerald-700'
+                      : 'bg-slate-800 text-slate-300 hover:bg-rose-700 hover:text-white'
+                  }`}
+                  title={`${r.k === 'fund' ? 'Fund' : 'Spend'} ${fmt(r.a)}`}
+                >
+                  ↻ {r.k === 'fund' ? '＋' : '−'}{fmt(r.a)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <label className="text-slate-500 text-[10px] uppercase tracking-wider">Amount</label>
         <div className="flex items-center bg-slate-800 border border-slate-700 rounded-xl px-3 mt-1 mb-3 focus-within:border-blue-500">
