@@ -139,6 +139,10 @@ function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
   const fgPath = sweep > 1 ? `M ${GAUGE_BG_S.x} ${GAUGE_BG_S.y} A ${GAUGE_R} ${GAUGE_R} 0 ${sweep > 180 ? 1 : 0} 1 ${fgPt.x} ${fgPt.y}` : null;
   const bgPath = `M ${GAUGE_BG_S.x} ${GAUGE_BG_S.y} A ${GAUGE_R} ${GAUGE_R} 0 1 1 ${GAUGE_BG_E.x} ${GAUGE_BG_E.y}`;
   const tgt    = gaugePoint(GAUGE_START + 0.8 * GAUGE_SWEEP); // target at 80
+  // Early-month context: Coverage/Savings/Allocation all measure funding progress,
+  // so a low score in the first week is expected, not a warning (user feedback 2026-07-01).
+  const dayOfMonth = new Date().getDate();
+  const earlyMonth = dayOfMonth <= 7;
 
   return (
     <div className={`border rounded-2xl p-4 transition-colors ${tier.cls}`}>
@@ -170,6 +174,11 @@ function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
               Target: <span className="text-amber-400 font-medium">80</span>
               {score < 80 ? ` · ${80 - score} pts to go` : ' · Goal reached!'}
             </p>
+            {earlyMonth && score < 60 && (
+              <p className="text-slate-400 text-[11px] mt-1 leading-snug">
+                📅 Day {dayOfMonth} — early in the month; this climbs as you process income and fund categories.
+              </p>
+            )}
             {history.length > 1 && (
               <div className="flex items-end gap-0.5 mt-2 h-4">
                 {history.slice(-6).map((h, i, arr) => {
@@ -201,6 +210,11 @@ function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
               )}
             </div>
           ))}
+          {earlyMonth && (
+            <p className="text-slate-500 text-[10px] leading-snug">
+              Coverage, Savings &amp; Allocation all rise as you fund the month — a low early-month score is normal, not a warning.
+            </p>
+          )}
           <p className="text-slate-600 text-[10px] text-right">🟡 = target 80 · sparkline = last 6 months</p>
         </div>
       )}
@@ -2380,8 +2394,9 @@ export default function Dashboard({ token }) {
               ],
             });
 
-            // Browser push when score < 40 (once per day)
-            if (total < 40 && typeof Notification !== 'undefined' && Notification.permission !== 'denied') {
+            // Browser push when score < 40 (once per day) — but not in the first week of the
+            // month, when a low score just reflects an un-funded fresh month (user feedback 2026-07-01).
+            if (total < 40 && todayDay > 7 && typeof Notification !== 'undefined' && Notification.permission !== 'denied') {
               const today = new Date().toISOString().slice(0, 10);
               if (localStorage.getItem('_fin_health_notified') !== today) {
                 const doNotify = () => {
