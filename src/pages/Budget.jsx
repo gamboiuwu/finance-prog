@@ -173,6 +173,21 @@ function pushQuickLogRecent(type, amount, kind) {
   } catch { /* localStorage unavailable — recents are a non-critical convenience */ }
 }
 
+// ── Quick-Log stepper ladder (Task 111) ──────────────────────────────────────
+// Scales the +$ presets and the round-up unit to the category's typical size
+// (its Monthly Allowance): small categories (Coffee) keep the $1/$5/$10/$20
+// ladder, mid ones jump by $5/$20/$50/$100, large ones (Rent, Savings) by
+// $25/$100/$250/$500 — so a big entry isn't a dozen +$20 taps. Pure UI over the
+// amount field; degrades to the small ladder when magnitude is absent (matches
+// the original Task 108 behaviour). Tier is chosen by magnitude only (kind-
+// independent) so a large Savings fund and a large Rent spend share the ladder.
+function stepLadder(magnitude) {
+  const m = Number(magnitude) || 0;
+  if (m > 500) return { steps: [25, 100, 250, 500], round: 25 };
+  if (m >= 50) return { steps: [5, 20, 50, 100], round: 5 };
+  return { steps: [1, 5, 10, 20], round: 1 };
+}
+
 // ── Allocation donut ──────────────────────────────────────────────────────────
 
 function AllocationDonut({ items, total }) {
@@ -460,7 +475,7 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
 // Shared by CategoryItemCard (Categories tab) and BudgetCard (Budget Plan tab) so
 // the two can't drift. Logs one Allocation Transactions row (− spend / + fund)
 // pre-seeded with the category's Type + Account, then calls onLogged() to re-pull.
-function QuickLogDrawer({ type, defaultAccount = '', token = null, onLogged = null, onClose }) {
+function QuickLogDrawer({ type, defaultAccount = '', magnitude = 0, token = null, onLogged = null, onClose }) {
   const [kind, setKind]       = useState('spend'); // 'spend' (−) | 'fund' (+)
   const [amount, setAmount]   = useState('');
   const [note, setNote]       = useState('');
@@ -469,6 +484,8 @@ function QuickLogDrawer({ type, defaultAccount = '', token = null, onLogged = nu
   const [error, setError]     = useState(null);
   // One-tap "repeat" chips of recent amounts logged to this category (Task 102).
   const recents = useMemo(() => getQuickLogRecent(type), [type]);
+  // Stepper ladder scaled to this category's typical size (Task 111).
+  const ladder = useMemo(() => stepLadder(magnitude), [magnitude]);
 
   async function save() {
     const val = parseFloat(amount);
@@ -565,10 +582,11 @@ function QuickLogDrawer({ type, defaultAccount = '', token = null, onLogged = nu
           />
         </div>
 
-        {/* Amount steppers / round-up (Task 108) — fast first-time entry without
-            typing. Pure local-state manipulation of `amount`; nothing stored. */}
+        {/* Amount steppers / round-up (Task 108 + 111) — fast first-time entry
+            without typing. The +$ ladder and round-up unit scale to the
+            category's typical size (Task 111). Pure local-state; nothing stored. */}
         <div className="flex flex-wrap items-center gap-1.5 mb-3">
-          {[1, 5, 10, 20].map(n => (
+          {ladder.steps.map(n => (
             <button
               key={n}
               type="button"
@@ -580,9 +598,9 @@ function QuickLogDrawer({ type, defaultAccount = '', token = null, onLogged = nu
           ))}
           <button
             type="button"
-            onClick={() => setAmount(v => { const c = parseFloat(v) || 0; return c > 0 ? Math.ceil(c).toFixed(2) : v; })}
+            onClick={() => setAmount(v => { const c = parseFloat(v) || 0; return c > 0 ? (Math.ceil(c / ladder.round) * ladder.round).toFixed(2) : v; })}
             className="text-[11px] px-2.5 py-1 rounded-full bg-slate-800 text-blue-300 hover:bg-blue-700 hover:text-white transition-colors"
-            title="Round up to the next dollar"
+            title={`Round up to the next $${ladder.round}`}
           >
             ⤴ Round up
           </button>
@@ -719,6 +737,7 @@ function BudgetCard({ item, onEdit, token = null, onLogged = null }) {
       <QuickLogDrawer
         type={item['Type'] || ''}
         defaultAccount={item['Account'] || ''}
+        magnitude={allowance}
         token={token}
         onLogged={onLogged}
         onClose={() => setShowLog(false)}
@@ -1032,6 +1051,7 @@ function CategoryItemCard({
         <QuickLogDrawer
           type={type}
           defaultAccount={item['Account'] || ''}
+          magnitude={budgeted}
           token={token}
           onLogged={onLogged}
           onClose={() => setShowLogDrawer(false)}
