@@ -1312,6 +1312,14 @@ function computeEnvelope(expenses, income, allAllocTx) {
   const assigned = byCat.needs + byCat.wants + byCat.savings;
   const gap = income - assigned;                              // + left to assign / − over-assigned
 
+  // Per-category line items making up `assigned`, largest first — so the top-line
+  // figure is traceable to the actual allowances that produced it (feedback:
+  // "where did that number even come from?").
+  const items = expenses
+    .map(e => ({ type: String(e['Type'] || '').trim(), allow: pm(e['Monthly Allowance ($)']) }))
+    .filter(it => it.type && it.allow > 0)
+    .sort((a, b) => b.allow - a.allow);
+
   // Suggest where a surplus should go: the savings bucket most under-funded this
   // month (allowance − funded). Falls back to the largest-allowance savings item.
   const now = new Date();
@@ -1331,12 +1339,16 @@ function computeEnvelope(expenses, income, allAllocTx) {
       if (!suggestBucket || score > suggestBucket.score) suggestBucket = { type: String(e['Type']), score };
     });
 
-  return { byCat, assigned, gap, suggestBucket: suggestBucket?.type || null };
+  return { byCat, assigned, gap, suggestBucket: suggestBucket?.type || null, items };
 }
 
 function EveryDollarCard({ income, expenses, allAllocTx, expanded, onToggle }) {
-  const { byCat, assigned, gap, suggestBucket } = computeEnvelope(expenses, income, allAllocTx);
+  const { byCat, assigned, gap, suggestBucket, items } = computeEnvelope(expenses, income, allAllocTx);
   if (assigned <= 0) return null;
+  const TOP_N = 6;
+  const topItems = items.slice(0, TOP_N);
+  const restItems = items.slice(TOP_N);
+  const restTotal = restItems.reduce((s, it) => s + it.allow, 0);
 
   // Balanced within a dollar (rounding) → the zero-based ideal.
   const state = gap > 1 ? 'surplus' : gap < -1 ? 'over' : 'balanced';
@@ -1398,6 +1410,27 @@ function EveryDollarCard({ income, expenses, allAllocTx, expanded, onToggle }) {
             <span className={`font-mono font-semibold ${state === 'surplus' ? 'text-sky-300' : state === 'over' ? 'text-rose-300' : 'text-emerald-300'}`}>${Math.abs(gap).toFixed(0)}</span>
           </div>
 
+          {/* Where the assigned total comes from — the actual line items, largest first */}
+          {topItems.length > 0 && (
+            <div className="pt-2 mt-1 border-t border-slate-700/60">
+              <p className="text-[11px] text-slate-500 mb-1.5">Largest categories inside that <span className="text-slate-300 font-semibold">${assigned.toFixed(0)}</span>:</p>
+              <div className="space-y-1">
+                {topItems.map(it => (
+                  <div key={it.type} className="flex justify-between text-slate-400">
+                    <span className="truncate pr-2">{it.type}</span>
+                    <span className="font-mono text-slate-300">${it.allow.toFixed(0)}</span>
+                  </div>
+                ))}
+                {restItems.length > 0 && (
+                  <div className="flex justify-between text-slate-500">
+                    <span>+{restItems.length} more {restItems.length === 1 ? 'category' : 'categories'}</span>
+                    <span className="font-mono">${restTotal.toFixed(0)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <p className={`italic pt-2 text-sm ${color}`}>
             {state === 'surplus'
               ? (suggestBucket
@@ -1408,7 +1441,7 @@ function EveryDollarCard({ income, expenses, allAllocTx, expanded, onToggle }) {
                 : `Textbook zero-based budget — every dollar has a job. 🐉`}
           </p>
           <p className="text-[10px] text-slate-600 pt-0.5">
-            Assigned = sum of every category's monthly allowance, bucketed needs/wants/savings. Income basis = your last-6-month average (not this month's partial deposits). Zero-based budgeting aims to assign income down to $0.
+            Assigned = sum of every category's monthly allowance — your <span className="text-slate-500 font-semibold">planned budget</span>, not what you've spent yet — bucketed needs/wants/savings. Income basis = your last-6-month average (not this month's partial deposits). Zero-based budgeting aims to assign income down to $0.
           </p>
         </div>
       )}
