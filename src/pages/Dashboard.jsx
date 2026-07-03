@@ -1342,7 +1342,7 @@ function computeEnvelope(expenses, income, allAllocTx) {
   return { byCat, assigned, gap, suggestBucket: suggestBucket?.type || null, items };
 }
 
-function EveryDollarCard({ income, expenses, allAllocTx, expanded, onToggle }) {
+function EveryDollarCard({ income, expenses, allAllocTx, incomeBasis, expanded, onToggle }) {
   const { byCat, assigned, gap, suggestBucket, items } = computeEnvelope(expenses, income, allAllocTx);
   if (assigned <= 0) return null;
   const TOP_N = 6;
@@ -1427,6 +1427,23 @@ function EveryDollarCard({ income, expenses, allAllocTx, expanded, onToggle }) {
                     <span className="font-mono">${restTotal.toFixed(0)}</span>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Where the income figure comes from — the last-6 completed months
+              that averaged into it, so both sides of the gap are traceable. */}
+          {Array.isArray(incomeBasis) && incomeBasis.length > 1 && (
+            <div className="pt-2 mt-1 border-t border-slate-700/60">
+              <p className="text-[11px] text-slate-500 mb-1.5">
+                Typical income = average of your last {incomeBasis.length} months:
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {incomeBasis.map((m, i) => (
+                  <span key={i} className="px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-400 font-mono text-[11px]">
+                    {m.month} ${Math.round(m.income)}
+                  </span>
+                ))}
               </div>
             </div>
           )}
@@ -2568,10 +2585,10 @@ export default function Dashboard({ token }) {
   // "over-assigned" before all of this month's income is in. Mirrors the
   // Forecast card's last-6 convention; falls back to month-to-date income when
   // there's no completed-month history yet.
-  const completedIncomes = chartData
+  const incomeBasisMonths = chartData
     .filter(d => d.month !== currentMonth?.slice(0, 3))
-    .map(d => d.income)
-    .slice(-6);
+    .slice(-6);                                           // [{month, income, …}] — same set as completedIncomes
+  const completedIncomes = incomeBasisMonths.map(d => d.income);
   const expectedIncome = completedIncomes.length
     ? completedIncomes.reduce((s, v) => s + v, 0) / completedIncomes.length
     : income;
@@ -3306,6 +3323,7 @@ ${stmtTxns.length ? `
             income={expectedIncome}
             expenses={expenses}
             allAllocTx={allAllocTx}
+            incomeBasis={incomeBasisMonths}
             expanded={envelopeExpanded}
             onToggle={() => setEnvelopeExpanded(v => !v)}
           />
