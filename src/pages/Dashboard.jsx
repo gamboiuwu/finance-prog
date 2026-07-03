@@ -463,8 +463,37 @@ function subsDueInMonth(subs, monthIndex) {
   }, 0);
 }
 
-function ForecastCard({ chartData, subscriptions, expenses, expanded, onToggle }) {
-  const last6 = chartData.map(d => d.income).filter(v => v > 0).slice(-6);
+// ── Income-basis provenance chips (Task 122 → shared in Task 123) ─────────────
+// The last-N completed months that averaged into a "typical monthly income"
+// figure, rendered as a chip row. Shared by the Every-Dollar and Forecast cards
+// so both trace their income number to the exact same months.
+function IncomeBasisChips({ months, label }) {
+  if (!Array.isArray(months) || months.length < 2) return null;
+  return (
+    <div className="pt-2 mt-1 border-t border-slate-700/60">
+      <p className="text-[11px] text-slate-500 mb-1.5">
+        {label || `Averaged from your last ${months.length} completed months:`}
+      </p>
+      <div className="flex flex-wrap gap-1">
+        {months.map((m, i) => (
+          <span key={i} className="px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-400 font-mono text-[11px]">
+            {m.month} ${Math.round(m.income)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expanded, onToggle }) {
+  // Unified income basis: the last-6 COMPLETED months (current partial month
+  // excluded), the exact series the Every-Dollar card averages — so the two
+  // "typical monthly income" figures never disagree. Falls back to chartData
+  // when no basis is passed.
+  const basis = (Array.isArray(incomeBasis) && incomeBasis.length
+    ? incomeBasis
+    : chartData.filter(d => d.income > 0).slice(-6));
+  const last6 = basis.map(d => d.income);
   if (last6.length < 2) return null;                       // need history to project
   const expected = last6.reduce((s, v) => s + v, 0) / last6.length;
   const low  = Math.min(...last6);
@@ -515,6 +544,12 @@ function ForecastCard({ chartData, subscriptions, expenses, expanded, onToggle }
               <p className="text-slate-300">${low.toFixed(0)} – ${high.toFixed(0)}</p>
             </div>
           </div>
+
+          {/* Which months averaged into the expected-income figure */}
+          <IncomeBasisChips
+            months={basis}
+            label={`Expected income = average of these ${basis.length} completed months:`}
+          />
 
           {/* Income vs committed outflows */}
           <div className="mt-3 h-44">
@@ -1432,21 +1467,12 @@ function EveryDollarCard({ income, expenses, allAllocTx, incomeBasis, expanded, 
           )}
 
           {/* Where the income figure comes from — the last-6 completed months
-              that averaged into it, so both sides of the gap are traceable. */}
-          {Array.isArray(incomeBasis) && incomeBasis.length > 1 && (
-            <div className="pt-2 mt-1 border-t border-slate-700/60">
-              <p className="text-[11px] text-slate-500 mb-1.5">
-                Typical income = average of your last {incomeBasis.length} months:
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {incomeBasis.map((m, i) => (
-                  <span key={i} className="px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-400 font-mono text-[11px]">
-                    {m.month} ${Math.round(m.income)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+              that averaged into it, so both sides of the gap are traceable.
+              Shares IncomeBasisChips with the Forecast card (Task 123). */}
+          <IncomeBasisChips
+            months={incomeBasis}
+            label={`Typical income = average of your last ${Array.isArray(incomeBasis) ? incomeBasis.length : 0} months:`}
+          />
 
           <p className={`italic pt-2 text-sm ${color}`}>
             {state === 'surplus'
@@ -3349,6 +3375,7 @@ ${stmtTxns.length ? `
           {/* ── Recurring Income Forecast (Task 16) ─────────────── */}
           <ForecastCard
             chartData={chartData}
+            incomeBasis={incomeBasisMonths}
             subscriptions={subscriptions}
             expenses={expenses}
             expanded={forecastExpanded}
