@@ -485,6 +485,43 @@ function IncomeBasisChips({ months, label }) {
   );
 }
 
+// ── Income sparkline (Task 125) ──────────────────────────────────────────────
+// A tiny line of the same last-N income months the provenance chips list, with
+// the mean drawn as a faint reference line — turns "here are the months" into
+// "is my income trending up/flat/down?" beside the averaged figure. Scales
+// 0..max (honest: a flat income reads flat, deviations show vs the mean line).
+function IncomeSparkline({ months }) {
+  if (!Array.isArray(months) || months.length < 2) return null;
+  const values = months.map(m => Math.max(0, Math.round(m.income)));
+  const w = 108, h = 28, pad = 3;
+  const max = Math.max(...values, 1);
+  const step = (w - pad * 2) / (values.length - 1);
+  const y = (v) => pad + (h - pad * 2) * (1 - v / max);
+  const pts = values.map((v, i) => `${(pad + i * step).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+  return (
+    <svg width={w} height={h} className="overflow-visible" role="img" aria-label="Income over recent months">
+      <line x1={pad} y1={y(mean).toFixed(1)} x2={w - pad} y2={y(mean).toFixed(1)}
+        stroke="#475569" strokeDasharray="3 3" strokeWidth="1" />
+      <polyline points={pts} fill="none" stroke="#2dd4bf" strokeWidth="2"
+        strokeLinejoin="round" strokeLinecap="round" />
+      {values.map((v, i) => (
+        <circle key={i} cx={(pad + i * step).toFixed(1)} cy={y(v).toFixed(1)} r="1.6" fill="#2dd4bf" />
+      ))}
+    </svg>
+  );
+}
+
+// Plain-English trend of an income-basis series (first vs last month).
+function incomeTrend(months) {
+  if (!Array.isArray(months) || months.length < 2) return null;
+  const first = Math.round(months[0].income);
+  const last = Math.round(months[months.length - 1].income);
+  const pct = first > 0 ? Math.round(((last - first) / first) * 100) : 0;
+  const dir = pct > 2 ? 'up' : pct < -2 ? 'down' : 'flat';
+  return { pct, dir, span: months.length };
+}
+
 function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expanded, onToggle }) {
   // Unified income basis: the last-6 COMPLETED months (current partial month
   // excluded), the exact series the Every-Dollar card averages — so the two
@@ -1465,6 +1502,25 @@ function EveryDollarCard({ income, expenses, allAllocTx, incomeBasis, expanded, 
               </div>
             </div>
           )}
+
+          {/* Income trend at a glance (Task 125) — a sparkline of the same
+              basis months with the mean dashed, so the reader sees where their
+              income is heading, not just the flat average the card assigns to. */}
+          {Array.isArray(incomeBasis) && incomeBasis.length >= 2 && (() => {
+            const t = incomeTrend(incomeBasis);
+            const tColor = t.dir === 'up' ? 'text-emerald-300' : t.dir === 'down' ? 'text-rose-300' : 'text-slate-400';
+            const tLabel = t.dir === 'up' ? `▲ up ${Math.abs(t.pct)}% over ${t.span} mo`
+              : t.dir === 'down' ? `▼ down ${Math.abs(t.pct)}% over ${t.span} mo`
+              : `→ steady over ${t.span} mo`;
+            return (
+              <div className="pt-2 mt-1 border-t border-slate-700/60">
+                <div className="flex items-center justify-between gap-2">
+                  <IncomeSparkline months={incomeBasis} />
+                  <span className={`text-[11px] font-semibold ${tColor}`}>{tLabel}</span>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Where the income figure comes from — the last-6 completed months
               that averaged into it, so both sides of the gap are traceable.
