@@ -522,6 +522,28 @@ function incomeTrend(months) {
   return { pct, dir, span: months.length };
 }
 
+// ── Income trend block (Task 132) ────────────────────────────────────────────
+// The sparkline + plain-English trend row, extracted so the Every-Dollar and
+// Forecast cards render it from ONE source (they were duplicating it verbatim
+// since Task 129 — a drift risk). Guards internally (null when <2 months), so
+// callers just drop it in. Mirrors how Task 123 extracted IncomeBasisChips.
+function IncomeTrendBlock({ months }) {
+  if (!Array.isArray(months) || months.length < 2) return null;
+  const t = incomeTrend(months);
+  const tColor = t.dir === 'up' ? 'text-emerald-300' : t.dir === 'down' ? 'text-rose-300' : 'text-slate-400';
+  const tLabel = t.dir === 'up' ? `▲ up ${Math.abs(t.pct)}% over ${t.span} mo`
+    : t.dir === 'down' ? `▼ down ${Math.abs(t.pct)}% over ${t.span} mo`
+    : `→ steady over ${t.span} mo`;
+  return (
+    <div className="pt-2 mt-1 border-t border-slate-700/60">
+      <div className="flex items-center justify-between gap-2">
+        <IncomeSparkline months={months} />
+        <span className={`text-[11px] font-semibold ${tColor}`}>{tLabel}</span>
+      </div>
+    </div>
+  );
+}
+
 function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expanded, onToggle }) {
   // Unified income basis: the last-6 COMPLETED months (current partial month
   // excluded), the exact series the Every-Dollar card averages — so the two
@@ -583,24 +605,11 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
           </div>
 
           {/* Income trend at a glance (Task 129) — the same sparkline + trend the
-              Every-Dollar card shows (shared IncomeSparkline/incomeTrend helpers),
-              so the two cards can't drift. A rising line here directly informs the
-              forecast: income climbing means the expected figure is conservative. */}
-          {basis.length >= 2 && (() => {
-            const t = incomeTrend(basis);
-            const tColor = t.dir === 'up' ? 'text-emerald-300' : t.dir === 'down' ? 'text-rose-300' : 'text-slate-400';
-            const tLabel = t.dir === 'up' ? `▲ up ${Math.abs(t.pct)}% over ${t.span} mo`
-              : t.dir === 'down' ? `▼ down ${Math.abs(t.pct)}% over ${t.span} mo`
-              : `→ steady over ${t.span} mo`;
-            return (
-              <div className="pt-2 mt-1 border-t border-slate-700/60">
-                <div className="flex items-center justify-between gap-2">
-                  <IncomeSparkline months={basis} />
-                  <span className={`text-[11px] font-semibold ${tColor}`}>{tLabel}</span>
-                </div>
-              </div>
-            );
-          })()}
+              Every-Dollar card shows, now via the shared IncomeTrendBlock (Task
+              132) so the two cards render from one source and can't drift. A
+              rising line here informs the forecast: income climbing means the
+              expected figure is conservative. */}
+          <IncomeTrendBlock months={basis} />
 
           {/* Which months averaged into the expected-income figure */}
           <IncomeBasisChips
@@ -1525,22 +1534,9 @@ function EveryDollarCard({ income, expenses, allAllocTx, incomeBasis, expanded, 
 
           {/* Income trend at a glance (Task 125) — a sparkline of the same
               basis months with the mean dashed, so the reader sees where their
-              income is heading, not just the flat average the card assigns to. */}
-          {Array.isArray(incomeBasis) && incomeBasis.length >= 2 && (() => {
-            const t = incomeTrend(incomeBasis);
-            const tColor = t.dir === 'up' ? 'text-emerald-300' : t.dir === 'down' ? 'text-rose-300' : 'text-slate-400';
-            const tLabel = t.dir === 'up' ? `▲ up ${Math.abs(t.pct)}% over ${t.span} mo`
-              : t.dir === 'down' ? `▼ down ${Math.abs(t.pct)}% over ${t.span} mo`
-              : `→ steady over ${t.span} mo`;
-            return (
-              <div className="pt-2 mt-1 border-t border-slate-700/60">
-                <div className="flex items-center justify-between gap-2">
-                  <IncomeSparkline months={incomeBasis} />
-                  <span className={`text-[11px] font-semibold ${tColor}`}>{tLabel}</span>
-                </div>
-              </div>
-            );
-          })()}
+              income is heading, not just the flat average the card assigns to.
+              Rendered via the shared IncomeTrendBlock (Task 132). */}
+          <IncomeTrendBlock months={incomeBasis} />
 
           {/* Where the income figure comes from — the last-6 completed months
               that averaged into it, so both sides of the gap are traceable.
