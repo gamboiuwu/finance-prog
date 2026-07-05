@@ -544,6 +544,22 @@ function IncomeTrendBlock({ months }) {
   );
 }
 
+// ── Income provenance block (Task 135) ───────────────────────────────────────
+// The full "where did this income number come from?" region = trend sparkline
+// (Task 132's IncomeTrendBlock) + the month chips (Task 123's IncomeBasisChips),
+// in one canonical order. Folds the two adjacent renders the Every-Dollar and
+// Forecast cards duplicated into a single drop-in, so the ordering/spacing lives
+// in ONE place (and Health-Score/etc. can reuse it without a third copy). Each
+// child null-guards <2 months, so the guard is inherited.
+function IncomeProvenance({ months, label }) {
+  return (
+    <>
+      <IncomeTrendBlock months={months} />
+      <IncomeBasisChips months={months} label={label} />
+    </>
+  );
+}
+
 function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expanded, onToggle }) {
   // Unified income basis: the last-6 COMPLETED months (current partial month
   // excluded), the exact series the Every-Dollar card averages — so the two
@@ -604,15 +620,11 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
             </div>
           </div>
 
-          {/* Income trend at a glance (Task 129) — the same sparkline + trend the
-              Every-Dollar card shows, now via the shared IncomeTrendBlock (Task
-              132) so the two cards render from one source and can't drift. A
-              rising line here informs the forecast: income climbing means the
-              expected figure is conservative. */}
-          <IncomeTrendBlock months={basis} />
-
-          {/* Which months averaged into the expected-income figure */}
-          <IncomeBasisChips
+          {/* Income provenance (Task 135) — sparkline+trend then the month chips,
+              via the one shared IncomeProvenance block the Every-Dollar card also
+              uses, so the layout can't drift. A rising line here informs the
+              forecast: income climbing means the expected figure is conservative. */}
+          <IncomeProvenance
             months={basis}
             label={`Expected income = average of these ${basis.length} completed months:`}
           />
@@ -1532,16 +1544,11 @@ function EveryDollarCard({ income, expenses, allAllocTx, incomeBasis, expanded, 
             </div>
           )}
 
-          {/* Income trend at a glance (Task 125) — a sparkline of the same
-              basis months with the mean dashed, so the reader sees where their
-              income is heading, not just the flat average the card assigns to.
-              Rendered via the shared IncomeTrendBlock (Task 132). */}
-          <IncomeTrendBlock months={incomeBasis} />
-
-          {/* Where the income figure comes from — the last-6 completed months
-              that averaged into it, so both sides of the gap are traceable.
-              Shares IncomeBasisChips with the Forecast card (Task 123). */}
-          <IncomeBasisChips
+          {/* Income provenance (Task 135) — the sparkline+trend and the month
+              chips that trace this card's income figure to the last-6 completed
+              months, via the one shared IncomeProvenance block the Forecast card
+              also uses so both sides of the gap read the same way. */}
+          <IncomeProvenance
             months={incomeBasis}
             label={`Typical income = average of your last ${Array.isArray(incomeBasis) ? incomeBasis.length : 0} months:`}
           />
