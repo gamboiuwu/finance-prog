@@ -499,10 +499,21 @@ function IncomeSparkline({ months }) {
   const y = (v) => pad + (h - pad * 2) * (1 - v / max);
   const pts = values.map((v, i) => `${(pad + i * step).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const mean = values.reduce((s, v) => s + v, 0) / values.length;
+  const meanY = y(mean);
+  // Label the dashed mean line "avg $X" so the sparkline states its own baseline
+  // (Task 139). Sit it on the opposite side of the mean from the newest point so
+  // it never collides with the most-recent dot, clamped inside the 28px height.
+  const lastY = y(values[values.length - 1]);
+  const labelY = lastY <= meanY ? Math.min(h - 4, meanY + 9) : Math.max(7, meanY - 4);
+  const meanRound = Math.round(mean);
+  const meanFmt = meanRound >= 10000 ? `${(meanRound / 1000).toFixed(1)}k` : String(meanRound);
   return (
-    <svg width={w} height={h} className="overflow-visible" role="img" aria-label="Income over recent months">
-      <line x1={pad} y1={y(mean).toFixed(1)} x2={w - pad} y2={y(mean).toFixed(1)}
+    <svg width={w} height={h} className="overflow-visible" role="img"
+      aria-label={`Income over recent months, averaging $${meanFmt}`}>
+      <line x1={pad} y1={meanY.toFixed(1)} x2={w - pad} y2={meanY.toFixed(1)}
         stroke="#475569" strokeDasharray="3 3" strokeWidth="1" />
+      <text x={w - pad} y={labelY.toFixed(1)} textAnchor="end" fontSize="8"
+        fill="#64748b" className="font-mono">avg ${meanFmt}</text>
       <polyline points={pts} fill="none" stroke="#2dd4bf" strokeWidth="2"
         strokeLinejoin="round" strokeLinecap="round" />
       {values.map((v, i) => (
