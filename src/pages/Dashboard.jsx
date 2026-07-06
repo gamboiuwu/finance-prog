@@ -503,13 +503,22 @@ function IncomeSparkline({ months }) {
   // Label the dashed mean line "avg $X" so the sparkline states its own baseline
   // (Task 139). Sit it on the opposite side of the mean from the newest point so
   // it never collides with the most-recent dot, clamped inside the 28px height.
-  const lastY = y(values[values.length - 1]);
+  const lastVal = values[values.length - 1];
+  const lastY = y(lastVal);
   const labelY = lastY <= meanY ? Math.min(h - 4, meanY + 9) : Math.max(7, meanY - 4);
   const meanRound = Math.round(mean);
-  const meanFmt = meanRound >= 10000 ? `${(meanRound / 1000).toFixed(1)}k` : String(meanRound);
+  const fmtK = (n) => (n >= 10000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+  const meanFmt = fmtK(meanRound);
+  // Label the newest point's value too (Task 141) — emerald when it's above the
+  // typical average, rose when below, so "am I earning more or less than usual?"
+  // reads at a glance. Sit it on the last point's own side of the mean (the avg
+  // label owns the far side), so the two right-edge labels never collide.
+  const lastAbove = lastVal >= mean;
+  const lastLabelY = lastAbove ? Math.max(7, lastY - 4) : Math.min(h - 2, lastY + 9);
+  const lastFmt = fmtK(lastVal);
   return (
     <svg width={w} height={h} className="overflow-visible" role="img"
-      aria-label={`Income over recent months, averaging $${meanFmt}`}>
+      aria-label={`Income over recent months, latest $${lastFmt}, averaging $${meanFmt}`}>
       <line x1={pad} y1={meanY.toFixed(1)} x2={w - pad} y2={meanY.toFixed(1)}
         stroke="#475569" strokeDasharray="3 3" strokeWidth="1" />
       <text x={w - pad} y={labelY.toFixed(1)} textAnchor="end" fontSize="8"
@@ -519,6 +528,8 @@ function IncomeSparkline({ months }) {
       {values.map((v, i) => (
         <circle key={i} cx={(pad + i * step).toFixed(1)} cy={y(v).toFixed(1)} r="1.6" fill="#2dd4bf" />
       ))}
+      <text x={w - pad} y={lastLabelY.toFixed(1)} textAnchor="end" fontSize="8"
+        fill={lastAbove ? '#34d399' : '#fb7185'} className="font-mono font-semibold">${lastFmt}</text>
     </svg>
   );
 }
