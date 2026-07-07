@@ -556,12 +556,26 @@ function IncomeTrendBlock({ months }) {
   const tLabel = t.dir === 'up' ? `▲ up ${Math.abs(t.pct)}% over ${t.span} mo`
     : t.dir === 'down' ? `▼ down ${Math.abs(t.pct)}% over ${t.span} mo`
     : `→ steady over ${t.span} mo`;
+  // Month-over-month step (Task 143): the trend % above is 6-month direction;
+  // this states the concrete last-vs-prior-completed-month change — the single
+  // number savers actually act on ("▲ $180 more than May"). Same months the
+  // chips list, so it reconciles. Rounds to whole dollars; "≈ same" when < $1.
+  const prevM = months[months.length - 2];
+  const lastM = months[months.length - 1];
+  const delta = Math.round(lastM.income) - Math.round(prevM.income);
+  const dColor = delta > 0 ? 'text-emerald-300' : delta < 0 ? 'text-rose-300' : 'text-slate-500';
+  const dLabel = Math.abs(delta) < 1
+    ? `≈ same as ${prevM.month}`
+    : delta > 0
+      ? `▲ $${Math.abs(delta).toLocaleString()} more than ${prevM.month}`
+      : `▼ $${Math.abs(delta).toLocaleString()} less than ${prevM.month}`;
   return (
     <div className="pt-2 mt-1 border-t border-slate-700/60">
       <div className="flex items-center justify-between gap-2">
         <IncomeSparkline months={months} />
         <span className={`text-[11px] font-semibold ${tColor}`}>{tLabel}</span>
       </div>
+      <p className={`text-[11px] mt-1 ${dColor}`}>{dLabel}</p>
     </div>
   );
 }
