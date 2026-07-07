@@ -516,6 +516,22 @@ function IncomeSparkline({ months }) {
   const lastAbove = lastVal >= mean;
   const lastLabelY = lastAbove ? Math.max(7, lastY - 4) : Math.min(h - 2, lastY + 9);
   const lastFmt = fmtK(lastVal);
+  // Emphasize the highest & lowest income months (Task 144) so the range's two
+  // anchor points read at a glance — a subtle ring on the peak (emerald) and the
+  // trough (rose), no extra text (the svg already carries two value labels).
+  // Skip when income is flat (max===min) or when the extreme IS the newest point
+  // (already labelled by Task 141), so we never double-mark a dot.
+  let peakIdx = 0, troughIdx = 0;
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] > values[peakIdx]) peakIdx = i;
+    if (values[i] < values[troughIdx]) troughIdx = i;
+  }
+  const lastIdx = values.length - 1;
+  const emphasis = [];
+  if (values[peakIdx] !== values[troughIdx]) {
+    if (peakIdx !== lastIdx) emphasis.push({ i: peakIdx, color: '#34d399' });
+    if (troughIdx !== lastIdx) emphasis.push({ i: troughIdx, color: '#fb7185' });
+  }
   return (
     <svg width={w} height={h} className="overflow-visible" role="img"
       aria-label={`Income over recent months, latest $${lastFmt}, averaging $${meanFmt}`}>
@@ -527,6 +543,10 @@ function IncomeSparkline({ months }) {
         strokeLinejoin="round" strokeLinecap="round" />
       {values.map((v, i) => (
         <circle key={i} cx={(pad + i * step).toFixed(1)} cy={y(v).toFixed(1)} r="1.6" fill="#2dd4bf" />
+      ))}
+      {emphasis.map(({ i, color }) => (
+        <circle key={`e${i}`} cx={(pad + i * step).toFixed(1)} cy={y(values[i]).toFixed(1)}
+          r="2.7" fill="none" stroke={color} strokeWidth="0.9" />
       ))}
       <text x={w - pad} y={lastLabelY.toFixed(1)} textAnchor="end" fontSize="8"
         fill={lastAbove ? '#34d399' : '#fb7185'} className="font-mono font-semibold">${lastFmt}</text>
