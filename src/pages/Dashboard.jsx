@@ -597,12 +597,34 @@ function IncomeTrendBlock({ months }) {
   // Suppress when income is flat (no meaningful hi/lo) or <3 months.
   const ext = incomeExtremes(months);
   const showExtremes = ext && !ext.flat && months.length >= 3;
+  // "vs your typical month" verdict (Task 151): compare the newest month to the
+  // mean the card assigns to (same values/mean the sparkline's latest label uses,
+  // so they reconcile). Turns the range context into a this-month read — above /
+  // below / in line with typical. "In line" within ±2% (mirrors the trend's dead
+  // band) so a normal wobble doesn't cry "above/below".
+  const vals = ext.values;
+  const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+  const last = vals[vals.length - 1];
+  const delta = Math.round(last - mean);
+  const meanFmt = fmtIncomeK(Math.round(mean));
+  const near = Math.abs(delta) < Math.max(1, mean * 0.02);
+  const lastMonth = months[months.length - 1].month;
   return (
     <div className="pt-2 mt-1 border-t border-slate-700/60">
       <div className="flex items-center justify-between gap-2">
         <IncomeSparkline months={months} />
         <span className={`text-[11px] font-semibold ${tColor}`}>{tLabel}</span>
       </div>
+      <p className="text-[11px] text-slate-500 mt-1">
+        {lastMonth}{' '}
+        {near ? (
+          <>≈ in line with your typical <span className="font-mono text-slate-400">${meanFmt}</span></>
+        ) : delta > 0 ? (
+          <><span className="text-emerald-300 font-mono">▲ ${fmtIncomeK(delta)} above</span> your typical <span className="font-mono text-slate-400">${meanFmt}</span></>
+        ) : (
+          <><span className="text-rose-300 font-mono">▼ ${fmtIncomeK(Math.abs(delta))} below</span> your typical <span className="font-mono text-slate-400">${meanFmt}</span></>
+        )}
+      </p>
       {showExtremes && (
         <p className="text-[11px] text-slate-500 mt-1">
           Best <span className="text-emerald-300 font-mono">{months[ext.peakIdx].month} ${fmtIncomeK(ext.values[ext.peakIdx])}</span>
