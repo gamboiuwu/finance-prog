@@ -518,6 +518,12 @@ function IncomeSparkline({ months }) {
   const step = (w - pad * 2) / (values.length - 1);
   const y = (v) => pad + (h - pad * 2) * (1 - v / max);
   const pts = values.map((v, i) => `${(pad + i * step).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  // Gentle translucent area under the line (Task 149) — a standard sparkline
+  // treatment that lends a sense of magnitude at a glance. Rendered first (behind
+  // the mean line, polyline, rings, dots and labels) at very low opacity, so it
+  // reads cleanly in both light and dark and never competes with the foreground.
+  const baseY = h - pad;
+  const areaPts = `${pad.toFixed(1)},${baseY.toFixed(1)} ${pts} ${(w - pad).toFixed(1)},${baseY.toFixed(1)}`;
   const mean = values.reduce((s, v) => s + v, 0) / values.length;
   const meanY = y(mean);
   // Label the dashed mean line "avg $X" so the sparkline states its own baseline
@@ -551,6 +557,7 @@ function IncomeSparkline({ months }) {
   return (
     <svg width={w} height={h} className="overflow-visible" role="img"
       aria-label={`Income over recent months, latest $${lastFmt}, averaging $${meanFmt}`}>
+      <polygon points={areaPts} fill="#2dd4bf" fillOpacity="0.08" stroke="none" />
       <line x1={pad} y1={meanY.toFixed(1)} x2={w - pad} y2={meanY.toFixed(1)}
         stroke="#475569" strokeDasharray="3 3" strokeWidth="1" />
       <text x={w - pad} y={labelY.toFixed(1)} textAnchor="end" fontSize="8"
