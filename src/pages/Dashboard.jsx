@@ -485,6 +485,25 @@ function IncomeBasisChips({ months, label }) {
   );
 }
 
+// Abbreviate an income dollar figure ($12,400 → "12.4k") for tight labels.
+function fmtIncomeK(n) {
+  return n >= 10000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+// Highest & lowest income months in a basis series — the two range anchors the
+// sparkline rings (Task 144) and the word-caption (Task 147) both point at, so
+// they can never disagree. `flat` when every month is equal (no meaningful hi/lo).
+function incomeExtremes(months) {
+  if (!Array.isArray(months) || months.length < 2) return null;
+  const values = months.map(m => Math.max(0, Math.round(m.income)));
+  let peakIdx = 0, troughIdx = 0;
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] > values[peakIdx]) peakIdx = i;
+    if (values[i] < values[troughIdx]) troughIdx = i;
+  }
+  return { peakIdx, troughIdx, flat: values[peakIdx] === values[troughIdx], values };
+}
+
 // ── Income sparkline (Task 125) ──────────────────────────────────────────────
 // A tiny line of the same last-N income months the provenance chips list, with
 // the mean drawn as a faint reference line — turns "here are the months" into
@@ -492,7 +511,8 @@ function IncomeBasisChips({ months, label }) {
 // 0..max (honest: a flat income reads flat, deviations show vs the mean line).
 function IncomeSparkline({ months }) {
   if (!Array.isArray(months) || months.length < 2) return null;
-  const values = months.map(m => Math.max(0, Math.round(m.income)));
+  const ext = incomeExtremes(months);
+  const values = ext.values;
   const w = 108, h = 28, pad = 3;
   const max = Math.max(...values, 1);
   const step = (w - pad * 2) / (values.length - 1);
@@ -507,28 +527,24 @@ function IncomeSparkline({ months }) {
   const lastY = y(lastVal);
   const labelY = lastY <= meanY ? Math.min(h - 4, meanY + 9) : Math.max(7, meanY - 4);
   const meanRound = Math.round(mean);
-  const fmtK = (n) => (n >= 10000 ? `${(n / 1000).toFixed(1)}k` : String(n));
-  const meanFmt = fmtK(meanRound);
+  const meanFmt = fmtIncomeK(meanRound);
   // Label the newest point's value too (Task 141) — emerald when it's above the
   // typical average, rose when below, so "am I earning more or less than usual?"
   // reads at a glance. Sit it on the last point's own side of the mean (the avg
   // label owns the far side), so the two right-edge labels never collide.
   const lastAbove = lastVal >= mean;
   const lastLabelY = lastAbove ? Math.max(7, lastY - 4) : Math.min(h - 2, lastY + 9);
-  const lastFmt = fmtK(lastVal);
+  const lastFmt = fmtIncomeK(lastVal);
   // Emphasize the highest & lowest income months (Task 144) so the range's two
   // anchor points read at a glance — a subtle ring on the peak (emerald) and the
   // trough (rose), no extra text (the svg already carries two value labels).
   // Skip when income is flat (max===min) or when the extreme IS the newest point
-  // (already labelled by Task 141), so we never double-mark a dot.
-  let peakIdx = 0, troughIdx = 0;
-  for (let i = 1; i < values.length; i++) {
-    if (values[i] > values[peakIdx]) peakIdx = i;
-    if (values[i] < values[troughIdx]) troughIdx = i;
-  }
+  // (already labelled by Task 141), so we never double-mark a dot. Shares the
+  // peak/trough indices with the word-caption (Task 147) via incomeExtremes.
+  const { peakIdx, troughIdx, flat } = ext;
   const lastIdx = values.length - 1;
   const emphasis = [];
-  if (values[peakIdx] !== values[troughIdx]) {
+  if (!flat) {
     if (peakIdx !== lastIdx) emphasis.push({ i: peakIdx, color: '#34d399' });
     if (troughIdx !== lastIdx) emphasis.push({ i: troughIdx, color: '#fb7185' });
   }
@@ -576,12 +592,23 @@ function IncomeTrendBlock({ months }) {
   const tLabel = t.dir === 'up' ? `▲ up ${Math.abs(t.pct)}% over ${t.span} mo`
     : t.dir === 'down' ? `▼ down ${Math.abs(t.pct)}% over ${t.span} mo`
     : `→ steady over ${t.span} mo`;
+  // Name the two months the sparkline rings mark (Task 147) so the peak/trough
+  // read without hovering. Same incomeExtremes source as the rings → can't drift.
+  // Suppress when income is flat (no meaningful hi/lo) or <3 months.
+  const ext = incomeExtremes(months);
+  const showExtremes = ext && !ext.flat && months.length >= 3;
   return (
     <div className="pt-2 mt-1 border-t border-slate-700/60">
       <div className="flex items-center justify-between gap-2">
         <IncomeSparkline months={months} />
         <span className={`text-[11px] font-semibold ${tColor}`}>{tLabel}</span>
       </div>
+      {showExtremes && (
+        <p className="text-[11px] text-slate-500 mt-1">
+          Best <span className="text-emerald-300 font-mono">{months[ext.peakIdx].month} ${fmtIncomeK(ext.values[ext.peakIdx])}</span>
+          {' · '}Lightest <span className="text-rose-300 font-mono">{months[ext.troughIdx].month} ${fmtIncomeK(ext.values[ext.troughIdx])}</span>
+        </p>
+      )}
     </div>
   );
 }
