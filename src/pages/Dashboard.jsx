@@ -195,6 +195,9 @@ function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
 
       {expanded && (
         <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-3">
+          <p className="text-slate-400 text-[11px] leading-snug">
+            🔎 Computed live from your Allocation Transactions log — every figure below traces to a real entry, not an estimate.
+          </p>
           {signals.map((s, i) => (
             <div key={i}>
               <div className="flex justify-between items-center text-xs mb-1">
@@ -207,6 +210,9 @@ function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
                 <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
                   <div className="h-1.5 rounded-full transition-all" style={{ width: `${Math.min(s.pct * 100, 100)}%`, background: tier.color }} />
                 </div>
+              )}
+              {s.detail && (
+                <p className="text-slate-500 text-[10px] mt-1 leading-snug">from your log: {s.detail}</p>
               )}
             </div>
           ))}
@@ -2623,7 +2629,8 @@ export default function Dashboard({ token }) {
             const s2       = s2Pct * 25;
 
             const allBudg  = expItems.filter(i => pm(i['Monthly Allowance ($)'])>0);
-            const s3Pct    = allBudg.length > 0 ? allBudg.filter(i => (abt[i['Type']||'']||0) > 0).length / allBudg.length : 0;
+            const fundedBudg = allBudg.filter(i => (abt[i['Type']||'']||0) > 0).length;
+            const s3Pct    = allBudg.length > 0 ? fundedBudg / allBudg.length : 0;
             const s3       = s3Pct * 20;
 
             const s4    = -Math.min(overCount * 3, 15);
@@ -2640,10 +2647,16 @@ export default function Dashboard({ token }) {
             setHealthScore({
               total, loaded: true, history: hist,
               signals: [
-                { label: 'Essential Coverage',      score: +(s1.toFixed(1)), max: 40, pct: s1Pct },
-                { label: 'Savings Rate',            score: +(s2.toFixed(1)), max: 25, pct: s2Pct },
-                { label: 'Allocation Completeness', score: +(s3.toFixed(1)), max: 20, pct: s3Pct },
-                { label: 'Over-Budget Penalty',     score: s4,              max: 0,  pct: 0, penalty: true },
+                // `detail` = the real log-derived inputs behind each signal, so the score is
+                // traceable to the Allocation-Transactions log, not a black box (feedback 2026-07-07).
+                { label: 'Essential Coverage',      score: +(s1.toFixed(1)), max: 40, pct: s1Pct,
+                  detail: `${p1Done.length} of ${p1Items.length} essential (P1) bill${p1Items.length===1?'':'s'} funded this month` },
+                { label: 'Savings Rate',            score: +(s2.toFixed(1)), max: 25, pct: s2Pct,
+                  detail: `${fmt(savAlloc)} into savings ÷ ${fmt(monthIncome)} income logged this month` },
+                { label: 'Allocation Completeness', score: +(s3.toFixed(1)), max: 20, pct: s3Pct,
+                  detail: `${fundedBudg} of ${allBudg.length} budget categor${allBudg.length===1?'y':'ies'} have activity this month` },
+                { label: 'Over-Budget Penalty',     score: s4,              max: 0,  pct: 0, penalty: true,
+                  detail: overCount === 0 ? 'No categories over budget' : `${overCount} categor${overCount===1?'y':'ies'} over budget (−3 pts each, −15 max)` },
               ],
             });
 
