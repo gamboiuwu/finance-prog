@@ -118,6 +118,33 @@ function ProgressBar({ pct, color }) {
   );
 }
 
+// ── Income "from your log" provenance (Task 159) ─────────────────────────────
+// Breaks the top-of-Dashboard "Income" headline into its source deposits so that
+// tile is as traceable as the Health-Score (Task 154) and Safe-to-Spend
+// (Task 156) cards answered the 2026-07-07 "confirm this number is accurate /
+// are you making numbers up?" trust reports. Groups this month's positive
+// Allocation Transactions rows by their [Source] tag (Task 27); untagged rows
+// bucket under "Untagged income". Pure — read-only over already-loaded
+// allAllocTx. The total equals the Income tile's value exactly whenever the
+// current month has alloc rows (both = Σ positive current-month deposits).
+function incomeBySource(allAllocTx) {
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const bySrc = {};
+  let total = 0;
+  allAllocTx.forEach(r => {
+    if (r.amount <= 0 || String(r.dateStr).slice(0, 7) !== curKey) return;
+    const m = /^\[([^\]]+)\]/.exec(String(r.desc || '').trim());
+    const src = m ? m[1].trim() : 'Untagged income';
+    bySrc[src] = (bySrc[src] || 0) + r.amount;
+    total += r.amount;
+  });
+  const rows = Object.entries(bySrc)
+    .map(([source, amt]) => ({ source, amt }))
+    .sort((a, b) => b.amt - a.amt);
+  return { rows, total };
+}
+
 // Arc gauge SVG: 240° arc from 8-o'clock (150°) clockwise to 4-o'clock (30°), gap at bottom
 const GAUGE_CX = 64, GAUGE_CY = 64, GAUGE_R = 50;
 const GAUGE_START = 150, GAUGE_SWEEP = 240;
@@ -2212,6 +2239,7 @@ export default function Dashboard({ token }) {
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState(null);
   const [showIncome, setShowIncome]     = useState(false);
+  const [showIncomeProv, setShowIncomeProv] = useState(false);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -4032,6 +4060,35 @@ ${stmtTxns.length ? `
         <StatCard label="Net Flow" value={fmt(net)}     color={net >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
         <StatCard label="Goal"     value={fmt(goal)}    sub={goal > 0 ? `${goalPct.toFixed(0)}% met` : undefined} color="text-sky-400" />
       </div>
+
+      {/* ── Income "from your log" provenance (Task 159) ─────── */}
+      {income > 0 && allAllocTx.length > 0 && (() => {
+        const { rows, total } = incomeBySource(allAllocTx);
+        if (total <= 0) return null;
+        return (
+          <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
+            <button onClick={() => setShowIncomeProv(v => !v)} className="w-full flex items-center gap-2 text-left">
+              <span className="text-slate-400 text-[11px] leading-snug">🔎 Income = Σ your deposits logged this {currentMonth}</span>
+              <span className="ml-auto text-slate-500 text-xs shrink-0">{showIncomeProv ? '▾' : '▸'}</span>
+            </button>
+            {showIncomeProv && (
+              <div className="mt-2 space-y-1 border-t border-slate-700 pt-2">
+                <p className="text-slate-500 text-[10px] leading-snug">Each row is a real Allocation Transactions income deposit dated this month — grouped by its source tag, not an estimate.</p>
+                {rows.map(r => (
+                  <div key={r.source} className="flex justify-between text-xs">
+                    <span className="text-slate-300">{r.source}</span>
+                    <span className="font-mono text-emerald-400">{fmt(r.amt)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
+                  <span className="text-slate-400 font-semibold">Total logged</span>
+                  <span className="font-mono text-emerald-300 font-semibold">{fmt(total)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Progress bars ───────────────────────────────────── */}
       {goal > 0 && (
