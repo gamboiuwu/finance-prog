@@ -1469,10 +1469,25 @@ function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, da
 
       {expanded && (
         <div className="mt-3 pt-3 border-t border-slate-700/60 text-xs space-y-1.5">
-          <div className="flex justify-between text-slate-400"><span>Money in this month</span><span className="font-mono text-teal-300">${income.toFixed(0)}</span></div>
-          <div className="flex justify-between text-slate-400"><span>− Already spent</span><span className="font-mono text-slate-300">${spent.toFixed(0)}</span></div>
-          <div className="flex justify-between text-slate-400"><span>− Bills still owed</span><span className="font-mono text-amber-300">${owedEssentials.toFixed(0)}</span></div>
-          <div className="flex justify-between text-slate-400"><span>− Savings still to set aside</span><span className="font-mono text-sky-300">${unmetSavings.toFixed(0)}</span></div>
+          <p className="text-slate-400 text-[11px] leading-snug pb-1">
+            🔎 Each figure below is a live sum of your Allocation Transactions this month — not an estimate.
+          </p>
+          <div>
+            <div className="flex justify-between text-slate-400"><span>Money in this month</span><span className="font-mono text-teal-300">${income.toFixed(0)}</span></div>
+            <p className="text-slate-500 text-[10px] leading-snug">from your log: Σ your income deposits this month</p>
+          </div>
+          <div>
+            <div className="flex justify-between text-slate-400"><span>− Already spent</span><span className="font-mono text-slate-300">${spent.toFixed(0)}</span></div>
+            <p className="text-slate-500 text-[10px] leading-snug">from your log: Σ your spend rows this month</p>
+          </div>
+          <div>
+            <div className="flex justify-between text-slate-400"><span>− Bills still owed</span><span className="font-mono text-amber-300">${owedEssentials.toFixed(0)}</span></div>
+            <p className="text-slate-500 text-[10px] leading-snug">from your log: unpaid P1+P2 allowances (allowance − what you've paid)</p>
+          </div>
+          <div>
+            <div className="flex justify-between text-slate-400"><span>− Savings still to set aside</span><span className="font-mono text-sky-300">${unmetSavings.toFixed(0)}</span></div>
+            <p className="text-slate-500 text-[10px] leading-snug">from your log: unmet Savings-category targets (allowance − funded)</p>
+          </div>
           <div className="flex justify-between pt-1.5 border-t border-slate-700/60">
             <span className="text-slate-200 font-semibold">= Free for the rest of the month</span>
             <span className={`font-mono font-semibold ${free > 0 ? 'text-emerald-300' : 'text-rose-300'}`}>${free.toFixed(0)}</span>
