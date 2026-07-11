@@ -145,6 +145,28 @@ function incomeBySource(allAllocTx) {
   return { rows, total };
 }
 
+// Task 165 — "from your log" provenance for the Spent tile: buckets this
+// month's spend rows (negative amounts) by category (Type). The total equals
+// the Spent tile's value exactly whenever the current month has alloc rows
+// (both = Σ abs of negative current-month rows). Read-only.
+function spendByCategory(allAllocTx) {
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const byCat = {};
+  let total = 0;
+  allAllocTx.forEach(r => {
+    if (r.amount >= 0 || String(r.dateStr).slice(0, 7) !== curKey) return;
+    const cat = String(r.type || '').trim() || 'Uncategorized';
+    const amt = Math.abs(r.amount);
+    byCat[cat] = (byCat[cat] || 0) + amt;
+    total += amt;
+  });
+  const rows = Object.entries(byCat)
+    .map(([category, amt]) => ({ category, amt }))
+    .sort((a, b) => b.amt - a.amt);
+  return { rows, total };
+}
+
 // Arc gauge SVG: 240° arc from 8-o'clock (150°) clockwise to 4-o'clock (30°), gap at bottom
 const GAUGE_CX = 64, GAUGE_CY = 64, GAUGE_R = 50;
 const GAUGE_START = 150, GAUGE_SWEEP = 240;
@@ -2240,6 +2262,7 @@ export default function Dashboard({ token }) {
   const [error, setError]               = useState(null);
   const [showIncome, setShowIncome]     = useState(false);
   const [showIncomeProv, setShowIncomeProv] = useState(false);
+  const [showSpentProv, setShowSpentProv]   = useState(false);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -4099,6 +4122,51 @@ ${stmtTxns.length ? `
                 <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
                   <span className="text-slate-400 font-semibold">Total logged</span>
                   <span className="font-mono text-emerald-300 font-semibold">{fmt(total)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Spent "from your log" provenance + reconciliation (Task 165) ─── */}
+      {spent > 0 && allAllocTx.length > 0 && (() => {
+        const { rows, total } = spendByCategory(allAllocTx);
+        if (total <= 0) return null;
+        // Mirror of Task 164 on the Spent tile: reconcile the Monthly Summary
+        // sheet's Total Spent formula against your logged spend rows. The tile
+        // shows the logged figure (ground truth); this surfaces whether the
+        // sheet formula agrees, so a stale month-carry drift is visible and
+        // explained instead of hidden. Read-only comparison.
+        const sheetSpent  = pm(current?.['Total Spent']);
+        const loggedSpent = allocTotals.spent;
+        const showRecon    = sheetSpent > 0 && loggedSpent > 0;
+        const reconMatches = showRecon && Math.abs(sheetSpent - loggedSpent) <= 1;
+        return (
+          <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
+            <button onClick={() => setShowSpentProv(v => !v)} className="w-full flex items-center gap-2 text-left">
+              <span className="text-slate-400 text-[11px] leading-snug">🔎 Spent = Σ your spend rows logged this {currentMonth}</span>
+              <span className="ml-auto text-slate-500 text-xs shrink-0">{showSpentProv ? '▾' : '▸'}</span>
+            </button>
+            {showRecon && (
+              <div className={`mt-1.5 text-[10px] leading-snug ${reconMatches ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {reconMatches
+                  ? '✓ matches your sheet total'
+                  : `⚠ sheet says ${fmt(sheetSpent)} · your log says ${fmt(loggedSpent)} — using your log`}
+              </div>
+            )}
+            {showSpentProv && (
+              <div className="mt-2 space-y-1 border-t border-slate-700 pt-2">
+                <p className="text-slate-500 text-[10px] leading-snug">Each row is a real Allocation Transactions spend dated this month — grouped by its category, not an estimate.</p>
+                {rows.map(r => (
+                  <div key={r.category} className="flex justify-between text-xs">
+                    <span className="text-slate-300">{r.category}</span>
+                    <span className="font-mono text-rose-400">{fmt(r.amt)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
+                  <span className="text-slate-400 font-semibold">Total logged</span>
+                  <span className="font-mono text-rose-300 font-semibold">{fmt(total)}</span>
                 </div>
               </div>
             )}
