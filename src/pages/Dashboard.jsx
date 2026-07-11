@@ -4065,12 +4065,28 @@ ${stmtTxns.length ? `
       {income > 0 && allAllocTx.length > 0 && (() => {
         const { rows, total } = incomeBySource(allAllocTx);
         if (total <= 0) return null;
+        // Task 164 — reconcile the Monthly Summary sheet's Total Processed Income
+        // formula against your logged deposits. The tile shows the logged figure
+        // (ground truth); this surfaces whether the sheet formula agrees, so a
+        // silent formula-vs-log drift (the long-standing Task 32 concern) is
+        // visible and explained instead of hidden. Read-only comparison.
+        const sheetIncome  = pm(current?.['Total Processed Income']);
+        const loggedIncome = allocTotals.income;
+        const showRecon    = sheetIncome > 0 && loggedIncome > 0;
+        const reconMatches = showRecon && Math.abs(sheetIncome - loggedIncome) <= 1;
         return (
           <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
             <button onClick={() => setShowIncomeProv(v => !v)} className="w-full flex items-center gap-2 text-left">
               <span className="text-slate-400 text-[11px] leading-snug">🔎 Income = Σ your deposits logged this {currentMonth}</span>
               <span className="ml-auto text-slate-500 text-xs shrink-0">{showIncomeProv ? '▾' : '▸'}</span>
             </button>
+            {showRecon && (
+              <div className={`mt-1.5 text-[10px] leading-snug ${reconMatches ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {reconMatches
+                  ? '✓ matches your sheet total'
+                  : `⚠ sheet says ${fmt(sheetIncome)} · your log says ${fmt(loggedIncome)} — using your log`}
+              </div>
+            )}
             {showIncomeProv && (
               <div className="mt-2 space-y-1 border-t border-slate-700 pt-2">
                 <p className="text-slate-500 text-[10px] leading-snug">Each row is a real Allocation Transactions income deposit dated this month — grouped by its source tag, not an estimate.</p>
