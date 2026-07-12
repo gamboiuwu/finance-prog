@@ -2263,6 +2263,7 @@ export default function Dashboard({ token }) {
   const [showIncome, setShowIncome]     = useState(false);
   const [showIncomeProv, setShowIncomeProv] = useState(false);
   const [showSpentProv, setShowSpentProv]   = useState(false);
+  const [showNetProv, setShowNetProv]       = useState(false);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -4167,6 +4168,52 @@ ${stmtTxns.length ? `
                 <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
                   <span className="text-slate-400 font-semibold">Total logged</span>
                   <span className="font-mono text-rose-300 font-semibold">{fmt(total)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Net Flow "from your log" provenance + reconciliation (Task 167) ─── */}
+      {allAllocTx.length > 0 && (income > 0 || spent > 0) && (() => {
+        // Net follows directly from Income (Task 159/164) and Spent (Task 165):
+        // Net = your logged income − your logged spending this month. Both terms
+        // are real Allocation Transactions sums (ground truth), so this just names
+        // the arithmetic and reconciles the implied sheet net against the logged
+        // net so any stale-formula drift is visible, not hidden. Read-only.
+        const sheetIncome = pm(current?.['Total Processed Income']);
+        const sheetSpent  = pm(current?.['Total Spent']);
+        const showRecon    = sheetIncome > 0 && sheetSpent > 0;
+        const sheetNet     = sheetIncome - sheetSpent;
+        const reconMatches = showRecon && Math.abs(sheetNet - net) <= 1;
+        return (
+          <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
+            <button onClick={() => setShowNetProv(v => !v)} className="w-full flex items-center gap-2 text-left">
+              <span className="text-slate-400 text-[11px] leading-snug">🔎 Net Flow = your logged income − spending this {currentMonth}</span>
+              <span className="ml-auto text-slate-500 text-xs shrink-0">{showNetProv ? '▾' : '▸'}</span>
+            </button>
+            {showRecon && (
+              <div className={`mt-1.5 text-[10px] leading-snug ${reconMatches ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {reconMatches
+                  ? '✓ matches your sheet total'
+                  : `⚠ sheet net ${fmt(sheetNet)} · your log ${fmt(net)} — using your log`}
+              </div>
+            )}
+            {showNetProv && (
+              <div className="mt-2 space-y-1 border-t border-slate-700 pt-2">
+                <p className="text-slate-500 text-[10px] leading-snug">Both figures below are live sums of your Allocation Transactions this month — Net is simply one minus the other, not a stored value.</p>
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-300">＋ Income logged</span>
+                  <span className="font-mono text-emerald-400">{fmt(income)}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-300">− Spending logged</span>
+                  <span className="font-mono text-rose-400">{fmt(spent)}</span>
+                </div>
+                <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
+                  <span className="text-slate-400 font-semibold">= Net Flow</span>
+                  <span className={`font-mono font-semibold ${net >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{fmt(net)}</span>
                 </div>
               </div>
             )}
