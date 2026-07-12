@@ -2264,6 +2264,7 @@ export default function Dashboard({ token }) {
   const [showIncomeProv, setShowIncomeProv] = useState(false);
   const [showSpentProv, setShowSpentProv]   = useState(false);
   const [showNetProv, setShowNetProv]       = useState(false);
+  const [showGoalProv, setShowGoalProv]     = useState(false);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -4214,6 +4215,61 @@ ${stmtTxns.length ? `
                 <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
                   <span className="text-slate-400 font-semibold">= Net Flow</span>
                   <span className={`font-mono font-semibold ${net >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{fmt(net)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Goal "from your budget plan" provenance + reconciliation (Task 171) ─── */}
+      {goal > 0 && expenses.length > 0 && (() => {
+        // Unlike Income/Spent/Net (logged totals), the Goal tile is a PLANNED
+        // figure: goal = Σ Monthly Allowance ($) across every budget category
+        // (= the Every-Dollar card's `assigned`). Trace it to those allowances so
+        // "where did that number come from?" is answered — and reconcile it
+        // against the sheet's Allowance Goal cell so a stale goal is visible.
+        // Read-only. Framed "your plan, not what you've spent" so it never reads
+        // like the logged tiles.
+        const { items } = computeEnvelope(expenses, income, allAllocTx);
+        if (!items.length) return null;
+        const topItems  = items.slice(0, 6);
+        const restItems = items.slice(6);
+        const restTotal = restItems.reduce((s, it) => s + it.allow, 0);
+        const sheetGoal    = pm(current?.['Allowance Goal']);
+        const showRecon    = sheetGoal > 0;
+        const reconMatches = showRecon && Math.abs(goal - sheetGoal) <= 1;
+        return (
+          <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
+            <button onClick={() => setShowGoalProv(v => !v)} className="w-full flex items-center gap-2 text-left">
+              <span className="text-slate-400 text-[11px] leading-snug">🎯 Goal = Σ your budget allowances (your plan, not what you've spent)</span>
+              <span className="ml-auto text-slate-500 text-xs shrink-0">{showGoalProv ? '▾' : '▸'}</span>
+            </button>
+            {showRecon && (
+              <div className={`mt-1.5 text-[10px] leading-snug ${reconMatches ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {reconMatches
+                  ? '✓ matches your sheet total'
+                  : `⚠ sheet says ${fmt(sheetGoal)} · your allowances add to ${fmt(goal)} — using your allowances`}
+              </div>
+            )}
+            {showGoalProv && (
+              <div className="mt-2 space-y-1 border-t border-slate-700 pt-2">
+                <p className="text-slate-500 text-[10px] leading-snug">Your monthly goal is the sum of every category's planned allowance — largest first. This is what you plan to fund, not what you've spent.</p>
+                {topItems.map(it => (
+                  <div key={it.type} className="flex justify-between text-xs">
+                    <span className="text-slate-300">{it.type}</span>
+                    <span className="font-mono text-sky-400">{fmt(it.allow)}</span>
+                  </div>
+                ))}
+                {restItems.length > 0 && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-500">+{restItems.length} more categor{restItems.length === 1 ? 'y' : 'ies'}</span>
+                    <span className="font-mono text-slate-400">{fmt(restTotal)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
+                  <span className="text-slate-400 font-semibold">Total planned</span>
+                  <span className="font-mono text-sky-300 font-semibold">{fmt(goal)}</span>
                 </div>
               </div>
             )}
