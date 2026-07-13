@@ -2888,6 +2888,37 @@ export default function Dashboard({ token }) {
   const goalPct     = goal > 0 ? (income / goal) * 100 : 0;
   const spendPct    = income > 0 ? (spent / income) * 100 : 0;
 
+  // ── Reconciliation summary for the stat-tile provenance chips (Task 181) ──
+  // A one-glance verdict answering the recurring "confirm these numbers are
+  // accurate according to the rest of my system" trust ask: for each stat tile
+  // that shows a sheet-vs-log reconciliation chip below, compare its logged/
+  // planned figure against the Monthly Summary sheet formula it should agree
+  // with. Mirrors each block's own showRecon/reconMatches guards exactly (same
+  // pure inputs), so this summary can never disagree with a block a user opens.
+  // Read-only comparison.
+  const reconSummary = (() => {
+    let checked = 0, mismatches = 0;
+    const tally = (a, b) => { checked++; if (Math.abs(a - b) > 1) mismatches++; };
+    if (income > 0 && allAllocTx.length > 0 && incomeBySource(allAllocTx).total > 0) {
+      const s = pm(current?.['Total Processed Income']);
+      if (s > 0 && allocTotals.income > 0) tally(s, allocTotals.income);
+    }
+    if (spent > 0 && allAllocTx.length > 0 && spendByCategory(allAllocTx).total > 0) {
+      const s = pm(current?.['Total Spent']);
+      if (s > 0 && allocTotals.spent > 0) tally(s, allocTotals.spent);
+    }
+    if (allAllocTx.length > 0 && (income > 0 || spent > 0)) {
+      const si = pm(current?.['Total Processed Income']);
+      const ss = pm(current?.['Total Spent']);
+      if (si > 0 && ss > 0) tally(si - ss, net);
+    }
+    if (goal > 0 && expenses.length > 0 && computeEnvelope(expenses, income, allAllocTx).items.length) {
+      const sg = pm(current?.['Allowance Goal']);
+      if (sg > 0) tally(goal, sg);
+    }
+    return { checked, mismatches };
+  })();
+
   // ── Daily spending allowance ───────────────────────────────────────────────
   // "How much can I spend a day" = flexible money left this month ÷ days left.
   // Day-of-month anchors used by the Safe-to-Spend card.
@@ -4131,10 +4162,27 @@ ${stmtTxns.length ? `
           "confirm these numbers" trust ask doesn't need four separate taps.
           Shown only when at least one provenance block would render. */}
       {((allAllocTx.length > 0 && (income > 0 || spent > 0)) || (goal > 0 && expenses.length > 0)) && (
-        <div className="flex justify-end px-0.5 -mb-1">
+        <div className="flex items-center justify-between gap-2 px-0.5 -mb-1">
+          {/* At-a-glance reconciliation verdict (Task 181): ✓ when every checked
+              tile agrees with its sheet formula, else an amber count that opens
+              all breakdowns so the differing figure is one tap from explained. */}
+          {reconSummary.checked > 0 ? (
+            reconSummary.mismatches === 0 ? (
+              <span className="text-[11px] font-medium rounded-full px-2 py-0.5 border text-emerald-300 border-emerald-500/30 bg-emerald-500/10">
+                ✓ all figures match your sheet
+              </span>
+            ) : (
+              <button
+                onClick={() => setAllProv(true)}
+                className="text-[11px] font-medium rounded-full px-2 py-0.5 border text-amber-300 border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 active:opacity-70 transition-colors"
+              >
+                ⚠ {reconSummary.mismatches} figure{reconSummary.mismatches === 1 ? '' : 's'} differ — tap to explain
+              </button>
+            )
+          ) : <span />}
           <button
             onClick={() => setAllProv(!anyProvOpen)}
-            className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70"
+            className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70 whitespace-nowrap"
           >
             {anyProvOpen ? '▾ Hide breakdowns' : '🔎 Explain all my numbers'}
           </button>
