@@ -2295,6 +2295,16 @@ export default function Dashboard({ token }) {
   const [showSpentProv, setShowSpentProv]   = useState(false);
   const [showNetProv, setShowNetProv]       = useState(false);
   const [showGoalProv, setShowGoalProv]     = useState(false);
+  // ── "Explain all my numbers" master toggle (Task 177) ──
+  // The four stat-tile provenance blocks below (Income/Spent/Net/Goal) each
+  // have their own show-state; this flips all four at once so the recurring
+  // "confirm these numbers" trust ask is one tap, not four. The blocks
+  // self-hide when their guard fails, so setting a hidden one's flag is inert.
+  const anyProvOpen = showIncomeProv || showSpentProv || showNetProv || showGoalProv;
+  const setAllProv = (open) => {
+    setShowIncomeProv(open); setShowSpentProv(open);
+    setShowNetProv(open);    setShowGoalProv(open);
+  };
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -4115,6 +4125,21 @@ ${stmtTxns.length ? `
         <StatCard label="Net Flow" value={fmt(net)}     color={net >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
         <StatCard label="Goal"     value={fmt(goal)}    sub={goal > 0 ? `${goalPct.toFixed(0)}% met` : undefined} color="text-sky-400" />
       </div>
+
+      {/* ── "Explain all my numbers" master toggle (Task 177) ──
+          One tap opens/closes every stat-tile breakdown below, so the
+          "confirm these numbers" trust ask doesn't need four separate taps.
+          Shown only when at least one provenance block would render. */}
+      {((allAllocTx.length > 0 && (income > 0 || spent > 0)) || (goal > 0 && expenses.length > 0)) && (
+        <div className="flex justify-end px-0.5 -mb-1">
+          <button
+            onClick={() => setAllProv(!anyProvOpen)}
+            className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70"
+          >
+            {anyProvOpen ? '▾ Hide breakdowns' : '🔎 Explain all my numbers'}
+          </button>
+        </div>
+      )}
 
       {/* ── Income "from your log" provenance (Task 159) ─────── */}
       {income > 0 && allAllocTx.length > 0 && (() => {
