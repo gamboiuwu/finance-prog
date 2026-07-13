@@ -167,6 +167,36 @@ function spendByCategory(allAllocTx) {
   return { rows, total };
 }
 
+// Task 172 — shared chrome for the four top-stat-grid "from your log / plan"
+// provenance blocks (Income 159/164, Spent 165, Net 167, Goal 171). Each block
+// was near-identical: a bg-slate-800/60 card with a tappable caption + chevron,
+// an emerald/amber sheet-vs-log reconciliation chip (whose match text is always
+// "✓ matches your sheet total"), and an expanded breakdown. Only the caption,
+// toggle state, mismatch wording, and breakdown body differ — those stay per
+// tile; the chrome lives here so a future style tweak is one edit, not four.
+// `recon` = { show, matches, mismatchText }; `children` = the breakdown body.
+// Pure presentation — read-only.
+function TileProvenance({ caption, open, onToggle, recon, children }) {
+  return (
+    <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
+      <button onClick={onToggle} className="w-full flex items-center gap-2 text-left">
+        <span className="text-slate-400 text-[11px] leading-snug">{caption}</span>
+        <span className="ml-auto text-slate-500 text-xs shrink-0">{open ? '▾' : '▸'}</span>
+      </button>
+      {recon?.show && (
+        <div className={`mt-1.5 text-[10px] leading-snug ${recon.matches ? 'text-emerald-400' : 'text-amber-400'}`}>
+          {recon.matches ? '✓ matches your sheet total' : recon.mismatchText}
+        </div>
+      )}
+      {open && (
+        <div className="mt-2 space-y-1 border-t border-slate-700 pt-2">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Arc gauge SVG: 240° arc from 8-o'clock (150°) clockwise to 4-o'clock (30°), gap at bottom
 const GAUGE_CX = 64, GAUGE_CY = 64, GAUGE_R = 50;
 const GAUGE_START = 150, GAUGE_SWEEP = 240;
@@ -4100,34 +4130,24 @@ ${stmtTxns.length ? `
         const showRecon    = sheetIncome > 0 && loggedIncome > 0;
         const reconMatches = showRecon && Math.abs(sheetIncome - loggedIncome) <= 1;
         return (
-          <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
-            <button onClick={() => setShowIncomeProv(v => !v)} className="w-full flex items-center gap-2 text-left">
-              <span className="text-slate-400 text-[11px] leading-snug">🔎 Income = Σ your deposits logged this {currentMonth}</span>
-              <span className="ml-auto text-slate-500 text-xs shrink-0">{showIncomeProv ? '▾' : '▸'}</span>
-            </button>
-            {showRecon && (
-              <div className={`mt-1.5 text-[10px] leading-snug ${reconMatches ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {reconMatches
-                  ? '✓ matches your sheet total'
-                  : `⚠ sheet says ${fmt(sheetIncome)} · your log says ${fmt(loggedIncome)} — using your log`}
+          <TileProvenance
+            caption={`🔎 Income = Σ your deposits logged this ${currentMonth}`}
+            open={showIncomeProv}
+            onToggle={() => setShowIncomeProv(v => !v)}
+            recon={{ show: showRecon, matches: reconMatches, mismatchText: `⚠ sheet says ${fmt(sheetIncome)} · your log says ${fmt(loggedIncome)} — using your log` }}
+          >
+            <p className="text-slate-500 text-[10px] leading-snug">Each row is a real Allocation Transactions income deposit dated this month — grouped by its source tag, not an estimate.</p>
+            {rows.map(r => (
+              <div key={r.source} className="flex justify-between text-xs">
+                <span className="text-slate-300">{r.source}</span>
+                <span className="font-mono text-emerald-400">{fmt(r.amt)}</span>
               </div>
-            )}
-            {showIncomeProv && (
-              <div className="mt-2 space-y-1 border-t border-slate-700 pt-2">
-                <p className="text-slate-500 text-[10px] leading-snug">Each row is a real Allocation Transactions income deposit dated this month — grouped by its source tag, not an estimate.</p>
-                {rows.map(r => (
-                  <div key={r.source} className="flex justify-between text-xs">
-                    <span className="text-slate-300">{r.source}</span>
-                    <span className="font-mono text-emerald-400">{fmt(r.amt)}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
-                  <span className="text-slate-400 font-semibold">Total logged</span>
-                  <span className="font-mono text-emerald-300 font-semibold">{fmt(total)}</span>
-                </div>
-              </div>
-            )}
-          </div>
+            ))}
+            <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
+              <span className="text-slate-400 font-semibold">Total logged</span>
+              <span className="font-mono text-emerald-300 font-semibold">{fmt(total)}</span>
+            </div>
+          </TileProvenance>
         );
       })()}
 
@@ -4145,34 +4165,24 @@ ${stmtTxns.length ? `
         const showRecon    = sheetSpent > 0 && loggedSpent > 0;
         const reconMatches = showRecon && Math.abs(sheetSpent - loggedSpent) <= 1;
         return (
-          <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
-            <button onClick={() => setShowSpentProv(v => !v)} className="w-full flex items-center gap-2 text-left">
-              <span className="text-slate-400 text-[11px] leading-snug">🔎 Spent = Σ your spend rows logged this {currentMonth}</span>
-              <span className="ml-auto text-slate-500 text-xs shrink-0">{showSpentProv ? '▾' : '▸'}</span>
-            </button>
-            {showRecon && (
-              <div className={`mt-1.5 text-[10px] leading-snug ${reconMatches ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {reconMatches
-                  ? '✓ matches your sheet total'
-                  : `⚠ sheet says ${fmt(sheetSpent)} · your log says ${fmt(loggedSpent)} — using your log`}
+          <TileProvenance
+            caption={`🔎 Spent = Σ your spend rows logged this ${currentMonth}`}
+            open={showSpentProv}
+            onToggle={() => setShowSpentProv(v => !v)}
+            recon={{ show: showRecon, matches: reconMatches, mismatchText: `⚠ sheet says ${fmt(sheetSpent)} · your log says ${fmt(loggedSpent)} — using your log` }}
+          >
+            <p className="text-slate-500 text-[10px] leading-snug">Each row is a real Allocation Transactions spend dated this month — grouped by its category, not an estimate.</p>
+            {rows.map(r => (
+              <div key={r.category} className="flex justify-between text-xs">
+                <span className="text-slate-300">{r.category}</span>
+                <span className="font-mono text-rose-400">{fmt(r.amt)}</span>
               </div>
-            )}
-            {showSpentProv && (
-              <div className="mt-2 space-y-1 border-t border-slate-700 pt-2">
-                <p className="text-slate-500 text-[10px] leading-snug">Each row is a real Allocation Transactions spend dated this month — grouped by its category, not an estimate.</p>
-                {rows.map(r => (
-                  <div key={r.category} className="flex justify-between text-xs">
-                    <span className="text-slate-300">{r.category}</span>
-                    <span className="font-mono text-rose-400">{fmt(r.amt)}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
-                  <span className="text-slate-400 font-semibold">Total logged</span>
-                  <span className="font-mono text-rose-300 font-semibold">{fmt(total)}</span>
-                </div>
-              </div>
-            )}
-          </div>
+            ))}
+            <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
+              <span className="text-slate-400 font-semibold">Total logged</span>
+              <span className="font-mono text-rose-300 font-semibold">{fmt(total)}</span>
+            </div>
+          </TileProvenance>
         );
       })()}
 
@@ -4189,36 +4199,26 @@ ${stmtTxns.length ? `
         const sheetNet     = sheetIncome - sheetSpent;
         const reconMatches = showRecon && Math.abs(sheetNet - net) <= 1;
         return (
-          <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
-            <button onClick={() => setShowNetProv(v => !v)} className="w-full flex items-center gap-2 text-left">
-              <span className="text-slate-400 text-[11px] leading-snug">🔎 Net Flow = your logged income − spending this {currentMonth}</span>
-              <span className="ml-auto text-slate-500 text-xs shrink-0">{showNetProv ? '▾' : '▸'}</span>
-            </button>
-            {showRecon && (
-              <div className={`mt-1.5 text-[10px] leading-snug ${reconMatches ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {reconMatches
-                  ? '✓ matches your sheet total'
-                  : `⚠ sheet net ${fmt(sheetNet)} · your log ${fmt(net)} — using your log`}
-              </div>
-            )}
-            {showNetProv && (
-              <div className="mt-2 space-y-1 border-t border-slate-700 pt-2">
-                <p className="text-slate-500 text-[10px] leading-snug">Both figures below are live sums of your Allocation Transactions this month — Net is simply one minus the other, not a stored value.</p>
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-300">＋ Income logged</span>
-                  <span className="font-mono text-emerald-400">{fmt(income)}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-300">− Spending logged</span>
-                  <span className="font-mono text-rose-400">{fmt(spent)}</span>
-                </div>
-                <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
-                  <span className="text-slate-400 font-semibold">= Net Flow</span>
-                  <span className={`font-mono font-semibold ${net >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{fmt(net)}</span>
-                </div>
-              </div>
-            )}
-          </div>
+          <TileProvenance
+            caption={`🔎 Net Flow = your logged income − spending this ${currentMonth}`}
+            open={showNetProv}
+            onToggle={() => setShowNetProv(v => !v)}
+            recon={{ show: showRecon, matches: reconMatches, mismatchText: `⚠ sheet net ${fmt(sheetNet)} · your log ${fmt(net)} — using your log` }}
+          >
+            <p className="text-slate-500 text-[10px] leading-snug">Both figures below are live sums of your Allocation Transactions this month — Net is simply one minus the other, not a stored value.</p>
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-300">＋ Income logged</span>
+              <span className="font-mono text-emerald-400">{fmt(income)}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-300">− Spending logged</span>
+              <span className="font-mono text-rose-400">{fmt(spent)}</span>
+            </div>
+            <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
+              <span className="text-slate-400 font-semibold">= Net Flow</span>
+              <span className={`font-mono font-semibold ${net >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{fmt(net)}</span>
+            </div>
+          </TileProvenance>
         );
       })()}
 
@@ -4240,40 +4240,30 @@ ${stmtTxns.length ? `
         const showRecon    = sheetGoal > 0;
         const reconMatches = showRecon && Math.abs(goal - sheetGoal) <= 1;
         return (
-          <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
-            <button onClick={() => setShowGoalProv(v => !v)} className="w-full flex items-center gap-2 text-left">
-              <span className="text-slate-400 text-[11px] leading-snug">🎯 Goal = Σ your budget allowances (your plan, not what you've spent)</span>
-              <span className="ml-auto text-slate-500 text-xs shrink-0">{showGoalProv ? '▾' : '▸'}</span>
-            </button>
-            {showRecon && (
-              <div className={`mt-1.5 text-[10px] leading-snug ${reconMatches ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {reconMatches
-                  ? '✓ matches your sheet total'
-                  : `⚠ sheet says ${fmt(sheetGoal)} · your allowances add to ${fmt(goal)} — using your allowances`}
+          <TileProvenance
+            caption="🎯 Goal = Σ your budget allowances (your plan, not what you've spent)"
+            open={showGoalProv}
+            onToggle={() => setShowGoalProv(v => !v)}
+            recon={{ show: showRecon, matches: reconMatches, mismatchText: `⚠ sheet says ${fmt(sheetGoal)} · your allowances add to ${fmt(goal)} — using your allowances` }}
+          >
+            <p className="text-slate-500 text-[10px] leading-snug">Your monthly goal is the sum of every category's planned allowance — largest first. This is what you plan to fund, not what you've spent.</p>
+            {topItems.map(it => (
+              <div key={it.type} className="flex justify-between text-xs">
+                <span className="text-slate-300">{it.type}</span>
+                <span className="font-mono text-sky-400">{fmt(it.allow)}</span>
+              </div>
+            ))}
+            {restItems.length > 0 && (
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">+{restItems.length} more categor{restItems.length === 1 ? 'y' : 'ies'}</span>
+                <span className="font-mono text-slate-400">{fmt(restTotal)}</span>
               </div>
             )}
-            {showGoalProv && (
-              <div className="mt-2 space-y-1 border-t border-slate-700 pt-2">
-                <p className="text-slate-500 text-[10px] leading-snug">Your monthly goal is the sum of every category's planned allowance — largest first. This is what you plan to fund, not what you've spent.</p>
-                {topItems.map(it => (
-                  <div key={it.type} className="flex justify-between text-xs">
-                    <span className="text-slate-300">{it.type}</span>
-                    <span className="font-mono text-sky-400">{fmt(it.allow)}</span>
-                  </div>
-                ))}
-                {restItems.length > 0 && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-500">+{restItems.length} more categor{restItems.length === 1 ? 'y' : 'ies'}</span>
-                    <span className="font-mono text-slate-400">{fmt(restTotal)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
-                  <span className="text-slate-400 font-semibold">Total planned</span>
-                  <span className="font-mono text-sky-300 font-semibold">{fmt(goal)}</span>
-                </div>
-              </div>
-            )}
-          </div>
+            <div className="flex justify-between text-xs border-t border-slate-700 pt-1 mt-1">
+              <span className="text-slate-400 font-semibold">Total planned</span>
+              <span className="font-mono text-sky-300 font-semibold">{fmt(goal)}</span>
+            </div>
+          </TileProvenance>
         );
       })()}
 
