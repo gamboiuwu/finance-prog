@@ -2305,6 +2305,11 @@ export default function Dashboard({ token }) {
     setShowIncomeProv(open); setShowSpentProv(open);
     setShowNetProv(open);    setShowGoalProv(open);
   };
+  // Task 182: "as of {time}" freshness stamp for the stat-grid trust bar.
+  // Set when the data pull finishes (and re-set on every refreshKey bump), so
+  // the user knows the figures reflect the log as of this page load. In-memory
+  // only — a browser refresh re-pulls and visibly updates it.
+  const [loadedAt, setLoadedAt] = useState(null);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -2838,7 +2843,7 @@ export default function Dashboard({ token }) {
         }
       })
       .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+      .finally(() => { setLoadedAt(new Date()); setLoading(false); });
   }, [token, refreshKey]);
 
   // Fetch the external gas-price API after first paint (non-blocking) so a
@@ -4162,7 +4167,16 @@ ${stmtTxns.length ? `
           "confirm these numbers" trust ask doesn't need four separate taps.
           Shown only when at least one provenance block would render. */}
       {((allAllocTx.length > 0 && (income > 0 || spent > 0)) || (goal > 0 && expenses.length > 0)) && (
-        <div className="flex items-center justify-between gap-2 px-0.5 -mb-1">
+        <div className="px-0.5 -mb-1">
+        {/* Freshness stamp (Task 182): the figures below recompute on every page
+            load from the freshly-pulled log, so state when — a stale-looking
+            number can't otherwise be told from a fresh one. */}
+        {loadedAt && (
+          <p className="text-[10px] text-slate-500 mb-1">
+            🕑 Figures as of {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} — refresh to update
+          </p>
+        )}
+        <div className="flex items-center justify-between gap-2">
           {/* At-a-glance reconciliation verdict (Task 181): ✓ when every checked
               tile agrees with its sheet formula, else an amber count that opens
               all breakdowns so the differing figure is one tap from explained. */}
@@ -4186,6 +4200,7 @@ ${stmtTxns.length ? `
           >
             {anyProvOpen ? '▾ Hide breakdowns' : '🔎 Explain all my numbers'}
           </button>
+        </div>
         </div>
       )}
 
