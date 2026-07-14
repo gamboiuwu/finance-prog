@@ -2305,6 +2305,13 @@ export default function Dashboard({ token }) {
     setShowIncomeProv(open); setShowSpentProv(open);
     setShowNetProv(open);    setShowGoalProv(open);
   };
+  // ── Freshness stamp (Task 182) ──
+  // Set when the Dashboard's data pull completes, so the stat-grid figures can
+  // carry an "as of {clock time}" line — answering the implicit "is this even
+  // up to date?" worry behind the 2026-07-07 trust reports. In-memory only; a
+  // browser refresh remounts the component and updates it. (new Date() is fine
+  // here — this is app runtime, not a workflow script.)
+  const [loadedAt, setLoadedAt]         = useState(null);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -2838,7 +2845,7 @@ export default function Dashboard({ token }) {
         }
       })
       .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+      .finally(() => { setLoading(false); setLoadedAt(new Date()); });
   }, [token, refreshKey]);
 
   // Fetch the external gas-price API after first paint (non-blocking) so a
@@ -4163,23 +4170,31 @@ ${stmtTxns.length ? `
           Shown only when at least one provenance block would render. */}
       {((allAllocTx.length > 0 && (income > 0 || spent > 0)) || (goal > 0 && expenses.length > 0)) && (
         <div className="flex items-center justify-between gap-2 px-0.5 -mb-1">
-          {/* At-a-glance reconciliation verdict (Task 181): ✓ when every checked
-              tile agrees with its sheet formula, else an amber count that opens
-              all breakdowns so the differing figure is one tap from explained. */}
-          {reconSummary.checked > 0 ? (
-            reconSummary.mismatches === 0 ? (
-              <span className="text-[11px] font-medium rounded-full px-2 py-0.5 border text-emerald-300 border-emerald-500/30 bg-emerald-500/10">
-                ✓ all figures match your sheet
+          {/* Left group: the at-a-glance reconciliation verdict (Task 181) and,
+              beside it, an "as of {time}" freshness stamp (Task 182) so the user
+              knows these figures reflect the log as of this page load — answering
+              the implicit "is this even up to date?" worry. */}
+          <div className="flex items-center gap-2 min-w-0">
+            {reconSummary.checked > 0 && (
+              reconSummary.mismatches === 0 ? (
+                <span className="text-[11px] font-medium rounded-full px-2 py-0.5 border text-emerald-300 border-emerald-500/30 bg-emerald-500/10 whitespace-nowrap">
+                  ✓ all figures match your sheet
+                </span>
+              ) : (
+                <button
+                  onClick={() => setAllProv(true)}
+                  className="text-[11px] font-medium rounded-full px-2 py-0.5 border text-amber-300 border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 active:opacity-70 transition-colors whitespace-nowrap"
+                >
+                  ⚠ {reconSummary.mismatches} figure{reconSummary.mismatches === 1 ? '' : 's'} differ — tap to explain
+                </button>
+              )
+            )}
+            {loadedAt && (
+              <span className="text-[10px] text-slate-500 whitespace-nowrap">
+                as of {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
               </span>
-            ) : (
-              <button
-                onClick={() => setAllProv(true)}
-                className="text-[11px] font-medium rounded-full px-2 py-0.5 border text-amber-300 border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 active:opacity-70 transition-colors"
-              >
-                ⚠ {reconSummary.mismatches} figure{reconSummary.mismatches === 1 ? '' : 's'} differ — tap to explain
-              </button>
-            )
-          ) : <span />}
+            )}
+          </div>
           <button
             onClick={() => setAllProv(!anyProvOpen)}
             className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70 whitespace-nowrap"
