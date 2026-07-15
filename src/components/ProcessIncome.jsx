@@ -27,8 +27,12 @@ function parseSheetDate(val) {
   if (val == null || val === '') return null;
   const n = Number(val);
   if (!isNaN(n) && n > 1000 && !String(val).includes('/')) {
-    // Serial → JS Date (UTC epoch offset from Sheets epoch 1899-12-30)
-    return new Date(Math.round((n - 25569) * 86400000));
+    // Serial → calendar date. Sheets serials are UTC-midnight; rebuild as a LOCAL
+    // noon date from the UTC calendar parts so getMonth()/getDate() never slip a
+    // day back in negative-UTC (US) timezones — a 1st-of-month deposit must stay
+    // in this month, not fall into last month and read as $0.
+    const u = new Date(Math.round((n - 25569) * 86400000));
+    return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), 12, 0, 0);
   }
   const s = String(val);
   if (s.includes('-')) return new Date(s + 'T12:00:00');

@@ -25,7 +25,13 @@ function parseSheetDate(val) {
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3]);
   const serial = parseFloat(s);
-  if (!isNaN(serial) && serial > 40000) return new Date((serial - 25569) * 86400000);
+  if (!isNaN(serial) && serial > 40000) {
+    // Sheets serials are UTC-midnight; rebuild as a LOCAL noon date from the UTC
+    // calendar parts so getMonth()/getDate() don't slip a day back in negative-UTC
+    // (US) timezones — a 1st-of-month deposit must stay in this month, not last.
+    const u = new Date((serial - 25569) * 86400000);
+    return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), 12, 0, 0);
+  }
   return null;
 }
 

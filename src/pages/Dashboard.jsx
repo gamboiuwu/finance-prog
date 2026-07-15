@@ -1793,7 +1793,10 @@ function nwDateToIso(raw) {
   const n = Number(ds);
   let d;
   if (!isNaN(n) && n > 1000 && !ds.includes('/')) {
-    d = new Date(Math.round((n - 25569) * 86400000));     // Google Sheets serial
+    // Sheets serial is UTC-midnight; rebuild as LOCAL noon from the UTC calendar
+    // parts so the ISO day never slips back a day in negative-UTC (US) timezones.
+    const u = new Date(Math.round((n - 25569) * 86400000));
+    d = new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), 12, 0, 0);
   } else if (/^\d{4}-\d{2}-\d{2}$/.test(ds)) {
     d = new Date(ds + 'T12:00:00');                        // ISO — pin to noon (no tz shift)
   } else {
@@ -2629,7 +2632,10 @@ export default function Dashboard({ token }) {
             const n = Number(ds);
             let d;
             if (!isNaN(n) && n > 1000 && !ds.includes('/')) {
-              d = new Date(Math.round((n - 25569) * 86400000));
+              // Serial is UTC-midnight → rebuild LOCAL noon from UTC parts so the
+              // month filter below doesn't slip a 1st-of-month row to last month.
+              const u = new Date(Math.round((n - 25569) * 86400000));
+              d = new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), 12, 0, 0);
             } else {
               d = new Date(ds);
             }
@@ -2659,7 +2665,10 @@ export default function Dashboard({ token }) {
             const n = Number(ds);
             let dv;
             if (!isNaN(n) && n > 1000 && !ds.includes('/')) {
-              dv = new Date(Math.round((n - 25569) * 86400000));
+              // Serial is UTC-midnight → rebuild LOCAL noon from UTC parts so the
+              // dateStr (YYYY-MM-DD) month bucket doesn't slip a 1st-of-month row back.
+              const u = new Date(Math.round((n - 25569) * 86400000));
+              dv = new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), 12, 0, 0);
             } else {
               dv = new Date(ds);
             }
@@ -3033,7 +3042,10 @@ export default function Dashboard({ token }) {
         const ds = String(raw ?? '');
         const n = Number(ds);
         if (!isNaN(n) && n > 1000 && !ds.includes('/')) {
-          return new Date(Math.round((n - 25569) * 86400000));
+          // Serial is UTC-midnight; rebuild as LOCAL noon so fmtDate() below
+          // prints the right calendar day in negative-UTC (US) timezones.
+          const u = new Date(Math.round((n - 25569) * 86400000));
+          return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), 12, 0, 0);
         }
         return new Date(ds);
       };

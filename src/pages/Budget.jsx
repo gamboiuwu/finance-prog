@@ -126,8 +126,13 @@ function resetCatLayout() {
 function parseSheetDate(val) {
   if (val == null || val === '') return null;
   const n = Number(val);
-  if (!isNaN(n) && n > 1000 && !String(val).includes('/'))
-    return new Date(Math.round((n - 25569) * 86400000));
+  if (!isNaN(n) && n > 1000 && !String(val).includes('/')) {
+    // Sheets serials are UTC-midnight; rebuild as a LOCAL noon date from the UTC
+    // calendar parts so getMonth()/getDate() don't slip a day back in negative-UTC
+    // (US) timezones — a 1st-of-month deposit must stay in this month, not last.
+    const u = new Date(Math.round((n - 25569) * 86400000));
+    return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), 12, 0, 0);
+  }
   const s = String(val);
   if (s.includes('-')) return new Date(s + 'T12:00:00');
   const parts = s.split('/');
