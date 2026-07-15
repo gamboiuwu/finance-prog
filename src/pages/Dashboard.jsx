@@ -2315,6 +2315,13 @@ export default function Dashboard({ token }) {
   // browser refresh remounts the component and updates it. (new Date() is fine
   // here — this is app runtime, not a workflow script.)
   const [loadedAt, setLoadedAt]         = useState(null);
+  // Task 186 — brief "✓ Updated {time}" flash after a *manual* ↻ refresh (Task 183),
+  // so the pull landing gives positive confirmation, not just a quietly-changing
+  // stamp. manualRefreshPending is set only by the ↻ button (not by the initial
+  // mount or a ProcessIncome/gas-log write re-pull), so the flash fires only on a
+  // deliberate refresh.
+  const [justRefreshed, setJustRefreshed] = useState(false);
+  const manualRefreshPending             = useRef(false);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -2854,8 +2861,22 @@ export default function Dashboard({ token }) {
         }
       })
       .catch(e => setError(e.message))
-      .finally(() => { setLoading(false); setLoadedAt(new Date()); });
+      .finally(() => {
+        setLoading(false);
+        setLoadedAt(new Date());
+        if (manualRefreshPending.current) {
+          manualRefreshPending.current = false;
+          setJustRefreshed(true);
+        }
+      });
   }, [token, refreshKey]);
+
+  // Task 186 — auto-clear the "✓ Updated" flash after ~2s, reverting to "as of {time}".
+  useEffect(() => {
+    if (!justRefreshed) return;
+    const t = setTimeout(() => setJustRefreshed(false), 2000);
+    return () => clearTimeout(t);
+  }, [justRefreshed]);
 
   // Fetch the external gas-price API after first paint (non-blocking) so a
   // slow or rate-limited EIA response never delays the dashboard rendering.
@@ -4203,16 +4224,25 @@ ${stmtTxns.length ? `
             )}
             {loadedAt && (
               <>
-                <span className="text-[10px] text-slate-500 whitespace-nowrap">
-                  as of {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                </span>
+                {justRefreshed ? (
+                  /* Task 186 — transient positive confirmation the ↻ pull landed. */
+                  <span className="text-[10px] font-medium text-emerald-400 whitespace-nowrap">
+                    ✓ Updated {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-500 whitespace-nowrap">
+                    as of {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                )}
                 {/* Task 183 — one-tap refresh: bump refreshKey to re-pull the sheet
                     data in place (same mechanism ProcessIncome / gas-log use after a
                     write). The core-load effect flips loading→true, so the whole page
                     shows its spinner during the pull and this button unmounts — a
-                    double-tap can't stack pulls, and loadedAt updates on completion. */}
+                    double-tap can't stack pulls, and loadedAt updates on completion.
+                    manualRefreshPending flags this as a deliberate refresh so the
+                    Task-186 "✓ Updated" flash fires (a write re-pull won't). */}
                 <button
-                  onClick={() => setRefreshKey(k => k + 1)}
+                  onClick={() => { manualRefreshPending.current = true; setRefreshKey(k => k + 1); }}
                   title="Refresh — re-pull your latest sheet data"
                   aria-label="Refresh data"
                   className="text-[11px] text-slate-500 hover:text-slate-300 active:opacity-60 transition-colors leading-none"
