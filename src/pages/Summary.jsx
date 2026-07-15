@@ -502,7 +502,11 @@ function parseAllocDate(ds) {
   if (ds === null || ds === undefined || ds === '') return null;
   const n = Number(ds);
   if (!isNaN(n) && n > 1000 && !String(ds).includes('/')) {
-    return new Date(Math.round((n - 25569) * 86400000));
+    // Sheets serials are UTC-midnight; rebuild as a LOCAL noon date from the UTC
+    // calendar parts so getMonth() doesn't slip a day back in negative-UTC (US)
+    // timezones — a 1st-of-month row must stay in this month, not last.
+    const u = new Date(Math.round((n - 25569) * 86400000));
+    return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), 12, 0, 0);
   }
   const d = new Date(String(ds));
   return isNaN(d.getTime()) ? null : d;

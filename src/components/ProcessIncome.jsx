@@ -27,8 +27,12 @@ function parseSheetDate(val) {
   if (val == null || val === '') return null;
   const n = Number(val);
   if (!isNaN(n) && n > 1000 && !String(val).includes('/')) {
-    // Serial → JS Date (UTC epoch offset from Sheets epoch 1899-12-30)
-    return new Date(Math.round((n - 25569) * 86400000));
+    // Serial → calendar date. Sheets serials are UTC-midnight; rebuild as a LOCAL
+    // noon date from the UTC calendar parts so getMonth()/getDate() never slip a
+    // day back in negative-UTC (US) timezones — a 1st-of-month deposit must stay
+    // in this month, not fall into last month and read as $0.
+    const u = new Date(Math.round((n - 25569) * 86400000));
+    return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), 12, 0, 0);
   }
   const s = String(val);
   if (s.includes('-')) return new Date(s + 'T12:00:00');
@@ -478,8 +482,12 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:bg-slate-600 flex items-center justify-center">✕</button>
         </div>
 
+        {/* Scrollable middle — allocation mode + inputs + breakdown scroll together
+            so the category list is never crushed into a sliver on short viewports. */}
+        <div className="overflow-y-auto flex-1 min-h-0">
+
         {/* Allocation mode toggle */}
-        <div className="px-5 pt-4 shrink-0">
+        <div className="px-5 pt-4">
           <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-2">Allocation Mode</p>
           <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
             <button
@@ -513,7 +521,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         </div>
 
         {/* Inputs */}
-        <div className="p-5 border-b border-slate-700 shrink-0 space-y-3 pt-3">
+        <div className="p-5 border-b border-slate-700 space-y-3 pt-3">
 
           {/* ── Quick-fill templates ── */}
           {(templates.length > 0 || showManageTpl) ? (
@@ -710,7 +718,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         </div>
 
         {/* Breakdown by account */}
-        <div className="overflow-y-auto flex-1 min-h-0 p-4 space-y-3">
+        <div className="p-4 space-y-3">
           {/* ── By-account summary: where the money physically moves ── */}
           {amount > 0 && accountTiles.length > 0 && (
             <div className="rounded-2xl border border-blue-800/50 bg-gradient-to-b from-blue-950/40 to-slate-900 overflow-hidden shadow-lg">
@@ -1060,6 +1068,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           {logError && (
             <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm">{logError}</div>
           )}
+        </div>
+        {/* end scrollable middle */}
         </div>
 
         {/* Actions */}

@@ -19,9 +19,12 @@ function parseDate(s) {
   if (!s) return new Date(0);
   const n = Number(s);
   if (!isNaN(n) && n > 1000 && !String(s).includes('/') && !String(s).includes('-') && !String(s).includes(' ')) {
-    // Sheets serial — integer = date, fractional = time-of-day
+    // Sheets serial — integer = date, fractional = time-of-day. The serial is
+    // UTC-midnight; rebuild as LOCAL noon so toLocaleDateString() shows the right
+    // calendar day (not a day early) in negative-UTC (US) timezones.
     const daySerial = Math.floor(n);
-    return new Date(Math.round((daySerial - 25569) * 86400000));
+    const u = new Date(Math.round((daySerial - 25569) * 86400000));
+    return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), 12, 0, 0);
   }
   const str = String(s);
   if (str.includes('-') || str.includes('T') || str.includes(' ')) return new Date(str.slice(0, 10) + 'T12:00:00');
@@ -37,7 +40,10 @@ function parseDatetime(s) {
   if (!isNaN(n) && n > 1000 && !String(s).includes('-') && !String(s).includes(' ')) {
     const daySerial = Math.floor(n);
     const timeFrac  = n - daySerial;
-    const date = new Date(Math.round((daySerial - 25569) * 86400000));
+    // Serial day is UTC-midnight; rebuild as LOCAL noon so the displayed date is
+    // the right calendar day. Time-of-day is derived from timeFrac separately below.
+    const uu = new Date(Math.round((daySerial - 25569) * 86400000));
+    const date = new Date(uu.getUTCFullYear(), uu.getUTCMonth(), uu.getUTCDate(), 12, 0, 0);
     if (timeFrac > 0.0005) {
       const totalMins = Math.round(timeFrac * 1440);
       const h = Math.floor(totalMins / 60), m = totalMins % 60;
