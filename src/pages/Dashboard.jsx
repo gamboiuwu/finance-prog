@@ -4190,9 +4190,24 @@ ${stmtTxns.length ? `
               )
             )}
             {loadedAt && (
-              <span className="text-[10px] text-slate-500 whitespace-nowrap">
-                as of {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-              </span>
+              <>
+                <span className="text-[10px] text-slate-500 whitespace-nowrap">
+                  as of {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </span>
+                {/* Task 183 — one-tap refresh: bump refreshKey to re-pull the sheet
+                    data in place (same mechanism ProcessIncome / gas-log use after a
+                    write). The core-load effect flips loading→true, so the whole page
+                    shows its spinner during the pull and this button unmounts — a
+                    double-tap can't stack pulls, and loadedAt updates on completion. */}
+                <button
+                  onClick={() => setRefreshKey(k => k + 1)}
+                  title="Refresh — re-pull your latest sheet data"
+                  aria-label="Refresh data"
+                  className="text-[11px] text-slate-500 hover:text-slate-300 active:opacity-60 transition-colors leading-none"
+                >
+                  ↻
+                </button>
+              </>
             )}
           </div>
           <button
