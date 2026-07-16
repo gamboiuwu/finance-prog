@@ -2327,7 +2327,11 @@ export default function Dashboard({ token }) {
   // positive confirmation the home figures now reflect it. flashSaved records the
   // intent for the render; writeRefreshPending flags the pending write re-pull.
   const writeRefreshPending              = useRef(false);
-  const flashSaved                       = useRef(false);
+  // Task 193 — which write triggered the re-pull, so the flash names it
+  // ('income' → "Income logged", 'networth' → "Net Worth saved", 'debt' →
+  // "Debt snapshot saved"). null = manual ↻; any other write falls back to "Saved".
+  const writeRefreshKind                 = useRef(null);
+  const flashSaved                       = useRef(null);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -2339,7 +2343,7 @@ export default function Dashboard({ token }) {
   const [refreshKey, setRefreshKey]     = useState(0);
   // Task 189 — trigger a re-pull after a successful write and flag it so the
   // freshness stamp flashes "✓ Saved · updated {time}" on completion.
-  const triggerWriteRefresh = () => { writeRefreshPending.current = true; setRefreshKey(k => k + 1); };
+  const triggerWriteRefresh = (kind = null) => { writeRefreshPending.current = true; writeRefreshKind.current = kind; setRefreshKey(k => k + 1); };
   const [showExpLog, setShowExpLog]     = useState(false);
   const [expAmount, setExpAmount]       = useState('');
   const [expCategory, setExpCategory]   = useState('');
@@ -2875,11 +2879,11 @@ export default function Dashboard({ token }) {
         setLoadedAt(new Date());
         if (manualRefreshPending.current) {
           manualRefreshPending.current = false;
-          flashSaved.current = false;
+          flashSaved.current = null;                                  // manual ↻ → "✓ Updated"
           setJustRefreshed(true);
         } else if (writeRefreshPending.current) {
           writeRefreshPending.current = false;
-          flashSaved.current = true;
+          flashSaved.current = writeRefreshKind.current || 'saved';   // Task 193 — name the write
           setJustRefreshed(true);
         }
       });
@@ -3170,7 +3174,7 @@ export default function Dashboard({ token }) {
         await appendRow(token, 'Net Worth!A:E', [today, a.account.trim(), a.type, pm(a.balance), a.notes || '']);
       }
       setShowNetWorth(false);
-      triggerWriteRefresh();
+      triggerWriteRefresh('networth');
     } catch (e) {
       setNwError(e.message || 'Could not save — check your connection and try again.');
     } finally {
@@ -3193,7 +3197,7 @@ export default function Dashboard({ token }) {
         await appendRow(token, 'Debts!A:G', [today, d.name.trim(), d.type || 'Other', pm(d.balance), pm(d.apr), pm(d.minPayment), d.notes || '']);
       }
       setShowDebt(false);
-      triggerWriteRefresh();
+      triggerWriteRefresh('debt');
     } catch (e) {
       setDebtError(e.message || 'Could not save — check your connection and try again.');
     } finally {
@@ -4241,10 +4245,19 @@ ${stmtTxns.length ? `
             {loadedAt && (
               <>
                 {justRefreshed ? (
-                  /* Task 186/189 — transient positive confirmation the pull landed:
-                     "✓ Updated" for a manual ↻, "✓ Saved · updated" for a write re-pull. */
+                  /* Task 186/189/193 — transient positive confirmation the pull landed:
+                     "✓ Updated" for a manual ↻; a write re-pull names what was saved
+                     ("Income logged" / "Net Worth saved" / "Debt snapshot saved"). */
                   <span className="text-[10px] font-medium text-emerald-400 whitespace-nowrap">
-                    {flashSaved.current ? '✓ Saved · updated ' : '✓ Updated '}
+                    {(!flashSaved.current
+                        ? '✓ Updated '
+                        : flashSaved.current === 'income'
+                        ? '✓ Income logged · updated '
+                        : flashSaved.current === 'networth'
+                        ? '✓ Net Worth saved · updated '
+                        : flashSaved.current === 'debt'
+                        ? '✓ Debt snapshot saved · updated '
+                        : '✓ Saved · updated ')}
                     {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </span>
                 ) : (
@@ -5703,7 +5716,7 @@ ${stmtTxns.length ? `
           gasBalance={gasBalance}
           gasBudget={gasBudget}
           onClose={() => setShowIncome(false)}
-          onProcessed={triggerWriteRefresh}
+          onProcessed={() => triggerWriteRefresh('income')}
         />
       )}
 
