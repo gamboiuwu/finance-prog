@@ -2322,6 +2322,12 @@ export default function Dashboard({ token }) {
   // deliberate refresh.
   const [justRefreshed, setJustRefreshed] = useState(false);
   const manualRefreshPending             = useRef(false);
+  // Task 189 — same flash, second intent: a write re-pull (Process Income / Net
+  // Worth / Debt snapshot) reads "✓ Saved · updated {time}" so a save gives
+  // positive confirmation the home figures now reflect it. flashSaved records the
+  // intent for the render; writeRefreshPending flags the pending write re-pull.
+  const writeRefreshPending              = useRef(false);
+  const flashSaved                       = useRef(false);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -2331,6 +2337,9 @@ export default function Dashboard({ token }) {
   const [gasBudget, setGasBudget]       = useState(() => getGasBudget()?.value ?? null);
   // Bumped after income is processed / a gas spend is logged to re-pull sheet data.
   const [refreshKey, setRefreshKey]     = useState(0);
+  // Task 189 — trigger a re-pull after a successful write and flag it so the
+  // freshness stamp flashes "✓ Saved · updated {time}" on completion.
+  const triggerWriteRefresh = () => { writeRefreshPending.current = true; setRefreshKey(k => k + 1); };
   const [showExpLog, setShowExpLog]     = useState(false);
   const [expAmount, setExpAmount]       = useState('');
   const [expCategory, setExpCategory]   = useState('');
@@ -2866,15 +2875,22 @@ export default function Dashboard({ token }) {
         setLoadedAt(new Date());
         if (manualRefreshPending.current) {
           manualRefreshPending.current = false;
+          flashSaved.current = false;
+          setJustRefreshed(true);
+        } else if (writeRefreshPending.current) {
+          writeRefreshPending.current = false;
+          flashSaved.current = true;
           setJustRefreshed(true);
         }
       });
   }, [token, refreshKey]);
 
-  // Task 186 — auto-clear the "✓ Updated" flash after ~2s, reverting to "as of {time}".
+  // Task 186/189 — auto-clear the flash, reverting to "as of {time}". A "✓ Saved"
+  // write flash lingers slightly longer (~2.5s) so it isn't missed after the
+  // ProcessIncome/snapshot modal closes; a manual ↻ flash clears at ~2s.
   useEffect(() => {
     if (!justRefreshed) return;
-    const t = setTimeout(() => setJustRefreshed(false), 2000);
+    const t = setTimeout(() => setJustRefreshed(false), flashSaved.current ? 2500 : 2000);
     return () => clearTimeout(t);
   }, [justRefreshed]);
 
@@ -3154,7 +3170,7 @@ export default function Dashboard({ token }) {
         await appendRow(token, 'Net Worth!A:E', [today, a.account.trim(), a.type, pm(a.balance), a.notes || '']);
       }
       setShowNetWorth(false);
-      setRefreshKey(k => k + 1);
+      triggerWriteRefresh();
     } catch (e) {
       setNwError(e.message || 'Could not save — check your connection and try again.');
     } finally {
@@ -3177,7 +3193,7 @@ export default function Dashboard({ token }) {
         await appendRow(token, 'Debts!A:G', [today, d.name.trim(), d.type || 'Other', pm(d.balance), pm(d.apr), pm(d.minPayment), d.notes || '']);
       }
       setShowDebt(false);
-      setRefreshKey(k => k + 1);
+      triggerWriteRefresh();
     } catch (e) {
       setDebtError(e.message || 'Could not save — check your connection and try again.');
     } finally {
@@ -4225,9 +4241,11 @@ ${stmtTxns.length ? `
             {loadedAt && (
               <>
                 {justRefreshed ? (
-                  /* Task 186 — transient positive confirmation the ↻ pull landed. */
+                  /* Task 186/189 — transient positive confirmation the pull landed:
+                     "✓ Updated" for a manual ↻, "✓ Saved · updated" for a write re-pull. */
                   <span className="text-[10px] font-medium text-emerald-400 whitespace-nowrap">
-                    ✓ Updated {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    {flashSaved.current ? '✓ Saved · updated ' : '✓ Updated '}
+                    {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </span>
                 ) : (
                   <span className="text-[10px] text-slate-500 whitespace-nowrap">
@@ -5685,7 +5703,7 @@ ${stmtTxns.length ? `
           gasBalance={gasBalance}
           gasBudget={gasBudget}
           onClose={() => setShowIncome(false)}
-          onProcessed={() => setRefreshKey(k => k + 1)}
+          onProcessed={triggerWriteRefresh}
         />
       )}
 
