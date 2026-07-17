@@ -127,6 +127,20 @@ function ProgressBar({ pct, color }) {
 // bucket under "Untagged income". Pure — read-only over already-loaded
 // allAllocTx. The total equals the Income tile's value exactly whenever the
 // current month has alloc rows (both = Σ positive current-month deposits).
+// Task 191 — human-readable age of a load timestamp, computed on demand (no
+// interval/timer, so no re-render churn or lifecycle to clean up). Answers the
+// implicit "how old is this?" worry behind the freshness stamp: hover shows it
+// as a title tooltip, and a tap reveals it inline (fresh, since tapping
+// re-renders). Pure — reads only the in-memory loadedAt Date.
+function relativeAge(at) {
+  if (!at) return '';
+  const mins = Math.max(0, Math.round((new Date() - at) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `≈ ${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  return `≈ ${hrs} hr${hrs === 1 ? '' : 's'} ago`;
+}
+
 function incomeBySource(allAllocTx) {
   const now = new Date();
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -2328,6 +2342,9 @@ export default function Dashboard({ token }) {
   // intent for the render; writeRefreshPending flags the pending write re-pull.
   const writeRefreshPending              = useRef(false);
   const flashSaved                       = useRef(false);
+  // Task 191 — tap the "as of {time}" stamp to reveal its relative age inline
+  // (mobile-friendly companion to the hover title tooltip). In-memory only.
+  const [showAge, setShowAge]            = useState(false);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -4248,9 +4265,17 @@ ${stmtTxns.length ? `
                     {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </span>
                 ) : (
-                  <span className="text-[10px] text-slate-500 whitespace-nowrap">
+                  /* Task 191 — hover shows the relative age as a title tooltip;
+                     tapping toggles it inline (fresh, since the tap re-renders).
+                     No timer — the age is computed on demand. */
+                  <button
+                    onClick={() => setShowAge(v => !v)}
+                    title={relativeAge(loadedAt)}
+                    className="text-[10px] text-slate-500 hover:text-slate-400 active:opacity-60 transition-colors whitespace-nowrap"
+                  >
                     as of {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                  </span>
+                    {showAge && <span className="text-slate-600"> · {relativeAge(loadedAt)}</span>}
+                  </button>
                 )}
                 {/* Task 183 — one-tap refresh: bump refreshKey to re-pull the sheet
                     data in place (same mechanism ProcessIncome / gas-log use after a
