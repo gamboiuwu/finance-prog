@@ -3026,7 +3026,12 @@ export default function Dashboard({ token }) {
       setGasAmount('');
       setGasDesc('');
       setGasBalance(b => (b ?? 0) - Math.abs(amt));
-      setTimeout(() => { setGasLogDone(false); setShowGasLog(false); }, 1800);
+      // Task 192 — after the modal's success state shows, close it AND re-pull the
+      // dashboard so the top Income/Spent/Net tiles reflect this spend (they used to
+      // stay stale until the next manual ↻). triggerWriteRefresh also fires the
+      // Task-189 "✓ Saved · updated" flash. Re-pulling AFTER the 1.8s close (not
+      // immediately) avoids a jarring full-page spinner mid-modal.
+      setTimeout(() => { setGasLogDone(false); setShowGasLog(false); triggerWriteRefresh(); }, 1800);
     } catch (e) {
       alert(`Error logging gas: ${e.message}`);
     } finally {
@@ -3050,7 +3055,10 @@ export default function Dashboard({ token }) {
       setExpLogDone(true);
       setExpAmount('');
       setExpNote('');
-      setTimeout(() => { setExpLogDone(false); setShowExpLog(false); }, 1800);
+      // Task 192 — re-pull after the modal closes so the Spent/Net tiles reflect
+      // this expense (previously stayed stale until a manual ↻); also fires the
+      // Task-189 "✓ Saved · updated" flash.
+      setTimeout(() => { setExpLogDone(false); setShowExpLog(false); triggerWriteRefresh(); }, 1800);
     } catch (e) {
       alert(`Error logging expense: ${e.message}`);
     } finally {
