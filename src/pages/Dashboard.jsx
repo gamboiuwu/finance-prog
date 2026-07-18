@@ -2285,6 +2285,20 @@ function InsightSection({ title, open, onToggle, badge = 0, children }) {
   );
 }
 
+// Task 199 — per-write-kind flash spec: a glyph prefix + a lingering duration.
+// Snapshot saves (Net Worth / Debt) are rarer and higher-stakes, so they carry a
+// distinct 📊 glyph and linger a touch longer (~3s) so they aren't missed after
+// the modal closes; frequent quick-logs (income/gas/expense) share the quick 💰
+// glyph and stay snappy (~2.5s). A manual ↻ keeps its plain "✓ Updated" (Task 186).
+const WRITE_FLASH = {
+  income:   { label: 'Income logged · updated',       glyph: '💰', ms: 2500 },
+  gaslog:   { label: 'Gas logged · updated',          glyph: '💰', ms: 2500 },
+  expense:  { label: 'Expense logged · updated',      glyph: '💰', ms: 2500 },
+  networth: { label: 'Net Worth saved · updated',     glyph: '📊', ms: 3000 },
+  debt:     { label: 'Debt snapshot saved · updated', glyph: '📊', ms: 3000 },
+};
+const WRITE_FLASH_FALLBACK = { label: 'Saved · updated', glyph: '✓', ms: 2500 };
+
 export default function Dashboard({ token }) {
   const navigate = useNavigate();
   const [allMonths, setAllMonths]       = useState([]);
@@ -2890,12 +2904,16 @@ export default function Dashboard({ token }) {
       });
   }, [token, refreshKey]);
 
-  // Task 186/189 — auto-clear the flash, reverting to "as of {time}". A "✓ Saved"
-  // write flash lingers slightly longer (~2.5s) so it isn't missed after the
-  // ProcessIncome/snapshot modal closes; a manual ↻ flash clears at ~2s.
+  // Task 186/189/199 — auto-clear the flash, reverting to "as of {time}". A write
+  // flash lingers per its kind (~2.5s quick-log, ~3s snapshot save) so the rarer
+  // snapshot confirmations aren't missed after the modal closes; a manual ↻ flash
+  // clears at ~2s.
   useEffect(() => {
     if (!justRefreshed) return;
-    const t = setTimeout(() => setJustRefreshed(false), flashSaved.current ? 2500 : 2000);
+    const ms = flashSaved.current
+      ? (WRITE_FLASH[writeKind.current] || WRITE_FLASH_FALLBACK).ms
+      : 2000;
+    const t = setTimeout(() => setJustRefreshed(false), ms);
     return () => clearTimeout(t);
   }, [justRefreshed]);
 
@@ -4254,19 +4272,17 @@ ${stmtTxns.length ? `
             {loadedAt && (
               <>
                 {justRefreshed ? (
-                  /* Task 186/189/193 — transient positive confirmation the pull landed:
-                     "✓ Updated" for a manual ↻, and a write-type-specific label for a
-                     write re-pull ("✓ Income logged", "✓ Net Worth saved", …), falling
-                     back to the generic "✓ Saved · updated" when the kind is unknown. */
+                  /* Task 186/189/193/199 — transient positive confirmation the pull
+                     landed: "✓ Updated" for a manual ↻, and a write-type-specific
+                     label with a glyph for a write re-pull ("💰 Income logged",
+                     "📊 Net Worth saved", …), falling back to "✓ Saved · updated"
+                     when the kind is unknown. */
                   <span className="text-[10px] font-medium text-emerald-400 whitespace-nowrap">
                     {flashSaved.current
-                      ? ({
-                          income:   '✓ Income logged · updated ',
-                          networth: '✓ Net Worth saved · updated ',
-                          debt:     '✓ Debt snapshot saved · updated ',
-                          gaslog:   '✓ Gas logged · updated ',
-                          expense:  '✓ Expense logged · updated ',
-                        }[writeKind.current] || '✓ Saved · updated ')
+                      ? (() => {
+                          const s = WRITE_FLASH[writeKind.current] || WRITE_FLASH_FALLBACK;
+                          return `${s.glyph} ${s.label} `;
+                        })()
                       : '✓ Updated '}
                     {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </span>
