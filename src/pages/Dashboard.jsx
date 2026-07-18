@@ -2328,6 +2328,10 @@ export default function Dashboard({ token }) {
   // intent for the render; writeRefreshPending flags the pending write re-pull.
   const writeRefreshPending              = useRef(false);
   const flashSaved                       = useRef(false);
+  // Task 193 — the specific write kind ('income'|'networth'|'debt'|'gaslog'|
+  // 'expense'|null) so the flash names what was saved ("✓ Income logged" etc.)
+  // instead of the generic "✓ Saved · updated". null → generic fallback.
+  const writeKind                        = useRef(null);
   const [showGasLog, setShowGasLog]     = useState(false);
   const [gasAmount, setGasAmount]       = useState('');
   const [gasDesc, setGasDesc]           = useState('');
@@ -2339,7 +2343,7 @@ export default function Dashboard({ token }) {
   const [refreshKey, setRefreshKey]     = useState(0);
   // Task 189 — trigger a re-pull after a successful write and flag it so the
   // freshness stamp flashes "✓ Saved · updated {time}" on completion.
-  const triggerWriteRefresh = () => { writeRefreshPending.current = true; setRefreshKey(k => k + 1); };
+  const triggerWriteRefresh = (kind) => { writeRefreshPending.current = true; writeKind.current = kind || null; setRefreshKey(k => k + 1); };
   const [showExpLog, setShowExpLog]     = useState(false);
   const [expAmount, setExpAmount]       = useState('');
   const [expCategory, setExpCategory]   = useState('');
@@ -2876,6 +2880,7 @@ export default function Dashboard({ token }) {
         if (manualRefreshPending.current) {
           manualRefreshPending.current = false;
           flashSaved.current = false;
+          writeKind.current = null;
           setJustRefreshed(true);
         } else if (writeRefreshPending.current) {
           writeRefreshPending.current = false;
@@ -3031,7 +3036,7 @@ export default function Dashboard({ token }) {
       // stay stale until the next manual ↻). triggerWriteRefresh also fires the
       // Task-189 "✓ Saved · updated" flash. Re-pulling AFTER the 1.8s close (not
       // immediately) avoids a jarring full-page spinner mid-modal.
-      setTimeout(() => { setGasLogDone(false); setShowGasLog(false); triggerWriteRefresh(); }, 1800);
+      setTimeout(() => { setGasLogDone(false); setShowGasLog(false); triggerWriteRefresh('gaslog'); }, 1800);
     } catch (e) {
       alert(`Error logging gas: ${e.message}`);
     } finally {
@@ -3058,7 +3063,7 @@ export default function Dashboard({ token }) {
       // Task 192 — re-pull after the modal closes so the Spent/Net tiles reflect
       // this expense (previously stayed stale until a manual ↻); also fires the
       // Task-189 "✓ Saved · updated" flash.
-      setTimeout(() => { setExpLogDone(false); setShowExpLog(false); triggerWriteRefresh(); }, 1800);
+      setTimeout(() => { setExpLogDone(false); setShowExpLog(false); triggerWriteRefresh('expense'); }, 1800);
     } catch (e) {
       alert(`Error logging expense: ${e.message}`);
     } finally {
@@ -3178,7 +3183,7 @@ export default function Dashboard({ token }) {
         await appendRow(token, 'Net Worth!A:E', [today, a.account.trim(), a.type, pm(a.balance), a.notes || '']);
       }
       setShowNetWorth(false);
-      triggerWriteRefresh();
+      triggerWriteRefresh('networth');
     } catch (e) {
       setNwError(e.message || 'Could not save — check your connection and try again.');
     } finally {
@@ -3201,7 +3206,7 @@ export default function Dashboard({ token }) {
         await appendRow(token, 'Debts!A:G', [today, d.name.trim(), d.type || 'Other', pm(d.balance), pm(d.apr), pm(d.minPayment), d.notes || '']);
       }
       setShowDebt(false);
-      triggerWriteRefresh();
+      triggerWriteRefresh('debt');
     } catch (e) {
       setDebtError(e.message || 'Could not save — check your connection and try again.');
     } finally {
@@ -4249,10 +4254,20 @@ ${stmtTxns.length ? `
             {loadedAt && (
               <>
                 {justRefreshed ? (
-                  /* Task 186/189 — transient positive confirmation the pull landed:
-                     "✓ Updated" for a manual ↻, "✓ Saved · updated" for a write re-pull. */
+                  /* Task 186/189/193 — transient positive confirmation the pull landed:
+                     "✓ Updated" for a manual ↻, and a write-type-specific label for a
+                     write re-pull ("✓ Income logged", "✓ Net Worth saved", …), falling
+                     back to the generic "✓ Saved · updated" when the kind is unknown. */
                   <span className="text-[10px] font-medium text-emerald-400 whitespace-nowrap">
-                    {flashSaved.current ? '✓ Saved · updated ' : '✓ Updated '}
+                    {flashSaved.current
+                      ? ({
+                          income:   '✓ Income logged · updated ',
+                          networth: '✓ Net Worth saved · updated ',
+                          debt:     '✓ Debt snapshot saved · updated ',
+                          gaslog:   '✓ Gas logged · updated ',
+                          expense:  '✓ Expense logged · updated ',
+                        }[writeKind.current] || '✓ Saved · updated ')
+                      : '✓ Updated '}
                     {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </span>
                 ) : (
@@ -5711,7 +5726,7 @@ ${stmtTxns.length ? `
           gasBalance={gasBalance}
           gasBudget={gasBudget}
           onClose={() => setShowIncome(false)}
-          onProcessed={triggerWriteRefresh}
+          onProcessed={() => triggerWriteRefresh('income')}
         />
       )}
 
