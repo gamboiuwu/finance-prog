@@ -4271,13 +4271,27 @@ ${stmtTxns.length ? `
             )}
             {loadedAt && (
               <>
+                {/* Task 201 — accessibility: the flash below is a purely visual
+                    emerald <span>, so a screen-reader user gets no confirmation a
+                    write/refresh landed. This persistent visually-hidden polite live
+                    region announces the flash text (minus the decorative glyph) when
+                    it appears — and stays empty otherwise, so the ambient "as of"
+                    stamp never chatters. Kept always-mounted (loadedAt stays truthy
+                    once set) so content changes are reliably announced. */}
+                <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+                  {justRefreshed
+                    ? (flashSaved.current
+                        ? `${(WRITE_FLASH[writeKind.current] || WRITE_FLASH_FALLBACK).label} ${loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                        : `Updated ${loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`)
+                    : ''}
+                </span>
                 {justRefreshed ? (
                   /* Task 186/189/193/199 — transient positive confirmation the pull
                      landed: "✓ Updated" for a manual ↻, and a write-type-specific
                      label with a glyph for a write re-pull ("💰 Income logged",
                      "📊 Net Worth saved", …), falling back to "✓ Saved · updated"
                      when the kind is unknown. */
-                  <span className="text-[10px] font-medium text-emerald-400 whitespace-nowrap">
+                  <span aria-hidden="true" className="text-[10px] font-medium text-emerald-400 whitespace-nowrap">
                     {flashSaved.current
                       ? (() => {
                           const s = WRITE_FLASH[writeKind.current] || WRITE_FLASH_FALLBACK;
