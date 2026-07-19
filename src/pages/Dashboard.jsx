@@ -4255,6 +4255,18 @@ ${stmtTxns.length ? `
               knows these figures reflect the log as of this page load — answering
               the implicit "is this even up to date?" worry. */}
           <div className="flex items-center gap-2 min-w-0">
+            {/* Task 206 — accessibility: the reconciliation verdict chip below is
+                visual-only, so a screen-reader user (the audience most reliant on
+                trustworthy figures) gets no proactive signal that a sheet-vs-log
+                drift was detected. This dedicated polite live region announces the
+                mismatch — and stays empty on a match so it never chatters. Kept
+                separate from the Task-201 flash region so the two announcements
+                can never clobber each other. */}
+            <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+              {reconSummary.mismatches > 0
+                ? `${reconSummary.mismatches} figure${reconSummary.mismatches === 1 ? '' : 's'} differ from your sheet — expand the breakdowns to see which.`
+                : ''}
+            </span>
             {reconSummary.checked > 0 && (
               reconSummary.mismatches === 0 ? (
                 <span className="text-[11px] font-medium rounded-full px-2 py-0.5 border text-emerald-300 border-emerald-500/30 bg-emerald-500/10 whitespace-nowrap">
