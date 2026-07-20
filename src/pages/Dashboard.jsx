@@ -179,9 +179,13 @@ function spendByCategory(allAllocTx) {
 function TileProvenance({ caption, open, onToggle, recon, children }) {
   return (
     <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
-      <button onClick={onToggle} className="w-full flex items-center gap-2 text-left">
+      {/* Task 207 — accessibility: this caption toggle conveyed open/closed with
+          only a ▸/▾ glyph, so a screen-reader user tapping it got no spoken
+          state. aria-expanded now announces "collapsed/expanded"; the caption
+          text is the accessible name, and the decorative chevron is hidden. */}
+      <button onClick={onToggle} aria-expanded={open} className="w-full flex items-center gap-2 text-left">
         <span className="text-slate-400 text-[11px] leading-snug">{caption}</span>
-        <span className="ml-auto text-slate-500 text-xs shrink-0">{open ? '▾' : '▸'}</span>
+        <span aria-hidden="true" className="ml-auto text-slate-500 text-xs shrink-0">{open ? '▾' : '▸'}</span>
       </button>
       {recon?.show && (
         <div className={`mt-1.5 text-[10px] leading-snug ${recon.matches ? 'text-emerald-400' : 'text-amber-400'}`}>
@@ -4335,8 +4339,13 @@ ${stmtTxns.length ? `
               </>
             )}
           </div>
+          {/* Task 207 — accessibility: this master disclosure opens/closes every
+              stat-tile breakdown, so aria-expanded announces the collective
+              open/closed state to a screen-reader user. The button text is the
+              accessible name and flips to describe the next action. */}
           <button
             onClick={() => setAllProv(!anyProvOpen)}
+            aria-expanded={anyProvOpen}
             className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70 whitespace-nowrap"
           >
             {anyProvOpen ? '▾ Hide breakdowns' : '🔎 Explain all my numbers'}
