@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { readRange, appendRow, batchUpdateCells, ensureSheetTab, clearRow } from '../lib/sheets';
 import { SHEETS } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -1103,12 +1103,16 @@ function SalesView({ token, products }) {
   const [refreshCount,   setRefreshCount]   = useState(0);
   const [rawRowCount,    setRawRowCount]    = useState(0);
   const [profitSpent,    setProfitSpent]    = useState(0); // total already withdrawn from Profit+Revenue
+  const firstLoad = useRef(true); // only blank the view with a spinner on the initial load
 
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
     (async () => {
-      setLoading(true);
+      // Only show the full-page spinner on the FIRST load. Background 30s
+      // refreshes must NOT setLoading(true) — that unmounts the whole view
+      // (and any open modal, e.g. Process Income), wiping the user's input.
+      if (firstLoad.current) setLoading(true);
       setError(null);
       try {
         let rows = await readRange(token, `${TRANS_SHEET}!A:I`, 'UNFORMATTED_VALUE');
@@ -1185,17 +1189,25 @@ function SalesView({ token, products }) {
       } catch (e) {
         if (!cancelled) setError(e.message);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) { setLoading(false); firstLoad.current = false; }
       }
     })();
     return () => { cancelled = true; };
   }, [token, refreshCount]);
 
-  // Keep the sales list live while this tab is open — re-fetch every 30s.
+  // Pause the auto-refresh while any input modal/editor is open, so a
+  // background re-fetch can never interrupt the user mid-entry (e.g. typing
+  // deposit amounts in the Process-Income surplus distribution).
+  const modalOpen = showProcess || !!editingTx || !!orderingTx ||
+                    !!tplProduct || shipSetup || tplPicker;
+
+  // Keep the sales list live while this tab is open — re-fetch every 30s,
+  // but only when no modal is open.
   useEffect(() => {
+    if (modalOpen) return;
     const id = setInterval(() => setRefreshCount(c => c + 1), 30000);
     return () => clearInterval(id);
-  }, []);
+  }, [modalOpen]);
 
   const now = new Date();
   const filtered = useMemo(() => {
