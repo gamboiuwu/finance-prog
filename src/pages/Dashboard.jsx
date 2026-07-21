@@ -2270,9 +2270,10 @@ function InsightSection({ title, open, onToggle, badge = 0, children }) {
     <div>
       <button
         onClick={onToggle}
+        aria-expanded={open}
         className="w-full flex items-center gap-2 px-0.5 py-1 text-left active:opacity-70"
       >
-        <span className="text-slate-500 text-xs w-3 shrink-0">{open ? '▾' : '▸'}</span>
+        <span aria-hidden="true" className="text-slate-500 text-xs w-3 shrink-0">{open ? '▾' : '▸'}</span>
         <span className="text-slate-300 text-sm font-semibold">{title}</span>
         {badge > 0 && (
           <span className="ml-auto text-[11px] font-semibold text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded-full px-2 py-0.5 shrink-0">
@@ -3646,17 +3647,19 @@ ${stmtTxns.length ? `
           {anySectionOpen && (
             <button
               onClick={() => setAllInsightCards(!anyInsightExpanded)}
+              aria-expanded={anyInsightExpanded}
               className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70"
             >
-              {anyInsightExpanded ? '⊟ Collapse all' : '⊞ Expand all'}
+              <span aria-hidden="true">{anyInsightExpanded ? '⊟' : '⊞'}</span> {anyInsightExpanded ? 'Collapse all' : 'Expand all'}
             </button>
           )}
           {/* Section fold-all / show-all (Task 95) — one-tap "headers only". */}
           <button
             onClick={() => setAllSections(!anySectionOpen)}
+            aria-expanded={anySectionOpen}
             className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70"
           >
-            {anySectionOpen ? '⊟ Fold sections' : '⊞ Show sections'}
+            <span aria-hidden="true">{anySectionOpen ? '⊟' : '⊞'}</span> {anySectionOpen ? 'Fold sections' : 'Show sections'}
           </button>
         </span>
       </div>
