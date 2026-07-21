@@ -3635,8 +3635,26 @@ ${stmtTxns.length ? `
       <div className="flex items-center justify-between px-0.5">
         <span className="flex items-center gap-2">
           <span className="text-slate-500 text-[11px] font-semibold uppercase tracking-wide">Insights</span>
+          {/* Task 211 — accessibility: the "⚠ N" badge below (and the per-section
+              header badges from Task 90) are visual-only, so a screen-reader user
+              who folds a section gets no signal that a live warning appeared and
+              auto-opened it. This dedicated polite live region announces the alert
+              count (and which sections hold it) — and stays empty when there are
+              none so it never chatters. Kept separate from the Task-201 flash and
+              Task-206 reconciliation regions (which live in the master bar) so the
+              announcements can never clobber each other. */}
+          <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {(() => {
+              const s = sectionAlerts.spending, sv = sectionAlerts.saving, total = s + sv;
+              if (total <= 0) return '';
+              const parts = [];
+              if (s > 0) parts.push(`${s} in Spending & Pace`);
+              if (sv > 0) parts.push(`${sv} in Saving & Net Worth`);
+              return `${total} alert${total === 1 ? '' : 's'} in your insight sections — ${parts.join(', ')}. Expand to review.`;
+            })()}
+          </span>
           {(sectionAlerts.spending + sectionAlerts.saving) > 0 && (
-            <span className="text-[11px] font-semibold text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded-full px-2 py-0.5">
+            <span aria-hidden="true" className="text-[11px] font-semibold text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded-full px-2 py-0.5">
               ⚠ {sectionAlerts.spending + sectionAlerts.saving}
             </span>
           )}
