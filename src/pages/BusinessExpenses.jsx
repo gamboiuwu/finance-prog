@@ -3038,16 +3038,17 @@ export default function BusinessExpenses({ token }) {
         {/* Primary tab bar */}
         <div className="flex bg-slate-800 rounded-xl p-1 gap-1 overflow-x-auto">
           {[
-            ['products','💼'],
-            ['sales','📊'],
-            ['accounts','🏦'],
-            ['expenses','📒'],
-            ['insights','📈'],
-            ['timeclock','⏱'],
-          ].map(([v, lbl]) => (
-            <button key={v} onClick={() => setViewMode(v)}
-              className={`flex-1 py-1.5 rounded-lg text-sm font-medium transition-colors shrink-0 min-w-[2.5rem] ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
-              {lbl}
+            ['products','💼','Products'],
+            ['sales','📊','Sales'],
+            ['accounts','🏦','Accounts'],
+            ['expenses','📒','Expenses'],
+            ['insights','📈','Insights'],
+            ['timeclock','⏱','Time'],
+          ].map(([v, icon, name]) => (
+            <button key={v} onClick={() => setViewMode(v)} aria-label={name}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-colors shrink-0 whitespace-nowrap flex items-center justify-center gap-1 ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
+              <span aria-hidden="true">{icon}</span>
+              <span>{name}</span>
             </button>
           ))}
         </div>
