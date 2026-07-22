@@ -176,15 +176,25 @@ function spendByCategory(allAllocTx) {
 // tile; the chrome lives here so a future style tweak is one edit, not four.
 // `recon` = { show, matches, mismatchText }; `children` = the breakdown body.
 // Pure presentation — read-only.
-function TileProvenance({ caption, open, onToggle, recon, children }) {
+function TileProvenance({ caption, open, onToggle, recon, children, regionId }) {
+  // Task 221 — accessibility: expose each stat-tile "from your log/plan"
+  // breakdown as a named landmark so a screen-reader user can jump to it by
+  // region. The region lives on the always-present outer wrapper (so a
+  // collapsed block still lists as a landmark), and aria-labelledby points at
+  // the caption text — the same accessible name the toggle already carries.
+  const labelId = regionId ? `${regionId}-prov-label` : undefined;
   return (
-    <div className="bg-slate-800/60 rounded-xl px-4 py-2.5">
+    <div
+      className="bg-slate-800/60 rounded-xl px-4 py-2.5"
+      role={regionId ? 'region' : undefined}
+      aria-labelledby={labelId}
+    >
       {/* Task 207 — accessibility: this caption toggle conveyed open/closed with
           only a ▸/▾ glyph, so a screen-reader user tapping it got no spoken
           state. aria-expanded now announces "collapsed/expanded"; the caption
           text is the accessible name, and the decorative chevron is hidden. */}
       <button onClick={onToggle} aria-expanded={open} className="w-full flex items-center gap-2 text-left">
-        <span className="text-slate-400 text-[11px] leading-snug">{caption}</span>
+        <span id={labelId} className="text-slate-400 text-[11px] leading-snug">{caption}</span>
         <span aria-hidden="true" className="ml-auto text-slate-500 text-xs shrink-0">{open ? '▾' : '▸'}</span>
       </button>
       {recon?.show && (
@@ -4390,6 +4400,7 @@ ${stmtTxns.length ? `
         return (
           <TileProvenance
             caption={`🔎 Income = Σ your deposits logged this ${currentMonth}`}
+            regionId="income"
             open={showIncomeProv}
             onToggle={() => setShowIncomeProv(v => !v)}
             recon={{ show: showRecon, matches: reconMatches, mismatchText: `⚠ sheet says ${fmt(sheetIncome)} · your log says ${fmt(loggedIncome)} — using your log` }}
@@ -4425,6 +4436,7 @@ ${stmtTxns.length ? `
         return (
           <TileProvenance
             caption={`🔎 Spent = Σ your spend rows logged this ${currentMonth}`}
+            regionId="spent"
             open={showSpentProv}
             onToggle={() => setShowSpentProv(v => !v)}
             recon={{ show: showRecon, matches: reconMatches, mismatchText: `⚠ sheet says ${fmt(sheetSpent)} · your log says ${fmt(loggedSpent)} — using your log` }}
@@ -4459,6 +4471,7 @@ ${stmtTxns.length ? `
         return (
           <TileProvenance
             caption={`🔎 Net Flow = your logged income − spending this ${currentMonth}`}
+            regionId="net"
             open={showNetProv}
             onToggle={() => setShowNetProv(v => !v)}
             recon={{ show: showRecon, matches: reconMatches, mismatchText: `⚠ sheet net ${fmt(sheetNet)} · your log ${fmt(net)} — using your log` }}
@@ -4500,6 +4513,7 @@ ${stmtTxns.length ? `
         return (
           <TileProvenance
             caption="🎯 Goal = Σ your budget allowances (your plan, not what you've spent)"
+            regionId="goal"
             open={showGoalProv}
             onToggle={() => setShowGoalProv(v => !v)}
             recon={{ show: showRecon, matches: reconMatches, mismatchText: `⚠ sheet says ${fmt(sheetGoal)} · your allowances add to ${fmt(goal)} — using your allowances` }}
