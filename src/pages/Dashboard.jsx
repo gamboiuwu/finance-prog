@@ -2275,16 +2275,23 @@ function TopGoalCard({ goals, onOpen }) {
 // card group when collapsed, so the home page can show just the section
 // titles (the ultimate glance view) and the user expands only what matters.
 // The two-column grid (Task 71a) is preserved inside each open section.
-function InsightSection({ title, open, onToggle, badge = 0, children }) {
+function InsightSection({ title, open, onToggle, badge = 0, children, regionId }) {
+  // Task 217 — accessibility: expose each insight sub-section as a named landmark
+  // so a screen-reader user can jump between the three groups (Spending / Saving /
+  // Planning) by region. The region lives on the always-present outer wrapper (so a
+  // collapsed section still lists as a landmark), and aria-labelledby points at the
+  // title text — the same accessible name the toggle already carries. Mirrors the
+  // TileProvenance region pattern (Task 221).
+  const labelId = regionId ? `${regionId}-label` : undefined;
   return (
-    <div>
+    <div role={regionId ? 'region' : undefined} aria-labelledby={labelId}>
       <button
         onClick={onToggle}
         aria-expanded={open}
         className="w-full flex items-center gap-2 px-0.5 py-1 text-left active:opacity-70"
       >
         <span aria-hidden="true" className="text-slate-500 text-xs w-3 shrink-0">{open ? '▾' : '▸'}</span>
-        <span className="text-slate-300 text-sm font-semibold">{title}</span>
+        <span id={labelId} className="text-slate-300 text-sm font-semibold">{title}</span>
         {badge > 0 && (
           <span className="ml-auto text-[11px] font-semibold text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded-full px-2 py-0.5 shrink-0">
             ⚠ {badge}
@@ -3698,6 +3705,7 @@ ${stmtTxns.length ? `
       {((expenses.length > 0 && income > 0) || allAllocTx.length > 0) && (
         <InsightSection
           title="💵 Spending & Pace"
+          regionId="insight-spending"
           open={insightSections.spending}
           onToggle={() => toggleInsightSection('spending')}
           badge={sectionAlerts.spending}
@@ -3754,6 +3762,7 @@ ${stmtTxns.length ? `
             the budget's dollars are all assigned & balanced. */}
       <InsightSection
         title="🏦 Saving & Net Worth"
+        regionId="insight-saving"
         open={insightSections.saving}
         onToggle={() => toggleInsightSection('saving')}
         badge={sectionAlerts.saving}
@@ -3813,6 +3822,7 @@ ${stmtTxns.length ? `
       {chartData.length >= 2 && (
         <InsightSection
           title="📈 Planning & Trends"
+          regionId="insight-planning"
           open={insightSections.planning}
           onToggle={() => toggleInsightSection('planning')}
         >
