@@ -78,6 +78,16 @@ function catColor(name) { return CAT_COLORS[name] || CAT_COLORS.Other; }
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
+// Task 231 — remember the last-open Business viewMode per-device (enum tab key only, no financial data).
+const BIZ_VIEW_KEY = '_fin_biz_view';
+const BIZ_VIEWS = ['products', 'sales', 'accounts', 'expenses', 'insights', 'timeclock'];
+function getBizView() {
+  try {
+    const v = localStorage.getItem(BIZ_VIEW_KEY);
+    return BIZ_VIEWS.includes(v) ? v : 'products';
+  } catch { return 'products'; }
+}
+
 function blockLabel(block) {
   return (block.category === 'Other' && block.customName?.trim()) ? block.customName.trim() : block.category;
 }
@@ -2886,10 +2896,15 @@ export default function BusinessExpenses({ token }) {
   const [saving,     setSaving]     = useState(false);
   const [editing,          setEditing]          = useState(null);
   const [processing,       setProcessing]       = useState(null);
-  const [viewMode,         setViewMode]         = useState('products'); // products | sales | accounts | expenses | insights | timeclock
+  const [viewMode,         setViewMode]         = useState(() => getBizView()); // products | sales | accounts | expenses | insights | timeclock (last-open remembered, Task 231)
   const [showSettings,     setShowSettings]     = useState(false);
   const [productView,      setProductView]      = useState('cards');    // cards | compare (within Products)
   const [salesRefreshKey,  setSalesRefreshKey]  = useState(0);
+
+  // Task 231 — persist the current tab so the page reopens where the user last was.
+  useEffect(() => {
+    try { localStorage.setItem(BIZ_VIEW_KEY, viewMode); } catch { /* ignore */ }
+  }, [viewMode]);
 
   const load = useCallback(async () => {
     setLoading(true);
