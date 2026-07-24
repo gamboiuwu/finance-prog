@@ -88,6 +88,26 @@ function getBizView() {
   } catch { return 'products'; }
 }
 
+// Task 232 — remember the Products Cards/Compare sub-toggle + the Sales-tab period per-device
+// (enum keys only, no financial data). Each validates against its known option set and falls
+// back to the original default on a stale/absent/unavailable value.
+const BIZ_PRODVIEW_KEY = '_fin_biz_prodview';
+const BIZ_PRODVIEWS = ['cards', 'compare'];
+function getBizProdView() {
+  try {
+    const v = localStorage.getItem(BIZ_PRODVIEW_KEY);
+    return BIZ_PRODVIEWS.includes(v) ? v : 'cards';
+  } catch { return 'cards'; }
+}
+const BIZ_SALES_PERIOD_KEY = '_fin_biz_sales_period';
+const BIZ_SALES_PERIODS = ['month', 'year', 'all'];
+function getBizSalesPeriod() {
+  try {
+    const v = localStorage.getItem(BIZ_SALES_PERIOD_KEY);
+    return BIZ_SALES_PERIODS.includes(v) ? v : 'all';
+  } catch { return 'all'; }
+}
+
 function blockLabel(block) {
   return (block.category === 'Other' && block.customName?.trim()) ? block.customName.trim() : block.category;
 }
@@ -1097,8 +1117,8 @@ function SalesView({ token, products }) {
   const [error,          setError]          = useState(null);
   // Default to 'all' so freshly-recorded transactions always show up on first
   // load, even if there's any date-conversion oddity that excludes them from a
-  // narrower window.
-  const [period,         setPeriod]         = useState('all');
+  // narrower window. Task 232: remembered per-device (falls back to 'all').
+  const [period,         setPeriod]         = useState(() => getBizSalesPeriod());
   const [showProcess,    setShowProcess]    = useState(false);
   const [budgetExpenses, setBudgetExpenses] = useState([]);
   const [expLoading,     setExpLoading]     = useState(false);
@@ -1114,6 +1134,11 @@ function SalesView({ token, products }) {
   const [rawRowCount,    setRawRowCount]    = useState(0);
   const [profitSpent,    setProfitSpent]    = useState(0); // total already withdrawn from Profit+Revenue
   const firstLoad = useRef(true); // only blank the view with a spinner on the initial load
+
+  // Task 232 — persist the Sales-tab period so it reopens where the user left it.
+  useEffect(() => {
+    try { localStorage.setItem(BIZ_SALES_PERIOD_KEY, period); } catch { /* ignore */ }
+  }, [period]);
 
   useEffect(() => {
     if (!token) return;
@@ -2898,13 +2923,18 @@ export default function BusinessExpenses({ token }) {
   const [processing,       setProcessing]       = useState(null);
   const [viewMode,         setViewMode]         = useState(() => getBizView()); // products | sales | accounts | expenses | insights | timeclock (last-open remembered, Task 231)
   const [showSettings,     setShowSettings]     = useState(false);
-  const [productView,      setProductView]      = useState('cards');    // cards | compare (within Products)
+  const [productView,      setProductView]      = useState(() => getBizProdView());    // cards | compare (within Products, last-open remembered, Task 232)
   const [salesRefreshKey,  setSalesRefreshKey]  = useState(0);
 
   // Task 231 — persist the current tab so the page reopens where the user last was.
   useEffect(() => {
     try { localStorage.setItem(BIZ_VIEW_KEY, viewMode); } catch { /* ignore */ }
   }, [viewMode]);
+
+  // Task 232 — persist the Products Cards/Compare sub-toggle.
+  useEffect(() => {
+    try { localStorage.setItem(BIZ_PRODVIEW_KEY, productView); } catch { /* ignore */ }
+  }, [productView]);
 
   const load = useCallback(async () => {
     setLoading(true);
