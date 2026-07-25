@@ -1538,14 +1538,14 @@ function SalesView({ token, products }) {
                   className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-[11px] font-medium transition-colors">🚚 Setup</button>
               </div>
             </div>
-            <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1">
+            <div role="group" aria-label="Order filter" className="flex gap-1.5 overflow-x-auto -mx-1 px-1">
               {[
                 ['all',     `All`,        transactions.length],
                 ['toship',  `◷ To ship`,  orderCounts.toship],
                 ['shipped', `🚚 Shipped`, orderCounts.shipped],
                 ['done',    `✓ Done`,     orderCounts.done],
               ].map(([k, label, count]) => (
-                <button key={k} onClick={() => setOrderFilter(k)}
+                <button key={k} onClick={() => setOrderFilter(k)} aria-pressed={orderFilter === k}
                   className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                     orderFilter === k ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
                   {label}{count ? ` · ${count}` : ''}
