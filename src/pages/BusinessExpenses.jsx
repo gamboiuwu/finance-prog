@@ -1403,9 +1403,10 @@ function SalesView({ token, products }) {
     <div className="space-y-3">
       {/* Period filter + Copy Report */}
       <div className="flex gap-2">
-        <div className="flex flex-1 bg-slate-800 rounded-xl p-1 gap-1">
+        <div className="flex flex-1 bg-slate-800 rounded-xl p-1 gap-1" role="tablist" aria-label="Sales period">
           {PERIOD_OPTIONS.map(opt => (
             <button key={opt.key} onClick={() => setPeriod(opt.key)}
+              role="tab" aria-selected={period === opt.key}
               className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${period === opt.key ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
               {opt.label}
             </button>
@@ -2708,9 +2709,10 @@ function InsightsView({ token }) {
       {err && <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm">{err}</div>}
 
       {/* Period selector — drives the P&L statement */}
-      <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
+      <div className="flex bg-slate-800 rounded-xl p-1 gap-1" role="tablist" aria-label="Insights period">
         {PERIOD_OPTIONS.map(o => (
           <button key={o.key} onClick={() => setPeriod(o.key)}
+            role="tab" aria-selected={period === o.key}
             className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${period === o.key ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
             {o.label}
           </button>
@@ -3101,9 +3103,10 @@ export default function BusinessExpenses({ token }) {
 
         {/* Products sub-toggle: Cards vs Compare */}
         {viewMode === 'products' && products.length > 0 && (
-          <div className="flex gap-2">
+          <div className="flex gap-2" role="tablist" aria-label="Product view">
             {[['cards','▦ Cards'],['compare','⇄ Compare']].map(([v, lbl]) => (
               <button key={v} onClick={() => setProductView(v)}
+                role="tab" aria-selected={productView === v}
                 className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${productView === v ? 'border-slate-500 text-white bg-slate-700' : 'border-slate-700 text-slate-400 bg-slate-800/50'}`}>
                 {lbl}
               </button>
