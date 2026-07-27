@@ -1778,10 +1778,13 @@ const TABS = [
 
 function TabBar({ active, onChange }) {
   return (
-    <div className="flex bg-slate-900 rounded-xl p-1 gap-1">
+    <div role="tablist" aria-label="Budget views" className="flex bg-slate-900 rounded-xl p-1 gap-1">
       {TABS.map(tab => (
         <button
           key={tab.key}
+          role="tab"
+          id={`budget-tab-${tab.key}`}
+          aria-selected={active === tab.key}
           onClick={() => onChange(tab.key)}
           className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
             active === tab.key
