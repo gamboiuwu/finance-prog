@@ -1253,9 +1253,10 @@ export default function Summary({ token }) {
       {tab === 'year' && (
         <>
           {/* Sub-view toggle: Year-to-Date (Task 11) vs Tax Prep (Task 15) */}
-          <div className="px-4 pb-3 flex gap-1.5">
+          <div className="px-4 pb-3 flex gap-1.5" role="tablist" aria-label="Year sub-view">
             {[['ytd', '📊 Year-to-Date'], ['tax', '🧾 Tax Prep']].map(([id, label]) => (
               <button key={id} onClick={() => setYearSub(id)}
+                role="tab" aria-selected={yearSub === id} id={`year-sub-${id}`}
                 className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
                   yearSub === id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                 }`}>
