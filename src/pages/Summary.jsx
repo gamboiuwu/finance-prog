@@ -1238,9 +1238,10 @@ export default function Summary({ token }) {
       )}
 
       {/* Tab bar */}
-      <div className="flex gap-1 px-4 pb-3 overflow-x-auto scrollbar-hide">
+      <div className="flex gap-1 px-4 pb-3 overflow-x-auto scrollbar-hide" role="tablist" aria-label="Summary views">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
+            role="tab" aria-selected={tab === t.id} id={`summary-tab-${t.id}`}
             className={`shrink-0 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
               tab === t.id ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
             }`}>
