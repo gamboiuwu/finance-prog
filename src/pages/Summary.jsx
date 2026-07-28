@@ -1256,7 +1256,7 @@ export default function Summary({ token }) {
           <div className="px-4 pb-3 flex gap-1.5" role="tablist" aria-label="Year sub-view">
             {[['ytd', '📊 Year-to-Date'], ['tax', '🧾 Tax Prep']].map(([id, label]) => (
               <button key={id} onClick={() => setYearSub(id)}
-                role="tab" aria-selected={yearSub === id} id={`year-sub-${id}`}
+                role="tab" aria-selected={yearSub === id} id={`year-sub-${id}`} aria-controls="year-subpanel"
                 className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
                   yearSub === id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                 }`}>
@@ -1265,6 +1265,7 @@ export default function Summary({ token }) {
             ))}
           </div>
 
+          <div role="tabpanel" id="year-subpanel" aria-labelledby={`year-sub-${yearSub}`} tabIndex={0}>
           {yearSub === 'ytd' ? (
             <YearView
               monthlyRows={yearMonthlyRows}
@@ -1286,6 +1287,7 @@ export default function Summary({ token }) {
               loading={taxLoading || !taxLoaded || yearLoading || !yearLoaded}
             />
           )}
+          </div>
         </>
       )}
 
