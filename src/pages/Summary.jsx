@@ -980,6 +980,16 @@ const TABS = [
   { id: 'year',     label: 'Year'     },
 ];
 
+// Task 251 — remember the last-open main tab per-device (enum key only, no financial data).
+const SUMMARY_TAB_KEY = '_fin_summary_tab';
+const SUMMARY_TAB_IDS = TABS.map(t => t.id);
+function getSummaryTab() {
+  try {
+    const v = localStorage.getItem(SUMMARY_TAB_KEY);
+    return SUMMARY_TAB_IDS.includes(v) ? v : 'overview';
+  } catch { return 'overview'; }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function Summary({ token }) {
@@ -988,7 +998,7 @@ export default function Summary({ token }) {
   const [allocRows, setAllocRows] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
-  const [tab, setTab]             = useState('overview');
+  const [tab, setTab]             = useState(() => getSummaryTab());
   const [livePrice, setLivePrice]   = useState(null);
   const [livePeriod, setLivePeriod] = useState('');
 
@@ -1027,6 +1037,11 @@ export default function Summary({ token }) {
     try { return JSON.parse(localStorage.getItem('summary_overrides')) || {}; }
     catch { return {}; }
   });
+
+  // Task 251 — persist the last-open main tab (per-device, enum only)
+  useEffect(() => {
+    try { localStorage.setItem(SUMMARY_TAB_KEY, tab); } catch { /* storage unavailable — non-critical */ }
+  }, [tab]);
 
   // Edit modal state
   const [editModal, setEditModal] = useState(null); // { id, label, currentVal }
