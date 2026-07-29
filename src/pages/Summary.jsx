@@ -980,6 +980,16 @@ const TABS = [
   { id: 'year',     label: 'Year'     },
 ];
 
+// Task 251 — remember the last-open Summary main tab per-device (mirrors Business getBizView).
+// Enum tab-id only, no financial data; validated against the known TABS set, falls back to 'overview'.
+const SUMMARY_TAB_KEY = '_fin_summary_tab';
+function getSummaryTab() {
+  try {
+    const v = localStorage.getItem(SUMMARY_TAB_KEY);
+    return TABS.some(t => t.id === v) ? v : 'overview';
+  } catch { return 'overview'; }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function Summary({ token }) {
@@ -988,7 +998,7 @@ export default function Summary({ token }) {
   const [allocRows, setAllocRows] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
-  const [tab, setTab]             = useState('overview');
+  const [tab, setTab]             = useState(() => getSummaryTab()); // last-open remembered (Task 251)
   const [livePrice, setLivePrice]   = useState(null);
   const [livePeriod, setLivePeriod] = useState('');
 
@@ -1027,6 +1037,11 @@ export default function Summary({ token }) {
     try { return JSON.parse(localStorage.getItem('summary_overrides')) || {}; }
     catch { return {}; }
   });
+
+  // Persist the last-open main tab per-device (Task 251)
+  useEffect(() => {
+    try { localStorage.setItem(SUMMARY_TAB_KEY, tab); } catch { /* ignore */ }
+  }, [tab]);
 
   // Edit modal state
   const [editModal, setEditModal] = useState(null); // { id, label, currentVal }
