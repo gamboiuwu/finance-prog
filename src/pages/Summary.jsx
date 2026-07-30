@@ -989,6 +989,16 @@ function getSummaryTab() {
   } catch { return 'overview'; }
 }
 
+// Task 248 — remember the last-open Year sub-view (ytd|tax) per-device (enum only, no financial data).
+const SUMMARY_YEARSUB_KEY = '_fin_summary_yearsub';
+const SUMMARY_YEARSUBS = ['ytd', 'tax'];
+function getSummaryYearSub() {
+  try {
+    const v = localStorage.getItem(SUMMARY_YEARSUB_KEY);
+    return SUMMARY_YEARSUBS.includes(v) ? v : 'ytd';
+  } catch { return 'ytd'; }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function Summary({ token }) {
@@ -1008,7 +1018,7 @@ export default function Summary({ token }) {
   const [yearLoading, setYearLoading]         = useState(false);
 
   // Year-tab sub-view: 'ytd' (Task 11) or 'tax' (Task 15)
-  const [yearSub, setYearSub] = useState('ytd');
+  const [yearSub, setYearSub] = useState(() => getSummaryYearSub()); // last-open remembered (Task 248)
   const [taxYear, setTaxYear] = useState(new Date().getFullYear());
 
   // Tax sub-view — lazy-loaded the first time it is opened (Task 15)
@@ -1049,6 +1059,11 @@ export default function Summary({ token }) {
   useEffect(() => {
     try { localStorage.setItem(SUMMARY_TAB_KEY, tab); } catch { /* ignore */ }
   }, [tab]);
+
+  // Task 248 — persist the Year sub-view (ytd|tax) so it reopens where the user last was.
+  useEffect(() => {
+    try { localStorage.setItem(SUMMARY_YEARSUB_KEY, yearSub); } catch { /* ignore */ }
+  }, [yearSub]);
 
   useEffect(() => {
     if (!token) return;
