@@ -999,6 +999,18 @@ function getSummaryYearSub() {
   } catch { return 'ytd'; }
 }
 
+// Task 256 — remember the last-open Tax Prep year per-device (int year only, no financial data).
+// Validated against the offered window (current + 2 prior); falls back to the current year if
+// the stored year has rolled out of the window (e.g. after a year change).
+const SUMMARY_TAXYEAR_KEY = '_fin_summary_taxyear';
+function getSummaryTaxYear() {
+  const cur = new Date().getFullYear();
+  try {
+    const v = parseInt(localStorage.getItem(SUMMARY_TAXYEAR_KEY), 10);
+    return (v === cur || v === cur - 1 || v === cur - 2) ? v : cur;
+  } catch { return cur; }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function Summary({ token }) {
@@ -1019,7 +1031,7 @@ export default function Summary({ token }) {
 
   // Year-tab sub-view: 'ytd' (Task 11) or 'tax' (Task 15)
   const [yearSub, setYearSub] = useState(() => getSummaryYearSub()); // last-open remembered (Task 248)
-  const [taxYear, setTaxYear] = useState(new Date().getFullYear());
+  const [taxYear, setTaxYear] = useState(() => getSummaryTaxYear()); // last-open remembered (Task 256)
 
   // Tax sub-view — lazy-loaded the first time it is opened (Task 15)
   const [taxBizTx, setTaxBizTx]       = useState([]);
@@ -1064,6 +1076,11 @@ export default function Summary({ token }) {
   useEffect(() => {
     try { localStorage.setItem(SUMMARY_YEARSUB_KEY, yearSub); } catch { /* ignore */ }
   }, [yearSub]);
+
+  // Task 256 — persist the Tax Prep year so it reopens where the user last was.
+  useEffect(() => {
+    try { localStorage.setItem(SUMMARY_TAXYEAR_KEY, String(taxYear)); } catch { /* ignore */ }
+  }, [taxYear]);
 
   useEffect(() => {
     if (!token) return;
