@@ -405,27 +405,33 @@ export default function Transactions({ token }) {
 
       {/* Filter chips */}
       <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-0.5">
-        {['current', 'last', 'all'].map(m => (
-          <button key={m} onClick={() => setMonthFilter(m)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-              monthFilter === m
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'
-            }`}>
-            {MONTH_LABELS[m]}
-          </button>
-        ))}
+        <div role="group" aria-label="Date range" className="flex gap-2 shrink-0">
+          {['current', 'last', 'all'].map(m => (
+            <button key={m} onClick={() => setMonthFilter(m)}
+              aria-pressed={monthFilter === m}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                monthFilter === m
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'
+              }`}>
+              {MONTH_LABELS[m]}
+            </button>
+          ))}
+        </div>
         <div className="w-px bg-slate-700/60 shrink-0 mx-1 self-stretch" />
-        {[['all','All'],['done','Done'],['pending','Pending']].map(([v, l]) => (
-          <button key={v} onClick={() => setStatusFilter(v)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-              statusFilter === v
-                ? 'bg-slate-600 text-white border-slate-500'
-                : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'
-            }`}>
-            {l}
-          </button>
-        ))}
+        <div role="group" aria-label="Status" className="flex gap-2 shrink-0">
+          {[['all','All'],['done','Done'],['pending','Pending']].map(([v, l]) => (
+            <button key={v} onClick={() => setStatusFilter(v)}
+              aria-pressed={statusFilter === v}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                statusFilter === v
+                  ? 'bg-slate-600 text-white border-slate-500'
+                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'
+              }`}>
+              {l}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Summary strip (filtered) */}
@@ -506,6 +512,7 @@ export default function Transactions({ token }) {
           </div>
           <button onClick={() => setSortOrder(s => s === 'newest' ? 'oldest' : 'newest')}
             title="Toggle sort order"
+            aria-label={`Sort order: ${sortOrder === 'newest' ? 'newest first' : 'oldest first'} — tap to toggle`}
             className="bg-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 hover:text-white border border-slate-700 shrink-0 transition-colors">
             {sortOrder === 'newest' ? '↓ New' : '↑ Old'}
           </button>
