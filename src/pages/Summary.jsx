@@ -838,9 +838,10 @@ function TaxView({ bizTx, bizExp, bizSpend, subs, allocRows, year, onYear, avail
     <div className="px-4 space-y-4">
       {/* Year selector + copy */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5" role="group" aria-label="Tax year">
           {availableYears.map(y => (
             <button key={y} onClick={() => onYear(y)}
+              aria-pressed={String(y) === String(year)}
               className={`text-xs px-2.5 py-1 rounded-lg font-mono font-medium transition-colors ${
                 String(y) === String(year) ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
               }`}>{y}</button>
