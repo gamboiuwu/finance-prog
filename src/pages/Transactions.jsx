@@ -510,16 +510,22 @@ export default function Transactions({ token }) {
           </div>
           <button onClick={() => setSortOrder(s => s === 'newest' ? 'oldest' : 'newest')}
             title="Toggle sort order"
+            aria-label={sortOrder === 'newest' ? 'Sorted newest first — tap to sort oldest first' : 'Sorted oldest first — tap to sort newest first'}
             className="bg-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 hover:text-white border border-slate-700 shrink-0 transition-colors">
             {sortOrder === 'newest' ? '↓ New' : '↑ Old'}
           </button>
           <button onClick={copyCSV}
             title="Copy as CSV"
+            aria-label="Copy visible transactions as CSV"
             className={`rounded-xl px-3 py-2 text-xs border shrink-0 transition-colors ${
               copied ? 'bg-emerald-900/40 text-emerald-400 border-emerald-700/50' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
             }`}>
             {copied ? '✓' : 'CSV'}
           </button>
+          {/* Task 272: announce the CSV copied state to screen readers (dedicated polite region, silent otherwise) */}
+          <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {copied ? 'Transactions copied to clipboard as CSV' : ''}
+          </span>
         </div>
       )}
 
