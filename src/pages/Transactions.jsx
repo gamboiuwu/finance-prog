@@ -500,9 +500,9 @@ export default function Transactions({ token }) {
       {/* View / Sort / CSV controls */}
       {(filteredRows.length > 0 || rows.length > 0) && (
         <div className="flex items-center gap-2">
-          <div className="flex bg-slate-800 rounded-xl p-1 gap-1 flex-1">
+          <div role="tablist" aria-label="Transaction view" className="flex bg-slate-800 rounded-xl p-1 gap-1 flex-1">
             {['grouped', 'list'].map(v => (
-              <button key={v} onClick={() => setView(v)}
+              <button key={v} role="tab" id={`tx-view-${v}`} aria-selected={view === v} onClick={() => setView(v)}
                 className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${view === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
                 {v === 'grouped' ? 'By Category' : 'Chronological'}
               </button>
