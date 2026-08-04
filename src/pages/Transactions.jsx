@@ -433,6 +433,18 @@ export default function Transactions({ token }) {
         </div>
       </div>
 
+      {/* Task 275: announce the filtered result count to screen readers when
+          a filter/search/sort change alters the visible set (dedicated polite
+          region, kept separate from the CSV-copied announcer so they can't
+          clobber; silent until any transactions are loaded). */}
+      <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {rows.length === 0
+          ? ''
+          : filteredRows.length === 0
+            ? 'No transactions match your filters.'
+            : `Showing ${filteredRows.length} transaction${filteredRows.length === 1 ? '' : 's'}.`}
+      </span>
+
       {/* Summary strip (filtered) */}
       {filteredRows.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
