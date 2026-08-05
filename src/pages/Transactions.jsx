@@ -468,16 +468,17 @@ export default function Transactions({ token }) {
       {filteredRows.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-slate-800 rounded-xl p-3 text-center">
-            <p className="text-slate-500 text-[10px] uppercase tracking-wider">Received</p>
-            <p className="text-emerald-400 font-bold text-sm mt-0.5">${totalReceived.toFixed(2)}</p>
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider" aria-hidden="true">Received</p>
+            <p className="text-emerald-400 font-bold text-sm mt-0.5" aria-label={`Received $${totalReceived.toFixed(2)}`}>${totalReceived.toFixed(2)}</p>
           </div>
           <div className="bg-slate-800 rounded-xl p-3 text-center">
-            <p className="text-slate-500 text-[10px] uppercase tracking-wider">Spent</p>
-            <p className="text-rose-400 font-bold text-sm mt-0.5">${totalSpent.toFixed(2)}</p>
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider" aria-hidden="true">Spent</p>
+            <p className="text-rose-400 font-bold text-sm mt-0.5" aria-label={`Spent $${totalSpent.toFixed(2)}`}>${totalSpent.toFixed(2)}</p>
           </div>
           <div className="bg-slate-800 rounded-xl p-3 text-center">
-            <p className="text-slate-500 text-[10px] uppercase tracking-wider">Net</p>
-            <p className={`font-bold text-sm mt-0.5 ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <p className="text-slate-500 text-[10px] uppercase tracking-wider" aria-hidden="true">Net</p>
+            <p className={`font-bold text-sm mt-0.5 ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}
+               aria-label={`Net ${net >= 0 ? 'surplus' : 'deficit'} $${Math.abs(net).toFixed(2)}`}>
               {net >= 0 ? '+' : '-'}${Math.abs(net).toFixed(2)}
             </p>
           </div>
