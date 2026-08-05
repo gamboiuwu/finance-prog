@@ -369,6 +369,22 @@ export default function Transactions({ token }) {
   const MONTH_LABELS = { current: 'This Month', last: 'Last Month', all: 'All Time' };
   const hasActiveFilter = searchQuery || monthFilter !== 'all' || statusFilter !== 'all';
 
+  // Task 280: screen-reader result announcement with active-filter context, so a
+  // SR user hears WHICH filter produced the count. Only non-default filters are
+  // named — an unfiltered view reads plain "Showing N transactions". Labels reuse
+  // the visible chips (MONTH_LABELS / Done / Pending) so wording matches.
+  const srFilterContext = [
+    monthFilter !== 'all' ? MONTH_LABELS[monthFilter] : null,
+    statusFilter === 'done' ? 'Done' : statusFilter === 'pending' ? 'Pending' : null,
+    searchQuery.trim() ? `matching "${searchQuery.trim()}"` : null,
+  ].filter(Boolean).join(' · ');
+  const srResultAnnouncement =
+    rows.length === 0
+      ? ''
+      : filteredRows.length === 0
+        ? 'No transactions match your filters.'
+        : `Showing ${filteredRows.length} transaction${filteredRows.length === 1 ? '' : 's'}${srFilterContext ? ' · ' + srFilterContext : ''}.`;
+
   return (
     <div className="stagger p-4 pb-24 space-y-4">
       {/* Title + Add */}
@@ -438,11 +454,7 @@ export default function Transactions({ token }) {
           region, kept separate from the CSV-copied announcer so they can't
           clobber; silent until any transactions are loaded). */}
       <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-        {rows.length === 0
-          ? ''
-          : filteredRows.length === 0
-            ? 'No transactions match your filters.'
-            : `Showing ${filteredRows.length} transaction${filteredRows.length === 1 ? '' : 's'}.`}
+        {srResultAnnouncement}
       </span>
 
       {/* Summary strip (filtered) */}
