@@ -378,12 +378,18 @@ export default function Transactions({ token }) {
     statusFilter === 'done' ? 'Done' : statusFilter === 'pending' ? 'Pending' : null,
     searchQuery.trim() ? `matching "${searchQuery.trim()}"` : null,
   ].filter(Boolean).join(' · ');
+  // Task 283: fold the running-balance totals (net / in / out — the same figures
+  // the visible summary strip shows) into the SAME count region, so a filter
+  // change fires ONE atomic announcement instead of two racing live regions.
+  // Order = count · filters · net · in/out (money last). Supersedes the drafted
+  // separate totals announcer (Task 278) and the consolidation task (Task 282).
+  const srMoneySummary = `net ${net >= 0 ? 'positive' : 'negative'} $${Math.abs(net).toFixed(2)} · $${totalReceived.toFixed(2)} in, $${totalSpent.toFixed(2)} out`;
   const srResultAnnouncement =
     rows.length === 0
       ? ''
       : filteredRows.length === 0
         ? 'No transactions match your filters.'
-        : `Showing ${filteredRows.length} transaction${filteredRows.length === 1 ? '' : 's'}${srFilterContext ? ' · ' + srFilterContext : ''}.`;
+        : `Showing ${filteredRows.length} transaction${filteredRows.length === 1 ? '' : 's'}${srFilterContext ? ' · ' + srFilterContext : ''} · ${srMoneySummary}.`;
 
   return (
     <div className="stagger p-4 pb-24 space-y-4">
@@ -449,10 +455,11 @@ export default function Transactions({ token }) {
         </div>
       </div>
 
-      {/* Task 275: announce the filtered result count to screen readers when
-          a filter/search/sort change alters the visible set (dedicated polite
-          region, kept separate from the CSV-copied announcer so they can't
-          clobber; silent until any transactions are loaded). */}
+      {/* Task 275 + 283: announce the filtered result count AND the running
+          balance (net / in / out) to screen readers when a filter/search/sort
+          change alters the visible set — one atomic announcement (dedicated
+          polite region, kept separate from the CSV-copied announcer so they
+          can't clobber; silent until any transactions are loaded). */}
       <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {srResultAnnouncement}
       </span>
