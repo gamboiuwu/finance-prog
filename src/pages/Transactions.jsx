@@ -639,25 +639,29 @@ export default function Transactions({ token }) {
 
       {/* Running balance footer */}
       {filteredRows.length > 0 && (
-        <div className="bg-slate-800/60 rounded-2xl p-4 border border-slate-700/40">
+        <div role="region" aria-label="Summary totals" tabIndex={0}
+             className="bg-slate-800/60 rounded-2xl p-4 border border-slate-700/40">
           <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-3">
             Summary · {filteredRows.length} entr{filteredRows.length === 1 ? 'y' : 'ies'}
             {monthFilter !== 'all' ? ` · ${MONTH_LABELS[monthFilter]}` : ''}
           </p>
           <div className="grid grid-cols-3 gap-3 text-center">
             <div>
-              <p className="text-slate-500 text-xs">Net</p>
-              <p className={`font-bold font-mono text-sm mt-0.5 ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <p className="text-slate-500 text-xs" aria-hidden="true">Net</p>
+              <p className={`font-bold font-mono text-sm mt-0.5 ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}
+                 aria-label={`Net ${net >= 0 ? 'surplus' : 'deficit'} $${Math.abs(net).toFixed(2)}`}>
                 {net >= 0 ? '+' : '-'}${Math.abs(net).toFixed(2)}
               </p>
             </div>
             <div>
-              <p className="text-slate-500 text-xs">Count</p>
-              <p className="text-white font-bold text-sm mt-0.5">{filteredRows.length}</p>
+              <p className="text-slate-500 text-xs" aria-hidden="true">Count</p>
+              <p className="text-white font-bold text-sm mt-0.5"
+                 aria-label={`${filteredRows.length} transaction${filteredRows.length === 1 ? '' : 's'}`}>{filteredRows.length}</p>
             </div>
             <div>
-              <p className="text-slate-500 text-xs">Avg</p>
-              <p className="text-slate-300 font-bold font-mono text-sm mt-0.5">${avgAmt.toFixed(2)}</p>
+              <p className="text-slate-500 text-xs" aria-hidden="true">Avg</p>
+              <p className="text-slate-300 font-bold font-mono text-sm mt-0.5"
+                 aria-label={`Average transaction $${avgAmt.toFixed(2)}`}>${avgAmt.toFixed(2)}</p>
             </div>
           </div>
         </div>
