@@ -466,7 +466,7 @@ export default function Transactions({ token }) {
 
       {/* Summary strip (filtered) */}
       {filteredRows.length > 0 && (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2" role="region" aria-label="Filtered totals" tabIndex={0}>
           <div className="bg-slate-800 rounded-xl p-3 text-center">
             <p className="text-slate-500 text-[10px] uppercase tracking-wider" aria-hidden="true">Received</p>
             <p className="text-emerald-400 font-bold text-sm mt-0.5" aria-label={`Received $${totalReceived.toFixed(2)}`}>${totalReceived.toFixed(2)}</p>
