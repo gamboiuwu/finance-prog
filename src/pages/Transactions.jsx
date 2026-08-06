@@ -7,6 +7,23 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 const ACCOUNTS  = ['Cash', 'Checking', 'Savings', 'Outside Payment', 'Business Tax', 'Subscription', 'Liabilities'];
 const CAT_COLORS = ['#3b82f6','#f43f5e','#f59e0b','#10b981','#8b5cf6','#06b6d4','#ec4899','#64748b'];
 
+// Remember the user's Transactions layout per-device (Task 296) — the always-safe
+// panel/sort choices only. monthFilter deliberately stays fresh on 'current' each
+// open so nobody is surprised by "why am I not seeing this month?". Enum keys only,
+// no financial data. Mirrors the Business/Summary persistence pattern.
+const TX_SORT_KEY = '_fin_tx_sort';
+const TX_VIEW_KEY = '_fin_tx_view';
+const TX_SORTS = ['newest', 'oldest'];
+const TX_VIEWS = ['grouped', 'list'];
+function getTxSort() {
+  try { const v = localStorage.getItem(TX_SORT_KEY); return TX_SORTS.includes(v) ? v : 'newest'; }
+  catch { return 'newest'; }
+}
+function getTxView() {
+  try { const v = localStorage.getItem(TX_VIEW_KEY); return TX_VIEWS.includes(v) ? v : 'grouped'; }
+  catch { return 'grouped'; }
+}
+
 function parseAmount(val) {
   if (val == null || val === '') return 0;
   const s = String(val).trim();
@@ -201,12 +218,16 @@ export default function Transactions({ token }) {
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState(null);
   const [showModal, setShowModal]     = useState(false);
-  const [view, setView]               = useState('grouped');
+  const [view, setView]               = useState(() => getTxView());
   const [searchQuery, setSearchQuery] = useState('');
   const [monthFilter, setMonthFilter] = useState('current');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [sortOrder, setSortOrder]     = useState('newest');
+  const [sortOrder, setSortOrder]     = useState(() => getTxSort());
   const [copied, setCopied]           = useState(false);
+
+  // Persist the view + sort choices per-device on change (Task 296).
+  useEffect(() => { try { localStorage.setItem(TX_VIEW_KEY, view); } catch { /* storage unavailable */ } }, [view]);
+  useEffect(() => { try { localStorage.setItem(TX_SORT_KEY, sortOrder); } catch { /* storage unavailable */ } }, [sortOrder]);
 
   const now       = new Date();
   const curMK     = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
