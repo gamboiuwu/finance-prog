@@ -7,6 +7,21 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 const ACCOUNTS  = ['Cash', 'Checking', 'Savings', 'Outside Payment', 'Business Tax', 'Subscription', 'Liabilities'];
 const CAT_COLORS = ['#3b82f6','#f43f5e','#f59e0b','#10b981','#8b5cf6','#06b6d4','#ec4899','#64748b'];
 
+// ── Remember the Transactions layout per-device (Task 296) — enum keys only, no
+// financial data. Deliberately NOT persisting monthFilter/searchQuery/statusFilter
+// so the log always opens on the current month (avoids the "why am I not seeing
+// this month?" surprise); only the always-safe view + sort preferences stick.
+const TX_VIEW_KEY = '_fin_tx_view';
+const TX_SORT_KEY = '_fin_tx_sort';
+function getTxView() {
+  try { return localStorage.getItem(TX_VIEW_KEY) === 'list' ? 'list' : 'grouped'; }
+  catch { return 'grouped'; }
+}
+function getTxSort() {
+  try { return localStorage.getItem(TX_SORT_KEY) === 'oldest' ? 'oldest' : 'newest'; }
+  catch { return 'newest'; }
+}
+
 function parseAmount(val) {
   if (val == null || val === '') return 0;
   const s = String(val).trim();
@@ -201,11 +216,11 @@ export default function Transactions({ token }) {
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState(null);
   const [showModal, setShowModal]     = useState(false);
-  const [view, setView]               = useState('grouped');
+  const [view, setView]               = useState(() => getTxView());
   const [searchQuery, setSearchQuery] = useState('');
   const [monthFilter, setMonthFilter] = useState('current');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [sortOrder, setSortOrder]     = useState('newest');
+  const [sortOrder, setSortOrder]     = useState(() => getTxSort());
   const [copied, setCopied]           = useState(false);
 
   const now       = new Date();
@@ -242,6 +257,8 @@ export default function Transactions({ token }) {
   }
 
   useEffect(() => { if (token) load(); }, [token]);
+  useEffect(() => { try { localStorage.setItem(TX_VIEW_KEY, view); } catch {} }, [view]);
+  useEffect(() => { try { localStorage.setItem(TX_SORT_KEY, sortOrder); } catch {} }, [sortOrder]);
 
   async function handleSave(values) {
     setSaving(true);
