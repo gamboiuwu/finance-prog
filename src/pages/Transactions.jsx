@@ -7,12 +7,20 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 const ACCOUNTS  = ['Cash', 'Checking', 'Savings', 'Outside Payment', 'Business Tax', 'Subscription', 'Liabilities'];
 const CAT_COLORS = ['#3b82f6','#f43f5e','#f59e0b','#10b981','#8b5cf6','#06b6d4','#ec4899','#64748b'];
 
-// ── Remember the Transactions layout per-device (Task 296) — enum keys only, no
-// financial data. Deliberately NOT persisting monthFilter/searchQuery/statusFilter
-// so the log always opens on the current month (avoids the "why am I not seeing
-// this month?" surprise); only the always-safe view + sort preferences stick.
-const TX_VIEW_KEY = '_fin_tx_view';
-const TX_SORT_KEY = '_fin_tx_sort';
+// ── Remember the Transactions layout per-device (Tasks 296 + 298) — enum keys +
+// a YYYY-MM stamp only, no financial data. view/sort/status are always-safe to
+// persist; monthFilter is persisted with a same-calendar-month stale-guard so a
+// "Last month"/"All time" choice sticks within the current month but auto-resets
+// to "current" once the month rolls over (avoids the "why am I not seeing this
+// month?" surprise). searchQuery is deliberately left fresh each open.
+const TX_VIEW_KEY   = '_fin_tx_view';
+const TX_SORT_KEY   = '_fin_tx_sort';
+const TX_STATUS_KEY = '_fin_tx_status';
+const TX_MONTH_KEY  = '_fin_tx_monthfilter';
+function nowMonthKey() {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+}
 function getTxView() {
   try { return localStorage.getItem(TX_VIEW_KEY) === 'list' ? 'list' : 'grouped'; }
   catch { return 'grouped'; }
@@ -20,6 +28,21 @@ function getTxView() {
 function getTxSort() {
   try { return localStorage.getItem(TX_SORT_KEY) === 'oldest' ? 'oldest' : 'newest'; }
   catch { return 'newest'; }
+}
+function getTxStatus() {
+  try { const v = localStorage.getItem(TX_STATUS_KEY); return (v === 'done' || v === 'pending') ? v : 'all'; }
+  catch { return 'all'; }
+}
+// Stored as "value|YYYY-MM"; honored only when the stamped month is the current
+// month, else falls back to 'current'.
+function getTxMonthFilter() {
+  try {
+    const raw = localStorage.getItem(TX_MONTH_KEY);
+    if (!raw) return 'current';
+    const [val, mk] = raw.split('|');
+    if (mk !== nowMonthKey()) return 'current';
+    return (val === 'last' || val === 'all') ? val : 'current';
+  } catch { return 'current'; }
 }
 
 function parseAmount(val) {
@@ -218,8 +241,8 @@ export default function Transactions({ token }) {
   const [showModal, setShowModal]     = useState(false);
   const [view, setView]               = useState(() => getTxView());
   const [searchQuery, setSearchQuery] = useState('');
-  const [monthFilter, setMonthFilter] = useState('current');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [monthFilter, setMonthFilter] = useState(() => getTxMonthFilter());
+  const [statusFilter, setStatusFilter] = useState(() => getTxStatus());
   const [sortOrder, setSortOrder]     = useState(() => getTxSort());
   const [copied, setCopied]           = useState(false);
 
@@ -259,6 +282,8 @@ export default function Transactions({ token }) {
   useEffect(() => { if (token) load(); }, [token]);
   useEffect(() => { try { localStorage.setItem(TX_VIEW_KEY, view); } catch {} }, [view]);
   useEffect(() => { try { localStorage.setItem(TX_SORT_KEY, sortOrder); } catch {} }, [sortOrder]);
+  useEffect(() => { try { localStorage.setItem(TX_STATUS_KEY, statusFilter); } catch {} }, [statusFilter]);
+  useEffect(() => { try { localStorage.setItem(TX_MONTH_KEY, `${monthFilter}|${curMK}`); } catch {} }, [monthFilter, curMK]);
 
   async function handleSave(values) {
     setSaving(true);
