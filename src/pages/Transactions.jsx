@@ -193,8 +193,8 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
 
   return (
     <div className="bg-slate-800 rounded-2xl overflow-hidden">
-      <button onClick={() => setOpen(o => !o)} className="w-full text-left px-4 py-3.5 flex items-center gap-3">
-        <span className="w-3 h-3 rounded-full shrink-0" style={{ background: color }} />
+      <button onClick={() => setOpen(o => !o)} aria-expanded={open} className="w-full text-left px-4 py-3.5 flex items-center gap-3">
+        <span className="w-3 h-3 rounded-full shrink-0" style={{ background: color }} aria-hidden="true" />
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-white font-semibold text-sm truncate">{name}</span>
@@ -208,7 +208,7 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
             {pending > 0 && <span className="text-amber-600 text-xs">{pending} pending</span>}
           </div>
         </div>
-        <span className={`text-slate-500 text-xs transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▼</span>
+        <span aria-hidden="true" className={`text-slate-500 text-xs transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▼</span>
       </button>
 
       {absSpending > 0 && totalSpent > 0 && (
