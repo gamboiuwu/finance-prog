@@ -207,7 +207,7 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
           </div>
           <div className="flex items-center gap-3 mt-0.5">
             <span className="text-slate-500 text-xs">{count} transaction{count !== 1 ? 's' : ''}</span>
-            {absSpending > 0 && <span className="text-slate-500 text-xs">spent ${absSpending.toFixed(2)}</span>}
+            {absSpending > 0 && <span aria-label={`total spending $${absSpending.toFixed(2)}`} className="text-slate-500 text-xs">spent ${absSpending.toFixed(2)}</span>}
             {pending > 0 && <span className="text-amber-600 text-xs">{pending} pending</span>}
           </div>
         </div>
