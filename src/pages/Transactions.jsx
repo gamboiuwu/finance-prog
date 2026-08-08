@@ -148,16 +148,19 @@ function TxRow({ row, onToggle }) {
   const amount   = parseAmount(row[2]);
   const isCredit = amount > 0;
   const isDone   = row[5] === 'TRUE' || row[5] === true;
+  const label    = row[3] || row[1] || 'transaction';
   return (
     <div className="flex items-center gap-3 px-3 py-2.5 border-t border-slate-700/60">
-      <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold
+      <div aria-hidden="true" className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold
         ${isCredit ? 'bg-emerald-900/50 text-emerald-400' : 'bg-rose-900/50 text-rose-400'}`}>
         {isCredit ? '↑' : '↓'}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex justify-between items-baseline gap-2">
           <span className="text-slate-300 text-xs truncate">{row[3] || row[1]}</span>
-          <span className={`text-sm font-bold font-mono tabular-nums shrink-0 ${isCredit ? 'text-emerald-400' : 'text-rose-400'}`}>
+          <span
+            aria-label={`${isCredit ? 'received' : 'spent'} $${Math.abs(amount).toFixed(2)}`}
+            className={`text-sm font-bold font-mono tabular-nums shrink-0 ${isCredit ? 'text-emerald-400' : 'text-rose-400'}`}>
             {isCredit ? '+' : '-'}${Math.abs(amount).toFixed(2)}
           </span>
         </div>
@@ -166,6 +169,7 @@ function TxRow({ row, onToggle }) {
           {row[4] && <span className="text-xs px-1.5 py-0.5 bg-slate-700/70 text-slate-500 rounded">{row[4]}</span>}
           <button
             onClick={() => onToggle(row[6], row[5])}
+            aria-label={`${isDone ? 'Mark not done' : 'Mark done'}: ${label}`}
             className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
               isDone
                 ? 'border-emerald-700/50 text-emerald-500 bg-emerald-900/20 hover:bg-emerald-900/40'
