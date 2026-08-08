@@ -198,7 +198,10 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-white font-semibold text-sm truncate">{name}</span>
-            <span className={`font-bold text-sm font-mono tabular-nums shrink-0 ${isNet ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <span
+              aria-label={`net ${isNet ? 'received' : 'spent'} $${Math.abs(netTotal).toFixed(2)}`}
+              className={`font-bold text-sm font-mono tabular-nums shrink-0 ${isNet ? 'text-emerald-400' : 'text-rose-400'}`}
+            >
               {isNet ? '+' : '-'}${Math.abs(netTotal).toFixed(2)}
             </span>
           </div>
