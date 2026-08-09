@@ -170,6 +170,7 @@ function TxRow({ row, onToggle }) {
           <button
             onClick={() => onToggle(row[6], row[5])}
             aria-label={`${isDone ? 'Mark not done' : 'Mark done'}: ${label}`}
+            aria-pressed={isDone}
             className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
               isDone
                 ? 'border-emerald-700/50 text-emerald-500 bg-emerald-900/20 hover:bg-emerald-900/40'
@@ -669,6 +670,8 @@ export default function Transactions({ token }) {
                     {row[4] && <span className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded">{row[4]}</span>}
                     <button
                       onClick={() => toggleStatus(row[6], status)}
+                      aria-label={`${status === 'TRUE' || status === true ? 'Mark not done' : 'Mark done'}: ${row[3] || row[1] || 'transaction'}`}
+                      aria-pressed={status === 'TRUE' || status === true}
                       className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
                         status === 'TRUE' || status === true
                           ? 'border-emerald-700/50 text-emerald-500 bg-emerald-900/20 hover:bg-emerald-900/40'
