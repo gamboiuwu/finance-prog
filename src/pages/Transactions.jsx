@@ -654,14 +654,16 @@ export default function Transactions({ token }) {
             const status   = row[5];
             return (
               <div key={i} className="bg-slate-800 rounded-xl p-3 flex items-center gap-3">
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-bold
+                <div aria-hidden="true" className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-bold
                   ${isCredit ? 'bg-emerald-900/50 text-emerald-400' : 'bg-rose-900/50 text-rose-400'}`}>
                   {isCredit ? '↑' : '↓'}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-baseline gap-2">
                     <p className="text-white text-sm font-medium truncate">{row[1]}</p>
-                    <span className={`text-base font-bold font-mono tabular-nums shrink-0 ${isCredit ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <span
+                      aria-label={`${isCredit ? 'received' : 'spent'} $${Math.abs(amount).toFixed(2)}`}
+                      className={`text-base font-bold font-mono tabular-nums shrink-0 ${isCredit ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {isCredit ? '+' : '-'}${Math.abs(amount).toFixed(2)}
                     </span>
                   </div>
