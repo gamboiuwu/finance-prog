@@ -170,6 +170,7 @@ function TxRow({ row, onToggle }) {
           <button
             onClick={() => onToggle(row[6], row[5])}
             aria-label={`${isDone ? 'Mark not done' : 'Mark done'}: ${label}`}
+            aria-pressed={isDone}
             className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
               isDone
                 ? 'border-emerald-700/50 text-emerald-500 bg-emerald-900/20 hover:bg-emerald-900/40'
