@@ -150,7 +150,7 @@ function TxRow({ row, onToggle }) {
   const isDone   = row[5] === 'TRUE' || row[5] === true;
   const label    = row[3] || row[1] || 'transaction';
   return (
-    <div className="flex items-center gap-3 px-3 py-2.5 border-t border-slate-700/60">
+    <div role="listitem" className="flex items-center gap-3 px-3 py-2.5 border-t border-slate-700/60">
       <div aria-hidden="true" className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold
         ${isCredit ? 'bg-emerald-900/50 text-emerald-400' : 'bg-rose-900/50 text-rose-400'}`}>
         {isCredit ? '↑' : '↓'}
@@ -232,7 +232,7 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
       )}
 
       {open && (
-        <div className="bg-slate-900/40">
+        <div role="list" aria-label={`${name} transactions`} className="bg-slate-900/40">
           {groupRows.map((row, i) => <TxRow key={i} row={row} onToggle={onToggle} />)}
         </div>
       )}
@@ -647,13 +647,13 @@ export default function Transactions({ token }) {
 
       {/* Chronological view */}
       {filteredRows.length > 0 && view === 'list' && (
-        <div className="space-y-2">
+        <div role="list" aria-label="Transactions" className="space-y-2">
           {sortedRows.map((row, i) => {
             const amount   = parseAmount(row[2]);
             const isCredit = amount > 0;
             const status   = row[5];
             return (
-              <div key={i} className="bg-slate-800 rounded-xl p-3 flex items-center gap-3">
+              <div key={i} role="listitem" className="bg-slate-800 rounded-xl p-3 flex items-center gap-3">
                 <div aria-hidden="true" className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-bold
                   ${isCredit ? 'bg-emerald-900/50 text-emerald-400' : 'bg-rose-900/50 text-rose-400'}`}>
                   {isCredit ? '↑' : '↓'}
