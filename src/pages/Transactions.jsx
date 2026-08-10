@@ -198,26 +198,28 @@ function CategoryGroup({ name, rows: groupRows, totalSpent, colorIdx, pctOfAll, 
 
   return (
     <div className="bg-slate-800 rounded-2xl overflow-hidden">
-      <button onClick={() => setOpen(o => !o)} aria-expanded={open} className="w-full text-left px-4 py-3.5 flex items-center gap-3">
-        <span className="w-3 h-3 rounded-full shrink-0" style={{ background: color }} aria-hidden="true" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-white font-semibold text-sm truncate">{name}</span>
-            <span
-              aria-label={`net ${isNet ? 'received' : 'spent'} $${Math.abs(netTotal).toFixed(2)}`}
-              className={`font-bold text-sm font-mono tabular-nums shrink-0 ${isNet ? 'text-emerald-400' : 'text-rose-400'}`}
-            >
-              {isNet ? '+' : '-'}${Math.abs(netTotal).toFixed(2)}
-            </span>
+      <h3 className="m-0">
+        <button onClick={() => setOpen(o => !o)} aria-expanded={open} className="w-full text-left px-4 py-3.5 flex items-center gap-3">
+          <span className="w-3 h-3 rounded-full shrink-0" style={{ background: color }} aria-hidden="true" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-white font-semibold text-sm truncate">{name}</span>
+              <span
+                aria-label={`net ${isNet ? 'received' : 'spent'} $${Math.abs(netTotal).toFixed(2)}`}
+                className={`font-bold text-sm font-mono tabular-nums shrink-0 ${isNet ? 'text-emerald-400' : 'text-rose-400'}`}
+              >
+                {isNet ? '+' : '-'}${Math.abs(netTotal).toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 mt-0.5">
+              <span className="text-slate-500 text-xs">{count} transaction{count !== 1 ? 's' : ''}</span>
+              {absSpending > 0 && <span aria-label={`total spending $${absSpending.toFixed(2)}`} className="text-slate-500 text-xs">spent ${absSpending.toFixed(2)}</span>}
+              {pending > 0 && <span className="text-amber-600 text-xs">{pending} pending</span>}
+            </div>
           </div>
-          <div className="flex items-center gap-3 mt-0.5">
-            <span className="text-slate-500 text-xs">{count} transaction{count !== 1 ? 's' : ''}</span>
-            {absSpending > 0 && <span aria-label={`total spending $${absSpending.toFixed(2)}`} className="text-slate-500 text-xs">spent ${absSpending.toFixed(2)}</span>}
-            {pending > 0 && <span className="text-amber-600 text-xs">{pending} pending</span>}
-          </div>
-        </div>
-        <span aria-hidden="true" className={`text-slate-500 text-xs transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▼</span>
-      </button>
+          <span aria-hidden="true" className={`text-slate-500 text-xs transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▼</span>
+        </button>
+      </h3>
 
       {absSpending > 0 && totalSpent > 0 && (
         <div className="px-4 pb-3 space-y-1">
