@@ -165,8 +165,8 @@ function TxRow({ row, onToggle }) {
           </span>
         </div>
         <div className="flex gap-2 mt-0.5 flex-wrap items-center">
-          <span className="text-slate-600 text-xs">{row[0]}</span>
-          {row[4] && <span className="text-xs px-1.5 py-0.5 bg-slate-700/70 text-slate-500 rounded">{row[4]}</span>}
+          <span aria-label={`on ${row[0]}`} className="text-slate-600 text-xs">{row[0]}</span>
+          {row[4] && <span aria-label={`account ${row[4]}`} className="text-xs px-1.5 py-0.5 bg-slate-700/70 text-slate-500 rounded">{row[4]}</span>}
           <button
             onClick={() => onToggle(row[6], row[5])}
             aria-label={`${isDone ? 'Mark not done' : 'Mark done'}: ${label}`}
@@ -668,8 +668,8 @@ export default function Transactions({ token }) {
                     </span>
                   </div>
                   <div className="flex gap-2 mt-0.5 flex-wrap items-center">
-                    <span className="text-slate-500 text-xs">{row[0]}</span>
-                    {row[4] && <span className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded">{row[4]}</span>}
+                    <span aria-label={`on ${row[0]}`} className="text-slate-500 text-xs">{row[0]}</span>
+                    {row[4] && <span aria-label={`account ${row[4]}`} className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded">{row[4]}</span>}
                     <button
                       onClick={() => toggleStatus(row[6], status)}
                       aria-label={`${status === 'TRUE' || status === true ? 'Mark not done' : 'Mark done'}: ${row[3] || row[1] || 'transaction'}`}
