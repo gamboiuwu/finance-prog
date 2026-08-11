@@ -540,11 +540,13 @@ export default function Transactions({ token }) {
 
       {/* All-time charts — only shown in All Time mode */}
       {monthFilter === 'all' && rows.length > 0 && (
-        <>
+        <div role="region" aria-labelledby="spending-charts-heading" tabIndex={0} className="space-y-4">
+          <h2 id="spending-charts-heading" className="sr-only">Spending charts</h2>
           {allCatChartData.length > 0 && (
             <div className="bg-slate-800 rounded-2xl p-4">
               <p className="text-slate-300 font-medium text-sm mb-3 font-broske">Spending by Category</p>
               <div className="flex gap-4 items-center">
+                <div aria-hidden="true">
                 <PieChart width={130} height={130}>
                   <Pie data={allCatChartData} cx={65} cy={65} innerRadius={38} outerRadius={60} dataKey="value" stroke="none">
                     {allCatChartData.map((_, i) => <Cell key={i} fill={CAT_COLORS[i % CAT_COLORS.length]} />)}
@@ -552,6 +554,7 @@ export default function Transactions({ token }) {
                   <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 12, fontFamily: "'ZTNature', system-ui, sans-serif" }}
                     formatter={v => [`$${Number(v).toFixed(2)}`]} />
                 </PieChart>
+                </div>
                 <div className="flex-1 space-y-1.5">
                   {allCatChartData.map((d, i) => (
                     <div key={i} className="flex items-center justify-between gap-2">
@@ -569,6 +572,7 @@ export default function Transactions({ token }) {
           {monthMapData.length > 1 && (
             <div className="bg-slate-800 rounded-2xl p-4">
               <p className="text-slate-300 font-medium text-sm mb-3 font-broske">Monthly Spending</p>
+              <div aria-hidden="true">
               <ResponsiveContainer width="100%" height={140}>
                 <BarChart data={monthMapData} barCategoryGap="35%">
                   <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: "'ZTNature', system-ui, sans-serif" }} axisLine={false} tickLine={false} />
@@ -578,9 +582,10 @@ export default function Transactions({ token }) {
                   <Bar dataKey="spent" fill="#f43f5e" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+              </div>
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* View / Sort / CSV controls */}
