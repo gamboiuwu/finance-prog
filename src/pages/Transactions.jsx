@@ -583,6 +583,20 @@ export default function Transactions({ token }) {
                 </BarChart>
               </ResponsiveContainer>
               </div>
+              {/* Task 335: sr-only data-table alternative — the bar chart SVG above is
+                  aria-hidden (unlike the pie, which has a visible legend), so a screen-reader
+                  user gets the monthly figures here instead of nothing. Reuses monthMapData. */}
+              <table className="sr-only">
+                <caption>Monthly spending</caption>
+                <thead>
+                  <tr><th>Month</th><th>Amount spent</th></tr>
+                </thead>
+                <tbody>
+                  {monthMapData.map((d, i) => (
+                    <tr key={i}><td>{d.month}</td><td>${d.spent.toFixed(2)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
