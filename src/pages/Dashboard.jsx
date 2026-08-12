@@ -488,7 +488,7 @@ function TrendChartCard({ data, expanded, onToggle }) {
       </button>
       {expanded && (
         <>
-          <div className="mt-3 h-44">
+          <div className="mt-3 h-44" aria-hidden="true">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={last6} barCategoryGap="25%" barGap={2}>
                 <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -502,6 +502,21 @@ function TrendChartCard({ data, expanded, onToggle }) {
               </BarChart>
             </ResponsiveContainer>
           </div>
+          {/* Task 340: sr-only data-table alternative — the bar chart SVG above is
+              aria-hidden (an unreadable jumble of ticks to a screen reader), so a SR
+              user gets the monthly income vs expense figures here instead of nothing.
+              Reuses the same last6 array the chart renders. Mirrors Task 335. */}
+          <table className="sr-only">
+            <caption>Income vs expenses by month</caption>
+            <thead>
+              <tr><th>Month</th><th>Income</th><th>Expenses</th></tr>
+            </thead>
+            <tbody>
+              {last6.map((d, i) => (
+                <tr key={i}><td>{d.month}</td><td>${d.income.toFixed(2)}</td><td>${d.spent.toFixed(2)}</td></tr>
+              ))}
+            </tbody>
+          </table>
           <div className="flex gap-4 mt-1 justify-center text-xs text-slate-400">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-teal-500 inline-block" />Income</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block" />Expenses</span>
