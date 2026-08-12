@@ -544,7 +544,7 @@ export default function Transactions({ token }) {
           <h2 id="spending-charts-heading" className="sr-only">Spending charts</h2>
           {allCatChartData.length > 0 && (
             <div className="bg-slate-800 rounded-2xl p-4">
-              <p className="text-slate-300 font-medium text-sm mb-3 font-broske">Spending by Category</p>
+              <p id="spending-by-category-heading" className="text-slate-300 font-medium text-sm mb-3 font-broske">Spending by Category</p>
               <div className="flex gap-4 items-center">
                 <div aria-hidden="true">
                 <PieChart width={130} height={130}>
@@ -555,11 +555,15 @@ export default function Transactions({ token }) {
                     formatter={v => [`$${Number(v).toFixed(2)}`]} />
                 </PieChart>
                 </div>
-                <div className="flex-1 space-y-1.5">
+                {/* Task 338: the pie SVG is aria-hidden, so this visible legend is the pie's
+                    text alternative — give it list semantics + a consolidated per-row aria-label
+                    (mirrors the row a11y of Tasks 287/292/312/324) so a screen reader hears
+                    "N-item list" and "{category}: $X" instead of a stream of fragments. */}
+                <div role="list" aria-labelledby="spending-by-category-heading" className="flex-1 space-y-1.5">
                   {allCatChartData.map((d, i) => (
-                    <div key={i} className="flex items-center justify-between gap-2">
+                    <div key={i} role="listitem" aria-label={`${d.name}: $${d.value.toFixed(0)}`} className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CAT_COLORS[i % CAT_COLORS.length] }} />
+                        <span aria-hidden="true" className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CAT_COLORS[i % CAT_COLORS.length] }} />
                         <span className="text-slate-300 text-xs truncate">{d.name}</span>
                       </div>
                       <span className="text-slate-400 text-xs font-mono shrink-0">${d.value.toFixed(0)}</span>
