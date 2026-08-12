@@ -1912,19 +1912,36 @@ function NetWorthCard({ rows, expanded, onToggle, onUpdate }) {
           </div>
 
           {snaps.length >= 2 && (
-            <div className="h-32 -mx-1">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chart} margin={{ top: 6, right: 8, bottom: 0, left: 8 }}>
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <YAxis hide domain={['auto', 'auto']} />
-                  <Tooltip formatter={(v) => fmt(v)}
-                    contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
-                    labelStyle={{ color: '#cbd5e1' }} />
-                  {target != null && <ReferenceLine y={target} stroke="#f59e0b" strokeDasharray="4 3" />}
-                  <Line type="monotone" dataKey="net" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
+            <>
+              <div className="h-32 -mx-1" aria-hidden="true">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={chart} margin={{ top: 6, right: 8, bottom: 0, left: 8 }}>
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis hide domain={['auto', 'auto']} />
+                    <Tooltip formatter={(v) => fmt(v)}
+                      contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+                      labelStyle={{ color: '#cbd5e1' }} />
+                    {target != null && <ReferenceLine y={target} stroke="#f59e0b" strokeDasharray="4 3" />}
+                    <Line type="monotone" dataKey="net" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              {/* Task 343: sr-only data-table alternative — the trend line SVG above is
+                  aria-hidden (silent to a screen reader), so a SR user gets the per-snapshot
+                  net-worth figures here instead of nothing. Reuses the same chart array the
+                  line renders. Mirrors Task 335/340. */}
+              <table className="sr-only">
+                <caption>Net worth by snapshot</caption>
+                <thead>
+                  <tr><th>Date</th><th>Net worth</th></tr>
+                </thead>
+                <tbody>
+                  {chart.map((d, i) => (
+                    <tr key={i}><td>{d.label}</td><td>{fmt(d.net)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
 
           {target != null && (
