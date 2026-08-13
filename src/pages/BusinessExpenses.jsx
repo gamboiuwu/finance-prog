@@ -2874,16 +2874,29 @@ function InsightsView({ token }) {
             ) : <span className="text-slate-600">last 6 months</span>}
           </span>
         </div>
-        <ResponsiveContainer width="100%" height={130}>
-          <BarChart data={trend.data} barCategoryGap="28%">
-            <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={40} />
-            <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }} itemStyle={{ color: '#cbd5e1' }} labelStyle={{ color: '#94a3b8' }} formatter={v => [`$${Number(v).toFixed(2)}`, 'Spent']} cursor={{ fill: '#1e293b55' }} />
-            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-              {trend.data.map((d, i) => <Cell key={i} fill={i === trend.data.length - 1 ? '#3b82f6' : '#334155'} />)}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        <div aria-hidden="true">
+          <ResponsiveContainer width="100%" height={130}>
+            <BarChart data={trend.data} barCategoryGap="28%">
+              <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={40} />
+              <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 11 }} itemStyle={{ color: '#cbd5e1' }} labelStyle={{ color: '#94a3b8' }} formatter={v => [`$${Number(v).toFixed(2)}`, 'Spent']} cursor={{ fill: '#1e293b55' }} />
+              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                {trend.data.map((d, i) => <Cell key={i} fill={i === trend.data.length - 1 ? '#3b82f6' : '#334155'} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <table className="sr-only">
+          <caption>Monthly business spending</caption>
+          <thead>
+            <tr><th scope="col">Month</th><th scope="col">Spent</th></tr>
+          </thead>
+          <tbody>
+            {trend.data.map((d, i) => (
+              <tr key={i}><th scope="row">{d.name}</th><td>${d.value.toFixed(2)}</td></tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {/* ── Tool 3: Top vendors ── */}
