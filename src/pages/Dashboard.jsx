@@ -842,7 +842,7 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
           />
 
           {/* Income vs committed outflows */}
-          <div className="mt-3 h-44">
+          <div className="mt-3 h-44" aria-hidden="true">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={rows} barCategoryGap="25%" barGap={2}>
                 <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -856,6 +856,25 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
               </BarChart>
             </ResponsiveContainer>
           </div>
+          {/* Accessible-chart alternative (Task 345) — the bar SVG is decorative
+              to a screen reader, so mirror its per-month data as an sr-only table
+              from the exact `rows` array the bars render. */}
+          <table className="sr-only">
+            <caption>3-month forecast</caption>
+            <thead>
+              <tr><th>Month</th><th>Expected income</th><th>Committed outflows</th><th>Net</th></tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.month}>
+                  <td>{r.month}</td>
+                  <td>${r.income.toFixed(0)}</td>
+                  <td>${r.outflow.toFixed(0)}</td>
+                  <td>${r.net.toFixed(0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           <div className="flex gap-4 mt-1 justify-center text-xs text-slate-400">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-teal-500 inline-block" />Est. income</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block" />Fixed bills</span>
