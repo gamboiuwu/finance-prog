@@ -1254,12 +1254,24 @@ function computeSpendPace(expenses, allAllocTx, dayOfMonth, daysInMo) {
 }
 
 function SpendPaceCard({ expenses, allAllocTx, dayOfMonth, daysInMo, expanded, onToggle }) {
-  const { rows, flagged, totalAllow, totalProjected } =
+  const { rows, flagged, totalAllow, totalProjected, elapsedFrac } =
     computeSpendPace(expenses, allAllocTx, dayOfMonth, daysInMo);
   if (rows.length === 0) return null;                // nothing spent yet this month
 
   const overBudgetTotal = totalProjected > totalAllow;
   const headColor = flagged.length > 0 ? 'text-amber-300' : 'text-emerald-400';
+
+  // Confidence tier: a linear run-rate is jumpy early in the month (one big grocery
+  // run on day 5 projects wildly) and firms up as more of the month is logged. Tell
+  // the user how much to trust the projection — directly answers the "the trajectory
+  // idk if its going to reach its limit… feels too low given it's the start of the
+  // week" feedback (Task-358 thread). Read-only over the already-computed elapsedFrac.
+  const elapsedWhole = Math.round(elapsedFrac * 100);
+  const confidence = elapsedFrac < 1 / 3
+    ? { label: 'rough estimate',  note: `only ${elapsedWhole}% of the month logged`, tint: 'text-amber-300 bg-amber-500/15 border-amber-500/30' }
+    : elapsedFrac < 2 / 3
+    ? { label: 'getting reliable', note: `${elapsedWhole}% of the month logged`,     tint: 'text-sky-300 bg-sky-500/15 border-sky-500/30' }
+    : { label: 'high confidence',  note: 'most of the month logged',                 tint: 'text-emerald-300 bg-emerald-500/15 border-emerald-500/30' };
 
   return (
     <div className={`rounded-2xl p-4 border ${
@@ -1278,6 +1290,9 @@ function SpendPaceCard({ expenses, allAllocTx, dayOfMonth, daysInMo, expanded, o
               <span className="text-slate-200 font-semibold">{fmt(totalAllow)}</span> budgeted this month
               {overBudgetTotal && <span className="text-amber-300"> · {fmt(totalProjected - totalAllow)} over</span>}
             </p>
+            <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full border text-[10px] font-medium ${confidence.tint}`}>
+              ⚖ {confidence.label} · {confidence.note}
+            </span>
           </div>
           <span className="text-slate-500 text-lg leading-none shrink-0">{expanded ? '▲' : '▼'}</span>
         </div>
