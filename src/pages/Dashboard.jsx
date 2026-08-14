@@ -1222,9 +1222,13 @@ function computeSpendPace(expenses, allAllocTx, dayOfMonth, daysInMo) {
   const now = new Date();
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const spentByType = {};
+  const countByType = {};                                   // # of logged entries driving each pace (provenance, Task-154 thread)
   allAllocTx.forEach(r => {
     if (r.dateStr.slice(0, 7) !== curKey) return;
-    if (r.amount < 0) spentByType[r.type] = (spentByType[r.type] || 0) + Math.abs(r.amount);
+    if (r.amount < 0) {
+      spentByType[r.type] = (spentByType[r.type] || 0) + Math.abs(r.amount);
+      countByType[r.type] = (countByType[r.type] || 0) + 1;
+    }
   });
   const elapsedFrac = Math.min(1, dayOfMonth / daysInMo);   // share of month gone
 
@@ -1234,8 +1238,9 @@ function computeSpendPace(expenses, allAllocTx, dayOfMonth, daysInMo) {
       const type  = String(e['Type']);
       const allow = pm(e['Monthly Allowance ($)']);
       const spent = spentByType[type] || 0;
+      const count = countByType[type] || 0;
       const projected = elapsedFrac > 0 ? spent / elapsedFrac : spent;
-      return { type, allow, spent, projected, over: projected - allow,
+      return { type, allow, spent, count, projected, over: projected - allow,
         spentPct: allow > 0 ? (spent / allow) * 100 : 0 };
     })
     .filter(r => r.spent > 0)                       // only pace categories with activity
@@ -1280,6 +1285,9 @@ function SpendPaceCard({ expenses, allAllocTx, dayOfMonth, daysInMo, expanded, o
 
       {expanded && (
         <div className="mt-3 space-y-2.5">
+          <p className="text-[10px] text-slate-500">
+            🔎 Each projection below is computed live from your logged spend this month — not an estimate pulled from nowhere.
+          </p>
           {(flagged.length > 0 ? flagged : rows.slice(0, 6)).map(r => {
             const spentPctClamped = Math.min(100, r.spentPct);
             const elapsedPct = Math.min(100, (dayOfMonth / daysInMo) * 100);
@@ -1303,6 +1311,9 @@ function SpendPaceCard({ expenses, allAllocTx, dayOfMonth, daysInMo, expanded, o
                   {over
                     ? <>On track to spend <span className="text-amber-300 font-semibold">~{fmt(r.projected)}</span> — trim <span className="text-amber-300 font-semibold">~{fmt(r.over)}</span> to stay in budget</>
                     : <>On pace for <span className="text-slate-200 font-semibold">~{fmt(r.projected)}</span> ({Math.round(r.spentPct)}% spent, {Math.round(elapsedPct)}% of month gone)</>}
+                </p>
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  from your log: {r.count} {r.count === 1 ? 'entry' : 'entries'} · {fmt(r.spent)} logged so far this month
                 </p>
               </div>
             );
