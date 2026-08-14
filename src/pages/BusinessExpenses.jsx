@@ -2479,6 +2479,7 @@ function ExpensesTab({ token, products }) {
       {barData.length > 0 && totalLast > 0 && (
         <div className="bg-slate-900 rounded-2xl p-4">
           <p className="text-slate-400 text-xs uppercase tracking-wider mb-4 font-broske">This Month vs Last Month</p>
+          <div aria-hidden="true">
           <ResponsiveContainer width="100%" height={120}>
             <BarChart data={barData} barCategoryGap="30%">
               <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
@@ -2493,6 +2494,22 @@ function ExpensesTab({ token, products }) {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+          </div>
+          <table className="sr-only">
+            <caption>Spending by category, this month vs last month</caption>
+            <thead>
+              <tr><th>Category</th><th>This month</th><th>Last month</th></tr>
+            </thead>
+            <tbody>
+              {barData.map((d, i) => (
+                <tr key={i}>
+                  <td>{d.fullName}</td>
+                  <td>${d.thisMonth.toFixed(2)}</td>
+                  <td>${d.lastMonth.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           <div className="flex gap-4 justify-center text-[10px] text-slate-500 mt-1">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-slate-700 inline-block border border-slate-600" />Last Month</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-blue-500 inline-block" />This Month</span>
