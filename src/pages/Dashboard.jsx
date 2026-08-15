@@ -949,8 +949,12 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
     expenses.filter(e => e['Expense'] === 'Savings' && e['Type']).map(e => String(e['Type']))
   );
   const bucketBal = {};
+  let savingsDeposits = 0;                            // # of logged deposit rows feeding the savings buckets (provenance, Task-358 thread)
   allAllocTx.forEach(r => {
-    if (savingsTypes.has(r.type)) bucketBal[r.type] = (bucketBal[r.type] || 0) + r.amount;
+    if (savingsTypes.has(r.type)) {
+      bucketBal[r.type] = (bucketBal[r.type] || 0) + r.amount;
+      if (r.amount > 0) savingsDeposits += 1;
+    }
   });
   const savings = Object.values(bucketBal).reduce((s, v) => s + v, 0);
 
@@ -1002,6 +1006,11 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
               <p className="text-rose-300 text-lg font-bold">${burn.toFixed(0)}<span className="text-xs font-medium text-slate-500">/mo</span></p>
             </div>
           </div>
+
+          {/* Provenance: the savings figure is a live sum of your logged deposits, not an estimate (Task-358 trust thread) */}
+          <p className="text-[10px] text-slate-500 mt-2">
+            🔎 Savings on hand = your logged deposits: {savingsDeposits} {savingsDeposits === 1 ? 'deposit' : 'deposits'} into your Savings buckets, net ${savings.toFixed(0)} — a live sum of your entries, not an estimate.
+          </p>
 
           {/* Target picker */}
           <div className="mt-3 flex items-center gap-2">
