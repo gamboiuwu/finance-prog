@@ -963,6 +963,8 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
   const pct    = Math.max(0, Math.min(1, runway / target));
   const shortfall = Math.max(0, burn * target - savings);
   const buckets = Object.entries(bucketBal).sort((a, b) => b[1] - a[1]);
+  // Provenance (Task 361) — how many real logged entries net to the savings figure the runway divides.
+  const savingsCount = allAllocTx.filter(r => savingsTypes.has(r.type)).length;
 
   function pickTarget(n) { setTarget(n); localStorage.setItem(EF_TARGET_KEY, String(n)); }
 
@@ -1002,6 +1004,11 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
               <p className="text-rose-300 text-lg font-bold">${burn.toFixed(0)}<span className="text-xs font-medium text-slate-500">/mo</span></p>
             </div>
           </div>
+
+          {/* Provenance — the savings figure the runway divides traces to real logged entries, not an estimate (Task 361) */}
+          <p className="text-[10px] text-slate-500 mt-2">
+            🔎 from your log: <span className="text-slate-400 font-medium">{savingsCount} {savingsCount === 1 ? 'entry' : 'entries'}</span> across your savings buckets net to <span className="text-teal-400 font-medium">${savings.toFixed(0)}</span> — the runway is your real balances ÷ your P1 + P2 essential burn, not an estimate pulled from nowhere.
+          </p>
 
           {/* Target picker */}
           <div className="mt-3 flex items-center gap-2">
