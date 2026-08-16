@@ -899,6 +899,13 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
 
           {/* Per-month projected net + cumulative runway */}
           <div className="mt-3 pt-3 border-t border-slate-700 space-y-1 text-xs">
+            {/* Net-line arithmetic (Task 369) — ties the two provenance framings
+                together so "net +$X" reads as the operation connecting them:
+                typical income (from your log, Task 362) − fixed bills (from your
+                plan, Task 365). Purely presentational — reuses the rows math. */}
+            <p className="text-[10px] text-slate-500 pb-0.5 leading-snug">
+              🔎 net = your typical income (from your log) − your fixed bills (from your plan), month by month.
+            </p>
             {rows.map(r => (
               <div key={r.month} className="flex justify-between text-slate-400">
                 <span>{r.month}</span>
