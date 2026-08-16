@@ -832,6 +832,14 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
             </div>
           </div>
 
+          {/* Provenance (Task 362) — the expected-income figure the whole forecast
+              hinges on is the average of real logged deposits, not a guess. The
+              chips below list the months; this names the source in plain English,
+              reusing the Task-358/361 muted "from your log" style. */}
+          <p className="text-[10px] text-slate-500 mt-2">
+            🔎 from your log: <span className="text-teal-400 font-medium">${expected.toFixed(0)}</span> is the average of your last <span className="text-slate-400 font-medium">{basis.length} completed months</span> of logged income deposits — not a guess.
+          </p>
+
           {/* Income provenance (Task 135) — sparkline+trend then the month chips,
               via the one shared IncomeProvenance block the Every-Dollar card also
               uses, so the layout can't drift. A rising line here informs the
