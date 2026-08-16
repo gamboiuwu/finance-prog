@@ -888,6 +888,15 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block" />Fixed bills</span>
           </div>
 
+          {/* Outflow provenance (Task 365) — the amber "fixed bills" bars are the
+              other half of every net projection, so name their source too. Unlike
+              the income side these are PLANNED figures (budget allowances + dated
+              subscriptions), so it's framed "from your plan" (matching the Goal
+              tile's plan-vs-log wording), not "from your log". */}
+          <p className="text-[10px] text-slate-500 mt-2 text-center">
+            🔎 from your plan: fixed bills = your P1 + P2 essential allowances (<span className="text-amber-400 font-medium">${recurringAllow.toFixed(0)}</span>/mo) plus subscriptions due that month — planned bills, not a guess.
+          </p>
+
           {/* Per-month projected net + cumulative runway */}
           <div className="mt-3 pt-3 border-t border-slate-700 space-y-1 text-xs">
             {rows.map(r => (
