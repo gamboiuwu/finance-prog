@@ -938,6 +938,8 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
 // Target cushion (in months) lives in localStorage `_fin_ef_target` (default 3) —
 // an integer count only, never any financial amount, so nothing sensitive is stored.
 const EF_TARGET_KEY = '_fin_ef_target';
+// Horizon (months) the "close the gap" suggestion amortises the shortfall over (Task 376).
+const EF_REBUILD_MONTHS = 6;
 function getEFTarget() {
   const n = parseInt(localStorage.getItem(EF_TARGET_KEY) || '3', 10);
   return [1, 3, 6].includes(n) ? n : 3;
@@ -1056,6 +1058,13 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
               ))}
             </div>
           </div>
+
+          {shortfall > 0 && (
+            /* Actionable — turn the static shortfall into a concrete rebuild plan (Task 376) */
+            <p className="text-[11px] text-slate-400 mt-2">
+              💡 Close the gap: save <span className="text-teal-300 font-medium">${(shortfall / EF_REBUILD_MONTHS).toFixed(0)}</span>/mo for {EF_REBUILD_MONTHS} months — or one <span className="text-teal-300 font-medium">${shortfall.toFixed(0)}</span> deposit now — to reach your {target}-month cushion.
+            </p>
+          )}
 
           {/* Essentials breakdown */}
           <div className="mt-3 pt-3 border-t border-slate-700">
