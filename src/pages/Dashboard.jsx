@@ -1033,6 +1033,10 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
           <p className="text-[10px] text-slate-500 mt-2">
             🔎 from your log: <span className="text-slate-400 font-medium">{savingsCount} {savingsCount === 1 ? 'entry' : 'entries'}</span> across your savings buckets net to <span className="text-teal-400 font-medium">${savings.toFixed(0)}</span> — the runway is your real balances ÷ your P1 + P2 essential burn, not an estimate pulled from nowhere.
           </p>
+          {/* Provenance — the burn figure the runway divides by is your planned P1+P2 allowances, not a logged total (Task 368) */}
+          <p className="text-[10px] text-slate-500 mt-1">
+            🔎 from your plan: monthly essentials = your P1 + P2 budget allowances (<span className="text-rose-300 font-medium">${burn.toFixed(0)}</span>/mo) — the bills you can't skip, planned not logged.
+          </p>
 
           {/* Target picker */}
           <div className="mt-3 flex items-center gap-2">
