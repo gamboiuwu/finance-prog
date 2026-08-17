@@ -1037,6 +1037,11 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
           <p className="text-[10px] text-slate-500 mt-1">
             🔎 from your plan: monthly essentials = your P1 + P2 budget allowances (<span className="text-rose-300 font-medium">${burn.toFixed(0)}</span>/mo) — the bills you can't skip, planned not logged.
           </p>
+          {/* Arithmetic tie — names the operation connecting the two inputs above (Task 371),
+              mirroring the Forecast net-line caption (Task 369) */}
+          <p className="text-[10px] text-slate-500 mt-1">
+            🔎 runway = your savings on hand (from your log) ÷ your monthly essentials (from your plan) — that's <span className={`font-medium ${color}`}>{runway >= 100 ? '100+' : runway.toFixed(1)}</span> months of the bills you can't skip.
+          </p>
 
           {/* Target picker */}
           <div className="mt-3 flex items-center gap-2">
