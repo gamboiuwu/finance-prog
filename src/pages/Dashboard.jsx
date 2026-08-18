@@ -787,9 +787,9 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
   const high = Math.max(...last6);
 
   // Recurring committed allowances: P1 (essential) + P2 (stability) budget lines.
-  const recurringAllow = expenses
-    .filter(e => ['1', '2'].includes(String(e['Priority'] ?? '3')) && pm(e['Monthly Allowance ($)']) > 0)
-    .reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
+  const recurringItems = expenses
+    .filter(e => ['1', '2'].includes(String(e['Priority'] ?? '3')) && pm(e['Monthly Allowance ($)']) > 0);
+  const recurringAllow = recurringItems.reduce((s, e) => s + pm(e['Monthly Allowance ($)']), 0);
 
   const now = new Date();
   let cumulative = 0;
@@ -800,6 +800,7 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
     cumulative += net;
     return {
       month: MONTHS[mi].slice(0, 3),
+      mi,                                                   // calendar month index (Task 380)
       income: Math.round(expected),
       outflow: Math.round(outflow),
       net, cumulative,
@@ -812,6 +813,34 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
   // the gap" line (Task 376). Read-only over the already-computed `rows`.
   const worstMonth = rows.reduce((a, b) => (b.net < a.net ? b : a), rows[0]);
   const anyNegative = worstMonth.net < 0;
+
+  // Largest fixed commitment in the tight month (Task 380) — when a month goes
+  // negative, name the single biggest recurring outflow so the user knows WHERE
+  // the money goes, not just the amount. Candidates = P1/P2 budget allowances
+  // (hit every month) + subscriptions actually due that month. Framed
+  // informationally ("your biggest fixed line"), not "cut this" — the biggest is
+  // usually an essential (rent) they can't trim; the actionable levers stay the
+  // Task-377 |net| amounts. Read-only over expenses/subscriptions already in scope.
+  let worstFixedLine = null;
+  if (anyNegative) {
+    const cands = [
+      ...recurringItems.map(e => ({ name: String(e['Type'] || 'a bill'), amt: pm(e['Monthly Allowance ($)']) })),
+      ...subscriptions.map(s => {
+        const amt = parseFloat(s['Amount'] || 0) || 0;
+        if (!amt) return null;
+        const cycle = (s['Cycle'] || 'monthly').toLowerCase();
+        let m;
+        if (cycle === 'annual') {
+          const start = new Date((s['Start Date'] || '') + 'T12:00:00');
+          m = (!isNaN(start) && start.getMonth() === worstMonth.mi) ? amt : 0;
+        } else {
+          m = toMonthly(amt, cycle);
+        }
+        return m > 0 ? { name: String(s['Name'] || 'a subscription'), amt: m } : null;
+      }).filter(Boolean),
+    ];
+    worstFixedLine = cands.reduce((a, b) => (b.amt > (a ? a.amt : 0) ? b : a), null);
+  }
 
   return (
     <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-4">
@@ -932,9 +961,19 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
                  the gap" line (Task 376). To break even that month you either trim
                  fixed bills by |net| or raise income by |net| — same figure both
                  ways (net = income − bills). Reuses `worstMonth`; read-only. */
-              <p className="text-[11px] text-slate-400 pt-1 leading-snug">
-                ⚠ {worstMonth.month} looks tight — projected <span className="text-rose-300 font-medium">−${Math.abs(worstMonth.net).toFixed(0)}</span>. Trim ~<span className="text-teal-300 font-medium">${Math.abs(worstMonth.net).toFixed(0)}</span> of fixed bills or bring in ~<span className="text-teal-300 font-medium">${Math.abs(worstMonth.net).toFixed(0)}</span> more that month to break even.
-              </p>
+              <>
+                <p className="text-[11px] text-slate-400 pt-1 leading-snug">
+                  ⚠ {worstMonth.month} looks tight — projected <span className="text-rose-300 font-medium">−${Math.abs(worstMonth.net).toFixed(0)}</span>. Trim ~<span className="text-teal-300 font-medium">${Math.abs(worstMonth.net).toFixed(0)}</span> of fixed bills or bring in ~<span className="text-teal-300 font-medium">${Math.abs(worstMonth.net).toFixed(0)}</span> more that month to break even.
+                </p>
+                {worstFixedLine && (
+                  /* Which commitment (Task 380) — name the single biggest fixed line
+                     in the tight month so the user knows where to look. Informational
+                     ("your biggest fixed line"), not "cut this" — usually an essential. */
+                  <p className="text-[10px] text-slate-500 leading-snug">
+                    Your biggest fixed line that month is <span className="text-slate-300 font-medium">{worstFixedLine.name} ~${worstFixedLine.amt.toFixed(0)}</span>.
+                  </p>
+                )}
+              </>
             )}
             <p className="text-[10px] text-slate-600 pt-0.5">Estimate from your last {last6.length} months — not a guarantee. Past months stay as recorded.</p>
           </div>
