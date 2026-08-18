@@ -807,6 +807,12 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
   });
   const runway = cumulative;                               // 3-month cumulative net
 
+  // Worst projected month (Task 377) — drives a "how to close the gap" actionable
+  // line when any month's net goes negative, mirroring the Emergency-Fund "close
+  // the gap" line (Task 376). Read-only over the already-computed `rows`.
+  const worstMonth = rows.reduce((a, b) => (b.net < a.net ? b : a), rows[0]);
+  const anyNegative = worstMonth.net < 0;
+
   return (
     <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-4">
       <button className="w-full text-left" onClick={onToggle}>
@@ -920,6 +926,16 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
                 ? `On your recent average you'll clear about $${(runway / FORECAST_MONTHS).toFixed(0)}/mo after fixed bills — roughly $${runway.toFixed(0)} banked over ${FORECAST_MONTHS} months. 🐉`
                 : `Heads up — at your recent average, fixed bills outpace income by about $${Math.abs(runway / FORECAST_MONTHS).toFixed(0)}/mo. Trim a commitment or push income up.`}
             </p>
+            {anyNegative && (
+              /* Actionable (Task 377) — when a projected month goes negative, name
+                 the two levers that close it, mirroring the Emergency-Fund "close
+                 the gap" line (Task 376). To break even that month you either trim
+                 fixed bills by |net| or raise income by |net| — same figure both
+                 ways (net = income − bills). Reuses `worstMonth`; read-only. */
+              <p className="text-[11px] text-slate-400 pt-1 leading-snug">
+                ⚠ {worstMonth.month} looks tight — projected <span className="text-rose-300 font-medium">−${Math.abs(worstMonth.net).toFixed(0)}</span>. Trim ~<span className="text-teal-300 font-medium">${Math.abs(worstMonth.net).toFixed(0)}</span> of fixed bills or bring in ~<span className="text-teal-300 font-medium">${Math.abs(worstMonth.net).toFixed(0)}</span> more that month to break even.
+              </p>
+            )}
             <p className="text-[10px] text-slate-600 pt-0.5">Estimate from your last {last6.length} months — not a guarantee. Past months stay as recorded.</p>
           </div>
         </>
