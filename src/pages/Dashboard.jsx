@@ -822,24 +822,41 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
   // usually an essential (rent) they can't trim; the actionable levers stay the
   // Task-377 |net| amounts. Read-only over expenses/subscriptions already in scope.
   let worstFixedLine = null;
+  // Easiest realistically-trimmable line in the tight month (Task 383) — the
+  // biggest P3/discretionary allowance or subscription (excluding P1/P2
+  // essentials, which are usually rent and not trimmable). Gives the "close the
+  // gap" line an actionable target: pausing this covers part of the shortfall.
+  let worstTrimLine = null;
   if (anyNegative) {
-    const cands = [
+    // Subscriptions are all trimmable and hit their own months — shared by both
+    // the fixed-line and trim-line candidate sets.
+    const subCands = subscriptions.map(s => {
+      const amt = parseFloat(s['Amount'] || 0) || 0;
+      if (!amt) return null;
+      const cycle = (s['Cycle'] || 'monthly').toLowerCase();
+      let m;
+      if (cycle === 'annual') {
+        const start = new Date((s['Start Date'] || '') + 'T12:00:00');
+        m = (!isNaN(start) && start.getMonth() === worstMonth.mi) ? amt : 0;
+      } else {
+        m = toMonthly(amt, cycle);
+      }
+      return m > 0 ? { name: String(s['Name'] || 'a subscription'), amt: m } : null;
+    }).filter(Boolean);
+
+    const fixedCands = [
       ...recurringItems.map(e => ({ name: String(e['Type'] || 'a bill'), amt: pm(e['Monthly Allowance ($)']) })),
-      ...subscriptions.map(s => {
-        const amt = parseFloat(s['Amount'] || 0) || 0;
-        if (!amt) return null;
-        const cycle = (s['Cycle'] || 'monthly').toLowerCase();
-        let m;
-        if (cycle === 'annual') {
-          const start = new Date((s['Start Date'] || '') + 'T12:00:00');
-          m = (!isNaN(start) && start.getMonth() === worstMonth.mi) ? amt : 0;
-        } else {
-          m = toMonthly(amt, cycle);
-        }
-        return m > 0 ? { name: String(s['Name'] || 'a subscription'), amt: m } : null;
-      }).filter(Boolean),
+      ...subCands,
     ];
-    worstFixedLine = cands.reduce((a, b) => (b.amt > (a ? a.amt : 0) ? b : a), null);
+    worstFixedLine = fixedCands.reduce((a, b) => (b.amt > (a ? a.amt : 0) ? b : a), null);
+
+    const trimItems = expenses
+      .filter(e => String(e['Priority'] ?? '3') === '3' && pm(e['Monthly Allowance ($)']) > 0);
+    const trimCands = [
+      ...trimItems.map(e => ({ name: String(e['Type'] || 'a category'), amt: pm(e['Monthly Allowance ($)']) })),
+      ...subCands,
+    ];
+    worstTrimLine = trimCands.reduce((a, b) => (b.amt > (a ? a.amt : 0) ? b : a), null);
   }
 
   return (
@@ -971,6 +988,14 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
                      ("your biggest fixed line"), not "cut this" — usually an essential. */
                   <p className="text-[10px] text-slate-500 leading-snug">
                     Your biggest fixed line that month is <span className="text-slate-300 font-medium">{worstFixedLine.name} ~${worstFixedLine.amt.toFixed(0)}</span>.
+                  </p>
+                )}
+                {worstTrimLine && (
+                  /* Easiest-to-trim line (Task 383) — the biggest P3/discretionary
+                     allowance or subscription, excluding P1/P2 essentials. Gives the
+                     gap an actionable target; shows how much of it pausing covers. */
+                  <p className="text-[10px] text-slate-500 leading-snug">
+                    Easiest to trim: <span className="text-teal-300 font-medium">{worstTrimLine.name} ~${worstTrimLine.amt.toFixed(0)}</span> — pausing it that month covers ~{Math.min(100, Math.round((worstTrimLine.amt / Math.abs(worstMonth.net)) * 100))}% of the gap.
                   </p>
                 )}
               </>
