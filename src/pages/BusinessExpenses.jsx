@@ -3164,8 +3164,26 @@ export default function BusinessExpenses({ token }) {
           </div>
         )}
 
-        {/* Primary tab bar */}
-        <div role="tablist" aria-label="Business views" className="flex bg-slate-800 rounded-xl p-1 gap-1 overflow-x-auto">
+        {/* Primary tab bar — roving-tabindex arrow-key nav (Task 233). The WAI-ARIA
+            tablist pattern: only the selected tab is in the tab order, and ←/→/Home/End
+            move selection between tabs. Panels are cheap here, so arrowing activates
+            the tab directly rather than requiring Enter. */}
+        <div role="tablist" aria-label="Business views" className="flex bg-slate-800 rounded-xl p-1 gap-1 overflow-x-auto"
+          onKeyDown={(e) => {
+            const idx = BIZ_VIEWS.indexOf(viewMode);
+            if (idx < 0) return;
+            const n = BIZ_VIEWS.length;
+            let next = null;
+            if (e.key === 'ArrowRight')     next = BIZ_VIEWS[(idx + 1) % n];
+            else if (e.key === 'ArrowLeft') next = BIZ_VIEWS[(idx - 1 + n) % n];
+            else if (e.key === 'Home')      next = BIZ_VIEWS[0];
+            else if (e.key === 'End')       next = BIZ_VIEWS[n - 1];
+            if (next) {
+              e.preventDefault();
+              setViewMode(next);
+              document.getElementById(`biz-tab-${next}`)?.focus();
+            }
+          }}>
           {[
             ['products','💼','Products'],
             ['sales','📊','Sales'],
@@ -3175,6 +3193,7 @@ export default function BusinessExpenses({ token }) {
             ['timeclock','⏱','Time'],
           ].map(([v, icon, name]) => (
             <button key={v} role="tab" id={`biz-tab-${v}`} aria-selected={viewMode === v} aria-label={name}
+              tabIndex={viewMode === v ? 0 : -1}
               onClick={() => setViewMode(v)}
               className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-colors shrink-0 whitespace-nowrap flex items-center justify-center gap-1 ${viewMode === v ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}>
               <span aria-hidden="true">{icon}</span>
