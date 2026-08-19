@@ -874,7 +874,20 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
         <div className="flex items-center justify-between">
           <div>
             <p className="text-white font-bold text-sm">🔮 Income Forecast</p>
-            <p className="text-slate-400 text-xs mt-0.5">Next {FORECAST_MONTHS} months · projected</p>
+            {/* Collapsed-header outcome chip (Task 391) — surfaces the projected
+                verdict at a glance so a user who never expands still sees whether
+                the window runs a surplus (Task 386) or a tight month (Task 377).
+                Read-only over the body-level foundMoney/anyNegative (mutually
+                exclusive: foundMoney requires !anyNegative). */}
+            <p className="text-slate-400 text-xs mt-0.5 flex items-center flex-wrap gap-x-1.5 gap-y-1">
+              <span>Next {FORECAST_MONTHS} months · projected</span>
+              {foundMoney && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">💰 surplus</span>
+              )}
+              {anyNegative && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/25">⚠ tight month</span>
+              )}
+            </p>
           </div>
           <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
         </div>
