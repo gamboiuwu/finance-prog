@@ -65,9 +65,47 @@ export async function readReportLinks(token) {
   return links;
 }
 
+// A1 column letters ⇄ 1-based index ('A' → 1, 'Z' → 26, 'AA' → 27).
+function colToNum(letters) {
+  let n = 0;
+  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
+}
+function numToCol(n) {
+  let s = '';
+  while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+
+// Append one row to a sheet.
+//
+// NOTE: this deliberately does NOT use `spreadsheets.values.append`. That API asks
+// Sheets to *guess* the bounds of the "table" it should append to, and on a sheet
+// with a blank row in the middle (or otherwise ragged data) the guess can anchor to
+// the wrong START COLUMN — silently writing the record several columns to the right.
+// A sale written that way reads back with a blank date and $0 revenue, so it vanishes
+// from the sales log and never reaches the revenue/cost totals (the "$44.30 sticker
+// order never showed up" bug). Instead we find the next free row ourselves and write
+// to an explicit range, so a record always lands in the columns it was meant for.
 export async function appendRow(token, range, values) {
-  return request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
-    method: 'POST',
+  const m = /^(.+)!([A-Z]+):([A-Z]+)$/.exec(range);
+  if (!m) {
+    // Non column-range targets (e.g. `Sheet!A1`) keep the original behaviour.
+    return request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+      method: 'POST',
+      body: JSON.stringify({ values: [values] }),
+    });
+  }
+  const [, sheet, firstCol, lastCol] = m;
+  // The API omits trailing empty rows, so rows.length is the last used row of the
+  // managed range — interior blank rows can't shift the anchor.
+  const rows = await readRange(token, `${sheet}!${firstCol}:${lastCol}`, 'UNFORMATTED_VALUE');
+  const rowNum = rows.length + 1;
+  // Size the written range to the data exactly so it can never be over/under-run.
+  const endCol = numToCol(colToNum(firstCol) + Math.max(values.length, 1) - 1);
+  const target = `${sheet}!${firstCol}${rowNum}:${endCol}${rowNum}`;
+  return request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(target)}?valueInputOption=USER_ENTERED`, {
+    method: 'PUT',
     body: JSON.stringify({ values: [values] }),
   });
 }
