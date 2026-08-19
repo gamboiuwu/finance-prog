@@ -134,10 +134,24 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     try { return JSON.parse(localStorage.getItem('processIncome_surplusItems') || '[]'); }
     catch { return []; }
   });
+  // Saved allocation splits (Task 80) — reusable "my usual split" presets, stored as
+  // income-relative RATIOS ({ [type]: fraction }) so a split scales to any future
+  // paycheck. Fractions only — no dollar amounts, nothing financial leaves the device.
+  const [splits,        setSplits]        = useState(() => {
+    try { return JSON.parse(localStorage.getItem('_fin_alloc_splits') || '[]'); }
+    catch { return []; }
+  });
+  const [manageSplits,  setManageSplits]  = useState(false);
+  const [showSaveSplit, setShowSaveSplit] = useState(false);
+  const [newSplitName,  setNewSplitName]  = useState('');
 
   useEffect(() => {
     localStorage.setItem('income_templates', JSON.stringify(templates));
   }, [templates]);
+
+  useEffect(() => {
+    localStorage.setItem('_fin_alloc_splits', JSON.stringify(splits));
+  }, [splits]);
 
   // Persist surplus contribution config
   useEffect(() => {
@@ -292,6 +306,36 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   }
   function deleteTemplate(id) {
     setTemplates(prev => prev.filter(t => t.id !== id));
+  }
+
+  // ── Saved allocation splits (Task 80) ──────────────────────────────────────
+  // Capture the CURRENT per-category split (auto or hand-edited) as income-relative
+  // ratios. `deposits` is the single source of truth, so this works in either mode.
+  const MAX_SPLITS = 6;
+  function saveSplit() {
+    if (amount <= 0 || splits.length >= MAX_SPLITS) return;
+    const ratios = {};
+    deposits.forEach(d => { if (d.deposit > 0.005) ratios[d.type] = d.deposit / amount; });
+    if (Object.keys(ratios).length === 0) return;
+    const name = newSplitName.trim() || `Split ${splits.length + 1}`;
+    setSplits(prev => [...prev, { id: Date.now().toString(36), name, ratios }]);
+    setNewSplitName('');
+    setShowSaveSplit(false);
+  }
+  // Apply a saved split: seed every override = ratio × current income, scaling the
+  // saved plan to today's paycheck, and switch on manual mode so the user can tweak
+  // before committing. Nothing is written until they process the income as usual.
+  function applySplit(split) {
+    if (!split?.ratios || amount <= 0) return;
+    const next = {};
+    Object.entries(split.ratios).forEach(([type, frac]) => {
+      next[type] = (Math.max(0, Number(frac) || 0) * amount).toFixed(2);
+    });
+    setOverrides(next);
+    setManualMode(true);
+  }
+  function deleteSplit(id) {
+    setSplits(prev => prev.filter(s => s.id !== id));
   }
 
   function addSurplusItem() {
@@ -694,6 +738,40 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                   >↻ Reset to auto</button>
                 )}
               </div>
+
+              {/* Saved splits (Task 80) — tap to apply. A split is stored as each
+                  category's SHARE of income, so it scales to whatever you earned this
+                  time; applying it seeds the manual amounts so you can still tweak. */}
+              {splits.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center">
+                    <p className="text-slate-500 text-[10px] uppercase tracking-wider flex-1">💾 My splits</p>
+                    <button onClick={() => setManageSplits(v => !v)} className="text-slate-600 text-[10px] hover:text-slate-400 transition-colors">
+                      {manageSplits ? 'Done' : '⚙ Manage'}
+                    </button>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-0.5">
+                    {splits.map(s => (
+                      manageSplits ? (
+                        <div key={s.id} className="shrink-0 flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-full pl-3 pr-1 py-1">
+                          <span className="text-slate-300 text-xs whitespace-nowrap">{s.name}</span>
+                          <button onClick={() => deleteSplit(s.id)} aria-label={`Delete split ${s.name}`} className="w-4 h-4 rounded-full bg-slate-700 hover:bg-rose-900/50 text-slate-500 hover:text-rose-400 text-[10px] flex items-center justify-center transition-colors">✕</button>
+                        </div>
+                      ) : (
+                        <button
+                          key={s.id}
+                          onClick={() => applySplit(s)}
+                          title={`Apply "${s.name}" — fills each category by its saved share of this income`}
+                          className="shrink-0 px-3 py-1.5 rounded-full bg-indigo-900/40 border border-indigo-800/50 text-indigo-300 text-xs font-medium hover:bg-indigo-800/60 active:scale-95 transition-all whitespace-nowrap"
+                        >
+                          {s.name}
+                        </button>
+                      )
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {manualMode && (
                 <div className={`rounded-xl px-3 py-2 flex items-center justify-between text-xs border ${
                   Math.abs(leftToAssign) < 0.01 ? 'bg-emerald-900/30 border-emerald-800/40'
@@ -712,6 +790,35 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                       : `${fmt(Math.abs(leftToAssign))} over`}
                   </span>
                 </div>
+              )}
+
+              {/* Save the current split for reuse (Task 80) */}
+              {manualMode && (
+                showSaveSplit ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newSplitName}
+                      onChange={e => setNewSplitName(e.target.value)}
+                      placeholder="Name this split (optional)"
+                      autoFocus
+                      onKeyDown={e => e.key === 'Enter' && saveSplit()}
+                      className="flex-1 bg-slate-700/60 text-slate-300 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+                    />
+                    <button
+                      onClick={saveSplit}
+                      disabled={splits.length >= MAX_SPLITS || totalDeposited <= 0.005}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 disabled:opacity-40 text-white text-xs font-medium transition-colors whitespace-nowrap"
+                    >Save</button>
+                    <button onClick={() => { setShowSaveSplit(false); setNewSplitName(''); }} aria-label="Cancel saving this split" className="px-2 py-1.5 rounded-lg bg-slate-700 text-slate-400 text-xs transition-colors">✕</button>
+                  </div>
+                ) : (
+                  splits.length < MAX_SPLITS && totalDeposited > 0.005 && (
+                    <button onClick={() => setShowSaveSplit(true)} className="text-indigo-400 text-[11px] hover:text-indigo-300 transition-colors font-medium">
+                      💾 Save this split for next time
+                    </button>
+                  )
+                )
               )}
             </div>
           )}
