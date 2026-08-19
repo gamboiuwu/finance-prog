@@ -2117,6 +2117,16 @@ function NetWorthCard({ rows, expanded, onToggle, onUpdate }) {
             </div>
           </div>
 
+          {/* Provenance — the net-worth figure and its trend trace to the user's own
+              dated snapshots, not an estimate. Same muted "from your log" style the
+              Emergency-Fund (Task 361) and Spend-Pace (Task 358) cards use. */}
+          <p className="text-[10px] text-slate-500 leading-snug">
+            🔎 from your log: {snaps.length === 1
+              ? <>the <span className="text-slate-400 font-medium">1 snapshot</span> you saved on {nwLabel(latest.date)}</>
+              : <><span className="text-slate-400 font-medium">{snaps.length} snapshots</span> you saved since {nwLabel(snaps[0].date)} (latest {nwLabel(latest.date)})</>
+            } — net worth is your entered assets − liabilities, not an estimate pulled from nowhere.
+          </p>
+
           {snaps.length >= 2 && (
             <>
               <div className="h-32 -mx-1" aria-hidden="true">
