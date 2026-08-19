@@ -814,6 +814,15 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
   const worstMonth = rows.reduce((a, b) => (b.net < a.net ? b : a), rows[0]);
   const anyNegative = worstMonth.net < 0;
 
+  // Best projected month (Task 386) — the positive-net companion to the
+  // negative-month trim/earn levers (Task 377/380/383). When the whole window
+  // clears a comfortable surplus (no tight month, best month > $50 to spare),
+  // nudge where the leftover could go — the single highest-ROI money move.
+  // Generic + self-contained (no debt/EF/goal state threaded in) so it stays a
+  // read-only line over `rows`.
+  const bestMonth = rows.reduce((a, b) => (b.net > a.net ? b : a), rows[0]);
+  const foundMoney = !anyNegative && bestMonth.net > 50;
+
   // Largest fixed commitment in the tight month (Task 380) — when a month goes
   // negative, name the single biggest recurring outflow so the user knows WHERE
   // the money goes, not just the amount. Candidates = P1/P2 budget allowances
@@ -999,6 +1008,16 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
                   </p>
                 )}
               </>
+            )}
+            {foundMoney && (
+              /* Found money (Task 386) — positive-net companion to the trim/earn
+                 levers: only when NO month is tight (so the card never warns and
+                 celebrates at once) and the best month clears > $50, nudge where
+                 the surplus could go. Generic + self-contained (no debt/EF/goal
+                 state threaded in), read-only over `rows`. */
+              <p className="text-[11px] text-slate-400 pt-1 leading-snug">
+                💰 {bestMonth.month} looks comfortable — about <span className="text-emerald-300 font-medium">+${bestMonth.net.toFixed(0)}</span> to spare after fixed bills. Put it to work: knock down a high-APR debt, top up your emergency fund, or fund a savings goal.
+              </p>
             )}
             <p className="text-[10px] text-slate-600 pt-0.5">Estimate from your last {last6.length} months — not a guarantee. Past months stay as recorded.</p>
           </div>
