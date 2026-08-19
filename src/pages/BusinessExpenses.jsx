@@ -1076,6 +1076,26 @@ function serialToDateTime(val) {
   return { date, time };
 }
 
+// True when a cell holds a date — a Sheets datetime serial or an ISO-ish string.
+function looksLikeDateCell(v) {
+  if (typeof v === 'number') return v > 1000;
+  return /^\d{4}-\d{2}-\d{2}/.test(String(v ?? '').trim());
+}
+
+// True when a row is a complete transaction that was written starting at the wrong
+// column: column A blank, but a date / product / numeric revenue sitting further
+// right in the exact order a record uses. Deliberately strict — a row that is merely
+// missing its date (client in A) fails the date test and is left alone.
+function isShiftedRecord(row) {
+  if (String(row[0] ?? '').trim() !== '') return false;
+  const off = row.findIndex(c => String(c ?? '').trim() !== '');
+  if (off < 1) return false;
+  const home = row.slice(off);
+  return looksLikeDateCell(home[0])
+      && String(home[2] ?? '').trim() !== ''
+      && Number.isFinite(parseFloat(home[5]));
+}
+
 function localDateTimeStr() {
   const d   = new Date();
   const pad = n => String(n).padStart(2, '0');
@@ -1177,6 +1197,38 @@ function SalesView({ token, products }) {
           if (updates.length) await batchUpdateCells(token, updates);
           rows = await readRange(token, `${TRANS_SHEET}!A:I`, 'UNFORMATTED_VALUE');
           if (cancelled) return;
+        }
+
+        // ── Repair records a mis-anchored append wrote into the wrong columns ──
+        // Every record starts with its date in column A. A row whose A is blank but
+        // that holds a date further right is a shifted write: its revenue and
+        // allocations sit outside the columns we read, so the sale reads back as $0
+        // with no date and drops out of the log and the totals entirely. Shift it
+        // home so the money counts again. (appendRow no longer writes rows this way.)
+        const shifted = rows.some(row => Array.isArray(row) && isShiftedRecord(row));
+        if (shifted) {
+          // Re-read wider — a shifted record's tail lies past column I.
+          const wide = await readRange(token, `${TRANS_SHEET}!A:R`, 'UNFORMATTED_VALUE');
+          if (cancelled) return;
+          const fixes = [];
+          wide.forEach((row, i) => {
+            if (!Array.isArray(row) || !isShiftedRecord(row)) return;
+            const off  = row.findIndex(c => String(c ?? '').trim() !== '');
+            const home = row.slice(off);
+            const sheetRow = i + 1;
+            for (let j = 0; j < row.length; j++) {
+              let val = j < home.length && home[j] != null ? home[j] : '';
+              // A %-formatted margin cell reads back as a fraction — re-write it in
+              // the same "61.40%" form the recorder uses so the cell stays a percent.
+              if (j === 6 && typeof val === 'number' && val > 0 && val < 1) val = (val * 100).toFixed(2) + '%';
+              fixes.push({ range: `${TRANS_SHEET}!${String.fromCharCode(65 + j)}${sheetRow}`, value: val });
+            }
+          });
+          if (fixes.length) {
+            await batchUpdateCells(token, fixes);
+            rows = await readRange(token, `${TRANS_SHEET}!A:I`, 'UNFORMATTED_VALUE');
+            if (cancelled) return;
+          }
         }
 
         setRawRowCount(rows.length);
