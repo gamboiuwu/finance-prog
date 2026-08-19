@@ -127,6 +127,17 @@ function ProgressBar({ pct, color }) {
 // bucket under "Untagged income". Pure — read-only over already-loaded
 // allAllocTx. The total equals the Income tile's value exactly whenever the
 // current month has alloc rows (both = Σ positive current-month deposits).
+// Task 191 — how old the loaded data is, in words. Computed on demand (on hover
+// or tap), so there's no interval re-rendering the master bar every minute.
+function relativeAge(at) {
+  if (!at) return '';
+  const mins = Math.max(0, Math.round((new Date() - at) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `≈ ${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  return `≈ ${hrs} hr${hrs === 1 ? '' : 's'} ago`;
+}
+
 function incomeBySource(allAllocTx) {
   const now = new Date();
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -2615,6 +2626,8 @@ export default function Dashboard({ token }) {
   // mount or a ProcessIncome/gas-log write re-pull), so the flash fires only on a
   // deliberate refresh.
   const [justRefreshed, setJustRefreshed] = useState(false);
+  // Task 191 — whether the "as of {time}" stamp also shows its relative age inline.
+  const [showAge, setShowAge] = useState(false);
   const manualRefreshPending             = useRef(false);
   // Task 189 — same flash, second intent: a write re-pull (Process Income / Net
   // Worth / Debt snapshot) reads "✓ Saved · updated {time}" so a save gives
@@ -4613,9 +4626,19 @@ ${stmtTxns.length ? `
                     {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </span>
                 ) : (
-                  <span className="text-[10px] text-slate-500 whitespace-nowrap">
+                  /* Task 191 — the clock time alone doesn't age visibly, so a tab left
+                     open all morning looks as fresh as one just loaded. Hovering shows
+                     the relative age as a native tooltip; tapping toggles it inline
+                     (the tap re-renders, so the figure is computed fresh). No timer. */
+                  <button
+                    onClick={() => setShowAge(v => !v)}
+                    title={relativeAge(loadedAt)}
+                    aria-label={`Data loaded at ${loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}, ${relativeAge(loadedAt)}. Tap to show the age inline.`}
+                    className="text-[10px] text-slate-500 hover:text-slate-400 active:opacity-60 transition-colors whitespace-nowrap"
+                  >
                     as of {loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                  </span>
+                    {showAge && <span className="text-slate-600"> · {relativeAge(loadedAt)}</span>}
+                  </button>
                 )}
                 {/* Task 183 — one-tap refresh: bump refreshKey to re-pull the sheet
                     data in place (same mechanism ProcessIncome / gas-log use after a
