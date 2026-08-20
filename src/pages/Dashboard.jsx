@@ -1469,8 +1469,8 @@ function SpendPaceCard({ expenses, allAllocTx, dayOfMonth, daysInMo, expanded, o
               <span className="text-slate-200 font-semibold">{fmt(totalAllow)}</span> budgeted this month
               {overBudgetTotal && <span className="text-amber-300"> · {fmt(totalProjected - totalAllow)} over</span>}
             </p>
-            <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full border text-[10px] font-medium ${confidence.tint}`}>
-              ⚖ {confidence.label} · {confidence.note}
+            <span aria-label={`Projection confidence: ${confidence.label} — ${confidence.note}`} className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full border text-[10px] font-medium ${confidence.tint}`}>
+              <span aria-hidden="true">⚖</span> {confidence.label} · {confidence.note}
             </span>
           </div>
           <span className="text-slate-500 text-lg leading-none shrink-0">{expanded ? '▲' : '▼'}</span>
