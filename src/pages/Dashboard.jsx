@@ -894,11 +894,16 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
                 exclusive: foundMoney requires !anyNegative). */}
             <p className="text-slate-400 text-xs mt-0.5 flex items-center flex-wrap gap-x-1.5 gap-y-1">
               <span>Next {FORECAST_MONTHS} months · projected</span>
+              {/* Task 397: the verdict chips are visual-only emoji pills — give each a
+                  spelled-out aria-label so a screen reader announces "Projected surplus
+                  of $X…" instead of "money bag, plus $X spare", and aria-hidden the
+                  decorative glyph. Additive (Task-312 pattern): if a SR ignores the
+                  span aria-label, the visible text still reads — never a regression. */}
               {foundMoney && (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">💰 +${bestMonth.net.toFixed(0)} spare</span>
+                <span aria-label={`Projected surplus of $${bestMonth.net.toFixed(0)} over the next ${FORECAST_MONTHS} months`} className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"><span aria-hidden="true">💰</span> +${bestMonth.net.toFixed(0)} spare</span>
               )}
               {anyNegative && (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/25">⚠ −${Math.abs(worstMonth.net).toFixed(0)} tight</span>
+                <span aria-label={`Projected shortfall of $${Math.abs(worstMonth.net).toFixed(0)} over the next ${FORECAST_MONTHS} months`} className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/25"><span aria-hidden="true">⚠</span> −${Math.abs(worstMonth.net).toFixed(0)} tight</span>
               )}
             </p>
           </div>
