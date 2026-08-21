@@ -391,7 +391,7 @@ function SpendingCalendarCard({ allAllocTx, expanded, onToggle }) {
     <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl overflow-hidden">
       <button onClick={onToggle} className="w-full flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-base">📅</span>
+          <span className="text-base" aria-hidden="true">📅</span>
           <span className="text-white font-semibold text-sm">Spending Calendar</span>
           {!expanded && (() => {
             const mo = MN[now.getMonth()];
@@ -491,7 +491,7 @@ function TrendChartCard({ data, expanded, onToggle }) {
       <button className="w-full text-left" onClick={onToggle}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-white font-bold text-sm">📈 6-Month Trend</p>
+            <p className="text-white font-bold text-sm"><span aria-hidden="true">📈</span> 6-Month Trend</p>
             <p className="text-slate-400 text-xs mt-0.5">Income vs. Expenses</p>
           </div>
           <span className="text-slate-500 text-lg leading-none">{expanded ? '▲' : '▼'}</span>
@@ -884,7 +884,7 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
       <button className="w-full text-left" onClick={onToggle}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-white font-bold text-sm">🔮 Income Forecast</p>
+            <p className="text-white font-bold text-sm"><span aria-hidden="true">🔮</span> Income Forecast</p>
             {/* Collapsed-header outcome chip (Task 391) — surfaces the projected
                 verdict at a glance so a user who never expands still sees whether
                 the window runs a surplus (Task 386) or a tight month (Task 377).
@@ -1129,7 +1129,7 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
       <button className="w-full text-left" onClick={onToggle}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-white font-bold text-sm">🛟 Emergency Runway</p>
+            <p className="text-white font-bold text-sm"><span aria-hidden="true">🛟</span> Emergency Runway</p>
             <p className={`text-2xl font-bold mt-0.5 ${color}`}>
               {runway >= 100 ? '100+' : runway.toFixed(1)}<span className="text-sm font-medium text-slate-400"> months covered</span>
             </p>
@@ -1340,7 +1340,7 @@ function AnomalyCard({ allAllocTx, expanded, onToggle }) {
       <button className="w-full text-left" onClick={onToggle}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-white font-bold text-sm">🔎 Unusual Charges</p>
+            <p className="text-white font-bold text-sm"><span aria-hidden="true">🔎</span> Unusual Charges</p>
             <p className="text-amber-300 text-2xl font-bold mt-0.5">
               {flags.length}<span className="text-sm font-medium text-slate-400"> flagged this month</span>
             </p>
@@ -1458,7 +1458,7 @@ function SpendPaceCard({ expenses, allAllocTx, dayOfMonth, daysInMo, expanded, o
       <button className="w-full text-left" onClick={onToggle}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-white font-bold text-sm">📉 Spend Pace</p>
+            <p className="text-white font-bold text-sm"><span aria-hidden="true">📉</span> Spend Pace</p>
             <p className={`text-lg font-bold mt-0.5 ${headColor}`}>
               {flagged.length > 0
                 ? <>{flagged.length} {flagged.length === 1 ? 'category' : 'categories'} on pace to overspend</>
@@ -1628,7 +1628,7 @@ function BudgetMixCard({ allAllocTx, expenses, expanded, onToggle }) {
       <button className="w-full text-left" onClick={onToggle}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-white font-bold text-sm">⚖️ Budget Balance</p>
+            <p className="text-white font-bold text-sm"><span aria-hidden="true">⚖️</span> Budget Balance</p>
             <p className="text-slate-400 text-xs mt-0.5">
               {latest.needsPct.toFixed(0)}% needs · {latest.wantsPct.toFixed(0)}% wants · {latest.savingsPct.toFixed(0)}% savings
             </p>
@@ -1774,7 +1774,7 @@ function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, da
           <div>
             <p className={`text-[11px] font-bold uppercase tracking-wider ${
               tier === 'red' ? 'text-rose-300/90' : tier === 'amber' ? 'text-amber-300/90' : 'text-emerald-300/90'}`}>
-              ✅ Safe to spend today
+              <span aria-hidden="true">✅</span> Safe to spend today
             </p>
             <p className={`text-3xl font-black font-broske mt-1 tabular-nums ${color}`}>
               {fmt(perDay)}<span className="text-slate-500 text-sm font-bold"> /day</span>
@@ -1932,7 +1932,7 @@ function EveryDollarCard({ income, expenses, allAllocTx, incomeBasis, expanded, 
       <button className="w-full text-left" onClick={onToggle}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">🧮 Every Dollar Assigned</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400"><span aria-hidden="true">🧮</span> Every Dollar Assigned</p>
             <p className={`text-2xl font-black font-broske mt-1 tabular-nums ${color}`}>
               {state === 'balanced'
                 ? '✓ Balanced'
@@ -2110,7 +2110,7 @@ function NetWorthCard({ rows, expanded, onToggle, onUpdate }) {
       <button className="w-full text-left" onClick={onToggle}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">📈 Net Worth</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400"><span aria-hidden="true">📈</span> Net Worth</p>
             <p className={`text-3xl font-black font-broske mt-1 tabular-nums ${pos ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(latest.net)}</p>
             <p className="text-slate-400 text-xs mt-1.5">
               {delta !== null
@@ -2344,7 +2344,7 @@ function DebtCard({ rows, expanded, onToggle, onUpdate }) {
       <button className="w-full text-left" onClick={onToggle}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">💳 Debt</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400"><span aria-hidden="true">💳</span> Debt</p>
             <p className="text-3xl font-black font-broske mt-1 tabular-nums text-rose-300">{fmt(latest.total)}</p>
             <p className="text-slate-400 text-xs mt-1.5">
               {debts.length} {debts.length === 1 ? 'debt' : 'debts'} · {fmt(latest.minTotal)}/mo minimum
