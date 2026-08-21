@@ -280,7 +280,7 @@ function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
             </p>
             {earlyMonth && score < 60 && (
               <p className="text-slate-400 text-[11px] mt-1 leading-snug">
-                📅 Day {dayOfMonth} — early in the month; this climbs as you process income and fund categories.
+                <span aria-hidden="true">📅</span> Day {dayOfMonth} — early in the month; this climbs as you process income and fund categories.
               </p>
             )}
             {history.length > 1 && (
@@ -300,7 +300,7 @@ function HealthScoreCard({ score, signals, history, expanded, onToggle }) {
       {expanded && (
         <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-3">
           <p className="text-slate-400 text-[11px] leading-snug">
-            🔎 Computed live from your Allocation Transactions log — every figure below traces to a real entry, not an estimate.
+            <span aria-hidden="true">🔎</span> Computed live from your Allocation Transactions log — every figure below traces to a real entry, not an estimate.
           </p>
           {signals.map((s, i) => (
             <div key={i}>
@@ -929,7 +929,7 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
               chips below list the months; this names the source in plain English,
               reusing the Task-358/361 muted "from your log" style. */}
           <p className="text-[10px] text-slate-500 mt-2">
-            🔎 from your log: <span className="text-teal-400 font-medium">${expected.toFixed(0)}</span> is the average of your last <span className="text-slate-400 font-medium">{basis.length} completed months</span> of logged income deposits — not a guess.
+            <span aria-hidden="true">🔎</span> from your log: <span className="text-teal-400 font-medium">${expected.toFixed(0)}</span> is the average of your last <span className="text-slate-400 font-medium">{basis.length} completed months</span> of logged income deposits — not a guess.
           </p>
 
           {/* Income provenance (Task 135) — sparkline+trend then the month chips,
@@ -986,7 +986,7 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
               subscriptions), so it's framed "from your plan" (matching the Goal
               tile's plan-vs-log wording), not "from your log". */}
           <p className="text-[10px] text-slate-500 mt-2 text-center">
-            🔎 from your plan: fixed bills = your P1 + P2 essential allowances (<span className="text-amber-400 font-medium">${recurringAllow.toFixed(0)}</span>/mo) plus subscriptions due that month — planned bills, not a guess.
+            <span aria-hidden="true">🔎</span> from your plan: fixed bills = your P1 + P2 essential allowances (<span className="text-amber-400 font-medium">${recurringAllow.toFixed(0)}</span>/mo) plus subscriptions due that month — planned bills, not a guess.
           </p>
 
           {/* Per-month projected net + cumulative runway */}
@@ -996,7 +996,7 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
                 typical income (from your log, Task 362) − fixed bills (from your
                 plan, Task 365). Purely presentational — reuses the rows math. */}
             <p className="text-[10px] text-slate-500 pb-0.5 leading-snug">
-              🔎 net = your typical income (from your log) − your fixed bills (from your plan), month by month.
+              <span aria-hidden="true">🔎</span> net = your typical income (from your log) − your fixed bills (from your plan), month by month.
             </p>
             {rows.map(r => (
               <div key={r.month} className="flex justify-between text-slate-400">
@@ -1047,7 +1047,7 @@ function ForecastCard({ chartData, incomeBasis, subscriptions, expenses, expande
                  the surplus could go. Generic + self-contained (no debt/EF/goal
                  state threaded in), read-only over `rows`. */
               <p className="text-[11px] text-slate-400 pt-1 leading-snug">
-                💰 {bestMonth.month} looks comfortable — about <span className="text-emerald-300 font-medium">+${bestMonth.net.toFixed(0)}</span> to spare after fixed bills. Put it to work: knock down a high-APR debt, top up your emergency fund, or fund a savings goal.
+                <span aria-hidden="true">💰</span> {bestMonth.month} looks comfortable — about <span className="text-emerald-300 font-medium">+${bestMonth.net.toFixed(0)}</span> to spare after fixed bills. Put it to work: knock down a high-APR debt, top up your emergency fund, or fund a savings goal.
               </p>
             )}
             <p className="text-[10px] text-slate-600 pt-0.5">Estimate from your last {last6.length} months — not a guarantee. Past months stay as recorded.</p>
@@ -1163,16 +1163,16 @@ function EmergencyFundCard({ expenses, allAllocTx, expanded, onToggle }) {
 
           {/* Provenance — the savings figure the runway divides traces to real logged entries, not an estimate (Task 361) */}
           <p className="text-[10px] text-slate-500 mt-2">
-            🔎 from your log: <span className="text-slate-400 font-medium">{savingsCount} {savingsCount === 1 ? 'entry' : 'entries'}</span> across your savings buckets net to <span className="text-teal-400 font-medium">${savings.toFixed(0)}</span> — the runway is your real balances ÷ your P1 + P2 essential burn, not an estimate pulled from nowhere.
+            <span aria-hidden="true">🔎</span> from your log: <span className="text-slate-400 font-medium">{savingsCount} {savingsCount === 1 ? 'entry' : 'entries'}</span> across your savings buckets net to <span className="text-teal-400 font-medium">${savings.toFixed(0)}</span> — the runway is your real balances ÷ your P1 + P2 essential burn, not an estimate pulled from nowhere.
           </p>
           {/* Provenance — the burn figure the runway divides by is your planned P1+P2 allowances, not a logged total (Task 368) */}
           <p className="text-[10px] text-slate-500 mt-1">
-            🔎 from your plan: monthly essentials = your P1 + P2 budget allowances (<span className="text-rose-300 font-medium">${burn.toFixed(0)}</span>/mo) — the bills you can't skip, planned not logged.
+            <span aria-hidden="true">🔎</span> from your plan: monthly essentials = your P1 + P2 budget allowances (<span className="text-rose-300 font-medium">${burn.toFixed(0)}</span>/mo) — the bills you can't skip, planned not logged.
           </p>
           {/* Arithmetic tie — names the operation connecting the two inputs above (Task 371),
               mirroring the Forecast net-line caption (Task 369) */}
           <p className="text-[10px] text-slate-500 mt-1">
-            🔎 runway = your savings on hand (from your log) ÷ your monthly essentials (from your plan) — that's <span className={`font-medium ${color}`}>{runway >= 100 ? '100+' : runway.toFixed(1)}</span> months of the bills you can't skip.
+            <span aria-hidden="true">🔎</span> runway = your savings on hand (from your log) ÷ your monthly essentials (from your plan) — that's <span className={`font-medium ${color}`}>{runway >= 100 ? '100+' : runway.toFixed(1)}</span> months of the bills you can't skip.
           </p>
 
           {/* Target picker */}
@@ -1480,7 +1480,7 @@ function SpendPaceCard({ expenses, allAllocTx, dayOfMonth, daysInMo, expanded, o
       {expanded && (
         <div className="mt-3 space-y-2.5">
           <p className="text-[10px] text-slate-500">
-            🔎 Each projection below is computed live from your logged spend this month — not an estimate pulled from nowhere.
+            <span aria-hidden="true">🔎</span> Each projection below is computed live from your logged spend this month — not an estimate pulled from nowhere.
           </p>
           {(flagged.length > 0 ? flagged : rows.slice(0, 6)).map(r => {
             const spentPctClamped = Math.min(100, r.spentPct);
@@ -1802,7 +1802,7 @@ function SafeToSpendCard({ income, spent, expenses, allAllocTx, daysLeftIncl, da
       {expanded && (
         <div className="mt-3 pt-3 border-t border-slate-700/60 text-xs space-y-1.5">
           <p className="text-slate-400 text-[11px] leading-snug pb-1">
-            🔎 Each figure below is a live sum of your Allocation Transactions this month — not an estimate.
+            <span aria-hidden="true">🔎</span> Each figure below is a live sum of your Allocation Transactions this month — not an estimate.
           </p>
           <div>
             <div className="flex justify-between text-slate-400"><span>Money in this month</span><span className="font-mono text-teal-300">${income.toFixed(0)}</span></div>
@@ -2089,7 +2089,7 @@ function NetWorthCard({ rows, expanded, onToggle, onUpdate }) {
     return (
       <button onClick={onUpdate}
         className="w-full flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-slate-700/50 text-slate-600 hover:text-slate-400 text-xs transition-colors">
-        <span>📈</span><span>Track your net worth — add your account balances</span>
+        <span aria-hidden="true">📈</span><span>Track your net worth — add your account balances</span>
       </button>
     );
   }
@@ -2139,7 +2139,7 @@ function NetWorthCard({ rows, expanded, onToggle, onUpdate }) {
               dated snapshots, not an estimate. Same muted "from your log" style the
               Emergency-Fund (Task 361) and Spend-Pace (Task 358) cards use. */}
           <p className="text-[10px] text-slate-500 leading-snug">
-            🔎 from your log: {snaps.length === 1
+            <span aria-hidden="true">🔎</span> from your log: {snaps.length === 1
               ? <>the <span className="text-slate-400 font-medium">1 snapshot</span> you saved on {nwLabel(latest.date)}</>
               : <><span className="text-slate-400 font-medium">{snaps.length} snapshots</span> you saved since {nwLabel(snaps[0].date)} (latest {nwLabel(latest.date)})</>
             } — net worth is your entered assets − liabilities, not an estimate pulled from nowhere.
@@ -2316,7 +2316,7 @@ function DebtCard({ rows, expanded, onToggle, onUpdate }) {
     return (
       <button onClick={onUpdate}
         className="w-full flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-slate-700/50 text-slate-600 hover:text-slate-400 text-xs transition-colors">
-        <span>💳</span><span>Track debt payoff — add what you owe</span>
+        <span aria-hidden="true">💳</span><span>Track debt payoff — add what you owe</span>
       </button>
     );
   }
@@ -3863,7 +3863,7 @@ ${stmtTxns.length ? `
         return (
           <div className="bg-gradient-to-r from-indigo-900/50 to-violet-900/50 border border-indigo-700/50 rounded-2xl p-4 flex items-center justify-between gap-3">
             <div>
-              <p className="text-indigo-200 font-bold text-sm font-broske">📅 {closeMonth} has ended</p>
+              <p className="text-indigo-200 font-bold text-sm font-broske"><span aria-hidden="true">📅</span> {closeMonth} has ended</p>
               <p className="text-indigo-400 text-xs mt-0.5">Close out {closeMonth} and start {currentMonth} fresh</p>
             </div>
             <button
@@ -4274,7 +4274,7 @@ ${stmtTxns.length ? `
       {!paydayConfig && (
         <button onClick={() => setShowPaydayConfig(true)}
           className="w-full flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-slate-700/50 text-slate-600 hover:text-slate-400 text-xs transition-colors">
-          <span>💰</span><span>Set up payday tracker</span>
+          <span aria-hidden="true">💰</span><span>Set up payday tracker</span>
         </button>
       )}
 
