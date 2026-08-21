@@ -187,7 +187,7 @@ function spendByCategory(allAllocTx) {
 // tile; the chrome lives here so a future style tweak is one edit, not four.
 // `recon` = { show, matches, mismatchText }; `children` = the breakdown body.
 // Pure presentation — read-only.
-function TileProvenance({ caption, open, onToggle, recon, children, regionId }) {
+function TileProvenance({ caption, captionGlyph, open, onToggle, recon, children, regionId }) {
   // Task 221 — accessibility: expose each stat-tile "from your log/plan"
   // breakdown as a named landmark so a screen-reader user can jump to it by
   // region. The region lives on the always-present outer wrapper (so a
@@ -205,7 +205,15 @@ function TileProvenance({ caption, open, onToggle, recon, children, regionId }) 
           state. aria-expanded now announces "collapsed/expanded"; the caption
           text is the accessible name, and the decorative chevron is hidden. */}
       <button onClick={onToggle} aria-expanded={open} className="w-full flex items-center gap-2 text-left">
-        <span id={labelId} className="text-slate-400 text-[11px] leading-snug">{caption}</span>
+        {/* Task 404 — accessibility: the caption's leading emoji (🔎/🎯) is passed
+            as `captionGlyph` and rendered decoratively so a screen reader hears
+            the plain caption ("Income = …") instead of "magnifying glass, Income
+            = …". aria-hidden descendants are dropped from both the button name
+            and the region's aria-labelledby name. Visible rendering unchanged. */}
+        <span id={labelId} className="text-slate-400 text-[11px] leading-snug">
+          {captionGlyph && (<><span aria-hidden="true">{captionGlyph}</span>{' '}</>)}
+          {caption}
+        </span>
         <span aria-hidden="true" className="ml-auto text-slate-500 text-xs shrink-0">{open ? '▾' : '▸'}</span>
       </button>
       {recon?.show && (
@@ -4684,7 +4692,11 @@ ${stmtTxns.length ? `
             aria-expanded={anyProvOpen}
             className="text-slate-400 hover:text-white text-xs font-medium transition-colors active:opacity-70 whitespace-nowrap"
           >
-            {anyProvOpen ? '▾ Hide breakdowns' : '🔎 Explain all my numbers'}
+            {/* Task 404 — decorative glyph so a screen reader hears "Hide
+                breakdowns" / "Explain all my numbers", not the emoji. */}
+            {anyProvOpen
+              ? (<><span aria-hidden="true">▾</span> Hide breakdowns</>)
+              : (<><span aria-hidden="true">🔎</span> Explain all my numbers</>)}
           </button>
         </div>
       )}
@@ -4704,7 +4716,8 @@ ${stmtTxns.length ? `
         const reconMatches = showRecon && Math.abs(sheetIncome - loggedIncome) <= 1;
         return (
           <TileProvenance
-            caption={`🔎 Income = Σ your deposits logged this ${currentMonth}`}
+            caption={`Income = Σ your deposits logged this ${currentMonth}`}
+            captionGlyph="🔎"
             regionId="income"
             open={showIncomeProv}
             onToggle={() => setShowIncomeProv(v => !v)}
@@ -4740,7 +4753,8 @@ ${stmtTxns.length ? `
         const reconMatches = showRecon && Math.abs(sheetSpent - loggedSpent) <= 1;
         return (
           <TileProvenance
-            caption={`🔎 Spent = Σ your spend rows logged this ${currentMonth}`}
+            caption={`Spent = Σ your spend rows logged this ${currentMonth}`}
+            captionGlyph="🔎"
             regionId="spent"
             open={showSpentProv}
             onToggle={() => setShowSpentProv(v => !v)}
@@ -4775,7 +4789,8 @@ ${stmtTxns.length ? `
         const reconMatches = showRecon && Math.abs(sheetNet - net) <= 1;
         return (
           <TileProvenance
-            caption={`🔎 Net Flow = your logged income − spending this ${currentMonth}`}
+            caption={`Net Flow = your logged income − spending this ${currentMonth}`}
+            captionGlyph="🔎"
             regionId="net"
             open={showNetProv}
             onToggle={() => setShowNetProv(v => !v)}
@@ -4817,7 +4832,8 @@ ${stmtTxns.length ? `
         const reconMatches = showRecon && Math.abs(goal - sheetGoal) <= 1;
         return (
           <TileProvenance
-            caption="🎯 Goal = Σ your budget allowances (your plan, not what you've spent)"
+            caption="Goal = Σ your budget allowances (your plan, not what you've spent)"
+            captionGlyph="🎯"
             regionId="goal"
             open={showGoalProv}
             onToggle={() => setShowGoalProv(v => !v)}
