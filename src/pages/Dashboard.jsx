@@ -3891,7 +3891,7 @@ ${stmtTxns.length ? `
           className="w-full bg-amber-900/40 border border-amber-700/60 rounded-2xl p-3 flex items-center justify-between gap-3 active:opacity-80 text-left"
         >
           <div className="flex items-center gap-2.5">
-            <span className="text-amber-400 text-lg shrink-0">⚠</span>
+            <span aria-hidden="true" className="text-amber-400 text-lg shrink-0">⚠</span>
             <div>
               {budgetAlerts.overCount > 0 && (
                 <p className="text-amber-200 font-semibold text-sm">
@@ -3905,12 +3905,12 @@ ${stmtTxns.length ? `
               )}
               {budgetAlerts.dueAlerts?.map(a => (
                 <p key={a.type} className="text-amber-300/80 text-xs mt-0.5">
-                  ⏰ {a.type} due {a.daysUntil === 0 ? 'today' : `in ${a.daysUntil} day${a.daysUntil === 1 ? '' : 's'}`} — not yet funded
+                  <span aria-hidden="true">⏰</span> {a.type} due {a.daysUntil === 0 ? 'today' : `in ${a.daysUntil} day${a.daysUntil === 1 ? '' : 's'}`} — not yet funded
                 </p>
               ))}
             </div>
           </div>
-          <span className="text-amber-500 text-xs shrink-0 font-medium">View Budget →</span>
+          <span className="text-amber-500 text-xs shrink-0 font-medium">View Budget <span aria-hidden="true">→</span></span>
         </button>
       )}
 
