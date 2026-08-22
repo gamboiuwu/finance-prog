@@ -112,14 +112,25 @@ export default function Nav() {
   }, []);
 
   return (
-    <nav className={`fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 z-40 safe-area-pb ${keyboardOpen ? 'translate-y-full' : ''} transition-transform duration-200`}>
+    <nav aria-label="Primary" className={`fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 z-40 safe-area-pb ${keyboardOpen ? 'translate-y-full' : ''} transition-transform duration-200`}>
       {/* Scrollable on very small screens; centered pill layout on desktop */}
       <div className="flex overflow-x-auto scrollbar-none sm:justify-center max-w-screen-xl mx-auto sm:px-2">
-        {tabs.map(({ to, label, iconKey }) => (
+        {tabs.map(({ to, label, iconKey }) => {
+          // Fold the badge count into the link's accessible name so a screen-reader
+          // user hears "Budget, 3 over-budget alerts" instead of an ambiguous "Budget 3".
+          const badge = to === '/budget' ? budgetBadge : to === '/commissions' ? artBadge : 0;
+          const ariaLabel =
+            to === '/budget' && badge > 0
+              ? `Budget, ${badge} over-budget ${badge === 1 ? 'alert' : 'alerts'}`
+              : to === '/commissions' && badge > 0
+                ? `Art, ${badge} ${badge === 1 ? 'commission' : 'commissions'} awaiting payment`
+                : undefined;
+          return (
           <NavLink
             key={to}
             to={to}
             end={to === '/'}
+            aria-label={ariaLabel}
             className={({ isActive }) =>
               `relative shrink-0 flex flex-col items-center px-3 sm:px-4 pt-2 pb-2 gap-0.5 transition-all duration-200 group min-w-[52px] sm:min-w-[62px] ${
                 isActive ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'
@@ -146,12 +157,12 @@ export default function Nav() {
                     {icons[iconKey]}
                   </span>
                   {to === '/budget' && budgetBadge > 0 && (
-                    <span className="absolute -top-1 -right-2 min-w-[14px] h-3.5 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 leading-none">
+                    <span aria-hidden="true" className="absolute -top-1 -right-2 min-w-[14px] h-3.5 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 leading-none">
                       {budgetBadge > 9 ? '9+' : budgetBadge}
                     </span>
                   )}
                   {to === '/commissions' && artBadge > 0 && (
-                    <span className="absolute -top-1 -right-2 min-w-[14px] h-3.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 leading-none">
+                    <span aria-hidden="true" className="absolute -top-1 -right-2 min-w-[14px] h-3.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 leading-none">
                       {artBadge > 9 ? '9+' : artBadge}
                     </span>
                   )}
@@ -167,7 +178,8 @@ export default function Nav() {
               </>
             )}
           </NavLink>
-        ))}
+          );
+        })}
       </div>
     </nav>
   );
