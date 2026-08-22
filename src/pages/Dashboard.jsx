@@ -3885,6 +3885,23 @@ ${stmtTxns.length ? `
       })()}
 
       {/* ── Budget Alert Banner ─────────────────────────────── */}
+      {/* Task 410: the amber banner below is a passive <button> — a screen-reader
+          user only learns of an over-budget / due-bill warning by tabbing to it.
+          This dedicated polite live region proactively announces the alert state
+          when it appears (mirrors the Task-201/206/211 pattern), and stays empty
+          on a clean month so it never chatters. Always mounted (outside the
+          conditional banner) so the empty→populated change fires the announcement;
+          kept a separate region from the flash / reconciliation / section-alert
+          regions so the four can never clobber. */}
+      <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {(() => {
+          const parts = [];
+          if (budgetAlerts.overCount > 0) parts.push(`${budgetAlerts.overCount} ${budgetAlerts.overCount === 1 ? 'category' : 'categories'} over budget`);
+          if (budgetAlerts.needsCount > 0) parts.push(`${budgetAlerts.needsCount} essential${budgetAlerts.needsCount !== 1 ? 's' : ''} not yet funded`);
+          (budgetAlerts.dueAlerts || []).forEach(a => parts.push(`${a.type} due ${a.daysUntil === 0 ? 'today' : `in ${a.daysUntil} day${a.daysUntil === 1 ? '' : 's'}`}`));
+          return parts.length ? `Budget alerts: ${parts.join('. ')}.` : '';
+        })()}
+      </span>
       {(budgetAlerts.overCount > 0 || budgetAlerts.needsCount > 0 || budgetAlerts.dueAlerts?.length > 0) && (
         <button
           onClick={() => navigate('/budget')}
