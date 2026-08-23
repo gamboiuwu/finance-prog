@@ -23,7 +23,7 @@ import Nav from './components/Nav';
 function AnimatedRoutes({ token }) {
   const location = useLocation();
   return (
-    <main key={location.pathname} className="page-enter max-w-lg mx-auto md:max-w-none md:px-8 lg:px-16">
+    <main id="app-main" tabIndex={-1} key={location.pathname} className="page-enter max-w-lg mx-auto md:max-w-none md:px-8 lg:px-16 focus:outline-none">
       <Routes>
         <Route path="/"                      element={<Dashboard        token={token} />} />
         <Route path="/budget"                element={<Budget           token={token} />} />
@@ -121,6 +121,17 @@ export default function App() {
         onPointerDown={refreshActivity}
         onKeyDown={refreshActivity}
       >
+        {/* Skip-to-content link — the first focusable element so keyboard/SR users can
+            bypass the header + nav chrome. HashRouter-safe: the onClick focuses the
+            <main id="app-main"> landmark instead of letting the fragment mutate the route hash. */}
+        <a
+          href="#app-main"
+          onClick={(e) => { e.preventDefault(); document.getElementById('app-main')?.focus(); }}
+          className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-blue-600 focus:text-white focus:font-semibold focus:shadow-lg"
+        >
+          Skip to content
+        </a>
+
         <header className="sticky top-0 z-30 bg-slate-950/90 backdrop-blur border-b border-slate-800 px-4 py-3 flex justify-between items-center">
           <span className="font-bold text-white text-sm font-broske tracking-wide">💰 Finance</span>
           <div className="flex items-center gap-2 relative">
