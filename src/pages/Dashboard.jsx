@@ -2207,7 +2207,7 @@ function NetWorthCard({ rows, expanded, onToggle, onUpdate }) {
 
           <button onClick={onUpdate}
             className="w-full py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium transition-colors">
-            📊 Update balances
+            <span aria-hidden="true">📊</span> Update balances
           </button>
           <p className="text-[10px] text-slate-600">Net worth = total assets − total liabilities. Each update saves a dated snapshot to your private sheet.</p>
         </div>
@@ -2486,7 +2486,7 @@ function DebtCard({ rows, expanded, onToggle, onUpdate }) {
 
           <button onClick={onUpdate}
             className="w-full py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium transition-colors">
-            📊 Update balances
+            <span aria-hidden="true">📊</span> Update balances
           </button>
           <p className="text-[10px] text-slate-600">Payoff estimates assume a fixed monthly payment. Each update saves a dated snapshot to your private sheet. Not financial advice.</p>
         </div>
@@ -3835,23 +3835,23 @@ ${stmtTxns.length ? `
           className="flex-1 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-2xl p-4 flex items-center justify-between transition-colors shadow-lg shadow-emerald-900/30"
         >
           <div className="text-left">
-            <p className="font-bold text-base">💰 Process Income</p>
+            <p className="font-bold text-base"><span aria-hidden="true">💰</span> Process Income</p>
             <p className="text-emerald-200 text-xs mt-0.5">Auto-log deposits to transactions</p>
           </div>
-          <span className="text-xl">→</span>
+          <span aria-hidden="true" className="text-xl">→</span>
         </button>
         <button
           onClick={openStatement}
           className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white rounded-2xl px-4 flex flex-col items-center justify-center gap-1 shrink-0 transition-colors"
         >
-          <span className="text-xl">📄</span>
+          <span aria-hidden="true" className="text-xl">📄</span>
           <span className="text-[10px] text-slate-300 font-medium">Statement</span>
         </button>
         <button
           onClick={() => setShowArchive(true)}
           className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white rounded-2xl px-4 flex flex-col items-center justify-center gap-1 shrink-0 transition-colors"
         >
-          <span className="text-xl">📚</span>
+          <span aria-hidden="true" className="text-xl">📚</span>
           <span className="text-[10px] text-slate-300 font-medium">Archive</span>
         </button>
       </div>
@@ -4314,7 +4314,7 @@ ${stmtTxns.length ? `
             className="flex-1 bg-slate-800 hover:bg-slate-700 rounded-xl px-4 py-3 flex justify-between items-center transition-colors"
           >
             <div className="flex items-center gap-2">
-              <span className="text-lg">⛽</span>
+              <span aria-hidden="true" className="text-lg">⛽</span>
               <div className="text-left">
                 <p className="text-white text-sm font-semibold">${gasPrice.value.toFixed(3)} / gal</p>
                 <div className="flex items-center gap-2 mt-0.5">
@@ -4327,13 +4327,13 @@ ${stmtTxns.length ? `
                 </div>
               </div>
             </div>
-            <span className="text-slate-500 text-xs">→</span>
+            <span aria-hidden="true" className="text-slate-500 text-xs">→</span>
           </button>
           <button
             onClick={() => setShowGasLog(true)}
             className="bg-orange-900/40 hover:bg-orange-900/60 border border-orange-800/40 rounded-xl px-4 py-3 flex flex-col items-center justify-center gap-0.5 transition-colors shrink-0"
           >
-            <span className="text-lg">⛽</span>
+            <span aria-hidden="true" className="text-lg">⛽</span>
             <span className="text-orange-300 text-[10px] font-medium">Log Spend</span>
           </button>
         </div>
@@ -4345,7 +4345,7 @@ ${stmtTxns.length ? `
           <div className="modal-sheet bg-slate-900 w-full rounded-t-3xl p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-white font-bold">⛽ Log Gas Spend</h3>
+                <h3 className="text-white font-bold"><span aria-hidden="true">⛽</span> Log Gas Spend</h3>
                 <p className="text-slate-500 text-xs mt-0.5">Deducts from your claimable gas balance</p>
               </div>
               <button onClick={() => setShowGasLog(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 flex items-center justify-center">✕</button>
@@ -6162,7 +6162,7 @@ ${stmtTxns.length ? `
           <div className="shrink-0 border-b border-slate-800 bg-slate-950/95 backdrop-blur">
             <div className="max-w-3xl mx-auto px-5 py-4 flex items-center justify-between">
               <div>
-                <h2 className="text-white font-bold text-lg leading-tight">📄 Monthly Statement</h2>
+                <h2 className="text-white font-bold text-lg leading-tight"><span aria-hidden="true">📄</span> Monthly Statement</h2>
                 <p className="text-slate-400 text-xs mt-0.5">{currentMonth} {currentYear}</p>
               </div>
               <div className="flex items-center gap-2">
@@ -6822,7 +6822,7 @@ ${stmtTxns.length ? `
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50" onClick={() => setShowPaydayConfig(false)}>
               <div className="bg-slate-900 w-full rounded-t-3xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between">
-                  <h2 className="text-white font-semibold">💰 Payday Settings</h2>
+                  <h2 className="text-white font-semibold"><span aria-hidden="true">💰</span> Payday Settings</h2>
                   <button onClick={() => setShowPaydayConfig(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
                 </div>
                 <div className="space-y-2">
@@ -6887,7 +6887,7 @@ ${stmtTxns.length ? `
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4" onClick={() => !nwSaving && setShowNetWorth(false)}>
               <div className="bg-slate-800 rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[90dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center">
-                  <h2 className="text-white font-semibold">📈 Update Net Worth</h2>
+                  <h2 className="text-white font-semibold"><span aria-hidden="true">📈</span> Update Net Worth</h2>
                   <button onClick={() => setShowNetWorth(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
                 </div>
                 <p className="text-slate-500 text-xs">Enter each account's current balance. Liabilities (what you owe) go in as positive amounts — they're subtracted automatically. Saving records a dated snapshot to your private sheet.</p>
@@ -6966,7 +6966,7 @@ ${stmtTxns.length ? `
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4" onClick={() => !debtSaving && setShowDebt(false)}>
               <div className="bg-slate-800 rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[90dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center">
-                  <h2 className="text-white font-semibold">💳 Update Debts</h2>
+                  <h2 className="text-white font-semibold"><span aria-hidden="true">💳</span> Update Debts</h2>
                   <button onClick={() => setShowDebt(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
                 </div>
                 <p className="text-slate-500 text-xs">Enter each debt's current balance, its APR (annual interest %), and the minimum monthly payment. Saving records a dated snapshot to your private sheet.</p>
