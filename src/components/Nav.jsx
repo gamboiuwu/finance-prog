@@ -112,14 +112,26 @@ export default function Nav() {
   }, []);
 
   return (
-    <nav className={`fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 z-40 safe-area-pb ${keyboardOpen ? 'translate-y-full' : ''} transition-transform duration-200`}>
+    <nav aria-label="Primary" className={`fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 z-40 safe-area-pb ${keyboardOpen ? 'translate-y-full' : ''} transition-transform duration-200`}>
       {/* Scrollable on very small screens; centered pill layout on desktop */}
       <div className="flex overflow-x-auto scrollbar-none sm:justify-center max-w-screen-xl mx-auto sm:px-2">
-        {tabs.map(({ to, label, iconKey }) => (
+        {tabs.map(({ to, label, iconKey }) => {
+          // Badged links (Budget over-budget count / Art A/R count) carry a
+          // count-only pill that's meaningless to a screen reader on its own, so
+          // give the link an accessible name that states the count AND what it means.
+          const badgeCount = to === '/budget' ? budgetBadge : to === '/commissions' ? artBadge : 0;
+          const badgeLabel =
+            to === '/budget' && badgeCount > 0
+              ? `${label}, ${badgeCount} over-budget ${badgeCount === 1 ? 'alert' : 'alerts'}`
+              : to === '/commissions' && badgeCount > 0
+                ? `${label}, ${badgeCount} ${badgeCount === 1 ? 'commission' : 'commissions'} awaiting payment`
+                : undefined;
+          return (
           <NavLink
             key={to}
             to={to}
             end={to === '/'}
+            aria-label={badgeLabel}
             className={({ isActive }) =>
               `relative shrink-0 flex flex-col items-center px-3 sm:px-4 pt-2 pb-2 gap-0.5 transition-all duration-200 group min-w-[52px] sm:min-w-[62px] ${
                 isActive ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'
@@ -134,8 +146,8 @@ export default function Nav() {
                     isActive ? 'w-8 opacity-100' : 'w-0 opacity-0'
                   }`}
                 />
-                {/* Icon with badge */}
-                <span className="relative flex items-center justify-center">
+                {/* Icon with badge — decorative; the link's text/aria-label is the accessible name */}
+                <span className="relative flex items-center justify-center" aria-hidden="true">
                   <span
                     className={`transition-all duration-200 ease-out ${
                       isActive
@@ -167,7 +179,8 @@ export default function Nav() {
               </>
             )}
           </NavLink>
-        ))}
+          );
+        })}
       </div>
     </nav>
   );
