@@ -4269,9 +4269,11 @@ ${stmtTxns.length ? `
         const chipColor = diff <= 2 ? 'bg-rose-900/40 border-rose-700/40 text-rose-300'
           : diff <= 6 ? 'bg-amber-900/40 border-amber-700/40 text-amber-300'
           : 'bg-slate-800 border-slate-700/40 text-teal-300';
-        const label = diff === 0 ? 'Payday today! 🎉'
-          : diff === 1 ? 'Payday tomorrow 💰'
-          : `Payday in ${diff} days 💰`;
+        const label = diff === 0
+          ? <>Payday today! <span aria-hidden="true">🎉</span></>
+          : diff === 1
+          ? <>Payday tomorrow <span aria-hidden="true">💰</span></>
+          : <>Payday in {diff} days <span aria-hidden="true">💰</span></>;
         const now2 = new Date();
         const daysInMonth = new Date(now2.getFullYear(), now2.getMonth() + 1, 0).getDate();
         const daysPassed = now2.getDate();
@@ -4394,7 +4396,9 @@ ${stmtTxns.length ? `
                   disabled={!gasAmount || gasLogging}
                   className="w-full py-3.5 rounded-xl bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-bold transition-colors"
                 >
-                  {gasLogging ? 'Logging…' : parseFloat(gasAmount) > 0 ? `⛽ Log $${parseFloat(gasAmount).toFixed(2)} Gas Spend` : '⛽ Enter an amount'}
+                  {gasLogging ? 'Logging…' : parseFloat(gasAmount) > 0
+                    ? <><span aria-hidden="true">⛽</span> Log ${parseFloat(gasAmount).toFixed(2)} Gas Spend</>
+                    : <><span aria-hidden="true">⛽</span> Enter an amount</>}
                 </button>
               </>
             )}
