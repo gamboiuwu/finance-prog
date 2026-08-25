@@ -455,7 +455,7 @@ function EditDrawer({ item, headers, onSave, onClose, saving, isNew }) {
                   <button key={id} onClick={() => setBalanceType(id)}
                     className={`py-3 px-2 rounded-xl text-left border transition-all ${active ? 'bg-sky-900/50 border-sky-600/60 text-sky-200' : 'bg-slate-800 border-slate-700 text-slate-400'}`}
                   >
-                    <div className="text-sm font-bold">{icon} {title}</div>
+                    <div className="text-sm font-bold"><span aria-hidden="true">{icon}</span> {title}</div>
                     <div className="text-[10px] mt-0.5 opacity-70 leading-tight">{sub}</div>
                   </button>
                 );
@@ -536,7 +536,7 @@ function QuickLogDrawer({ type, defaultAccount = '', magnitude = 0, token = null
               kind === 'spend' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            − Spent
+            <span aria-hidden="true">−</span> Spent
           </button>
           <button
             onClick={() => setKind('fund')}
@@ -544,7 +544,7 @@ function QuickLogDrawer({ type, defaultAccount = '', magnitude = 0, token = null
               kind === 'fund' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            ＋ Fund
+            <span aria-hidden="true">＋</span> Fund
           </button>
         </div>
 
@@ -563,7 +563,7 @@ function QuickLogDrawer({ type, defaultAccount = '', magnitude = 0, token = null
                   }`}
                   title={`${r.k === 'fund' ? 'Fund' : 'Spend'} ${fmt(r.a)}`}
                 >
-                  ↻ {r.k === 'fund' ? '＋' : '−'}{fmt(r.a)}
+                  <span aria-hidden="true">↻</span> {r.k === 'fund' ? '＋' : '−'}{fmt(r.a)}
                 </button>
               ))}
             </div>
@@ -607,7 +607,7 @@ function QuickLogDrawer({ type, defaultAccount = '', magnitude = 0, token = null
             className="text-[11px] px-2.5 py-1 rounded-full bg-slate-800 text-blue-300 hover:bg-blue-700 hover:text-white transition-colors"
             title={`Round up to the next $${ladder.round}`}
           >
-            ⤴ Round up
+            <span aria-hidden="true">⤴</span> Round up
           </button>
           {parseFloat(amount) > 0 && (
             <button
@@ -616,7 +616,7 @@ function QuickLogDrawer({ type, defaultAccount = '', magnitude = 0, token = null
               className="text-[11px] px-2.5 py-1 rounded-full bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-slate-300 transition-colors ml-auto"
               title="Clear amount"
             >
-              ✕ Clear
+              <span aria-hidden="true">✕</span> Clear
             </button>
           )}
         </div>
@@ -700,7 +700,7 @@ function BudgetCard({ item, onEdit, token = null, onLogged = null }) {
                 className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 hover:bg-blue-600 hover:text-white transition-colors font-medium leading-none"
                 title="Log a spend or fund this category"
               >
-                ＋ Log
+                <span aria-hidden="true">＋</span> Log
               </button>
             )}
             {item['Expense'] && (
@@ -880,14 +880,14 @@ function CategoryItemCard({
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              {pinned && <span className="text-[11px] leading-none shrink-0" title="Pinned to top">📌</span>}
+              {pinned && <span className="text-[11px] leading-none shrink-0" aria-hidden="true" title="Pinned to top">📌</span>}
               <p className="text-white text-sm font-medium">{type || '—'}</p>
               {pastDue && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium shrink-0">⚠ Past due</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium shrink-0"><span aria-hidden="true">⚠</span> Past due</span>
               )}
               {dueSoon && !pastDue && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/60 text-amber-300 font-medium shrink-0">
-                  ⏰ {daysUntil === 0 ? 'Due today' : `Due in ${daysUntil}d`}
+                  <span aria-hidden="true">⏰</span> {daysUntil === 0 ? 'Due today' : `Due in ${daysUntil}d`}
                 </span>
               )}
               <span className="ml-auto flex items-center gap-2 shrink-0">
@@ -897,7 +897,7 @@ function CategoryItemCard({
                     className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 hover:bg-blue-600 hover:text-white transition-colors font-medium leading-none"
                     title="Log a spend or fund this category"
                   >
-                    ＋ Log
+                    <span aria-hidden="true">＋</span> Log
                   </button>
                 )}
                 <button
@@ -945,7 +945,7 @@ function CategoryItemCard({
                       : 'text-slate-600 hover:text-slate-400'
                   }`}
                 >
-                  {dueDay != null ? `📅 Due ${dayLabel(dueDay)}` : '+ set due date'}
+                  {dueDay != null ? <><span aria-hidden="true">📅</span> Due {dayLabel(dueDay)}</> : '+ set due date'}
                 </button>
               )}
             </div>
@@ -982,7 +982,7 @@ function CategoryItemCard({
                 pinned ? 'bg-amber-900/50 text-amber-300' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
-              {pinned ? '📌 Pinned' : '📌 Pin'}
+              <span aria-hidden="true">📌</span> {pinned ? 'Pinned' : 'Pin'}
             </button>
             <div className="flex items-center gap-1 ml-auto">
               <button
@@ -1311,7 +1311,7 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0, token = null, onL
             onClick={() => setShowSavings(s => !s)}
           >
             <div className="flex items-center gap-2">
-              <span className="text-base">🐷</span>
+              <span className="text-base" aria-hidden="true">🐷</span>
               <span className="text-emerald-300 font-semibold text-sm">Savings</span>
               <span className="text-emerald-700 text-xs">· separate</span>
             </div>
@@ -1377,7 +1377,7 @@ function AllEntriesView({ allocTx }) {
             <span className={`font-bold font-mono text-sm ${tx.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
               {tx.amount >= 0 ? '+' : ''}{fmt(tx.amount)}
             </span>
-            {tx.done && <p className="text-[10px] text-slate-600 mt-0.5">✓ done</p>}
+            {tx.done && <p className="text-[10px] text-slate-600 mt-0.5"><span aria-hidden="true">✓</span> done</p>}
           </div>
         </div>
       ))}
@@ -1457,7 +1457,7 @@ function SpendingHeatmap({ allAllocTx }) {
         className="w-full flex items-center justify-between px-4 py-3 active:opacity-80"
         onClick={() => setOpen(o => !o)}
       >
-        <span className="text-white font-semibold text-sm">📅 Spending Calendar</span>
+        <span className="text-white font-semibold text-sm"><span aria-hidden="true">📅</span> Spending Calendar</span>
         <span className="text-slate-500 text-xs">{open ? '▲' : '▼'}</span>
       </button>
 
@@ -2024,7 +2024,7 @@ export default function Budget({ token }) {
           <div className="rounded-2xl border border-amber-800/50 bg-amber-950/30 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-amber-900/40 flex items-center justify-between gap-2">
               <p className="text-amber-300 text-xs font-bold uppercase tracking-wide">
-                ⚡ Essential funding · {essentialItems.length - unfundedEssentials.length}/{essentialItems.length} started
+                <span aria-hidden="true">⚡</span> Essential funding · {essentialItems.length - unfundedEssentials.length}/{essentialItems.length} started
               </p>
               {activeTab !== 'categories' && (
                 <button
