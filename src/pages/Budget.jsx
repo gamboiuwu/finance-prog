@@ -769,6 +769,7 @@ function PrioritySection({ priority, items, onEdit, onAdd, token = null, onLogge
       <button
         className={`w-full flex items-center justify-between px-4 py-3.5 ${pri.bg} transition-opacity active:opacity-80`}
         onClick={() => setCollapsed(c => !c)}
+        aria-expanded={!collapsed}
       >
         <div className="flex items-center gap-2">
           <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pri.badge}`}>P{p}</span>
@@ -777,7 +778,7 @@ function PrioritySection({ priority, items, onEdit, onAdd, token = null, onLogge
         </div>
         <div className="flex items-center gap-3">
           <span className="text-white font-bold text-sm font-mono tabular-nums">{fmt(sectionAllowance)}</span>
-          <span className="text-slate-500 text-xs">{collapsed ? '▼' : '▲'}</span>
+          <span className="text-slate-500 text-xs" aria-hidden="true">{collapsed ? '▼' : '▲'}</span>
         </div>
       </button>
 
@@ -1085,9 +1086,10 @@ function CategoryGroup({ label, items, allocByType, reorderMode = false, orderTi
       <button
         className="w-full flex items-center justify-between px-4 py-3 bg-slate-900/80 active:opacity-80"
         onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
       >
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} aria-hidden="true" />
           <span className="text-white font-semibold text-sm">{label}</span>
           <span className="text-slate-600 text-xs">· {items.length}</span>
         </div>
@@ -1098,7 +1100,7 @@ function CategoryGroup({ label, items, allocByType, reorderMode = false, orderTi
           <span className="text-white font-mono text-sm">
             {fmt(totalA)}<span className="text-slate-500 text-xs font-normal"> / {fmt(totalB)}</span>
           </span>
-          <span className="text-slate-500 text-xs">{open ? '▲' : '▼'}</span>
+          <span className="text-slate-500 text-xs" aria-hidden="true">{open ? '▲' : '▼'}</span>
         </div>
       </button>
 
@@ -1309,6 +1311,7 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0, token = null, onL
           <button
             className="w-full flex items-center justify-between px-4 py-3 bg-emerald-950/40 active:opacity-80"
             onClick={() => setShowSavings(s => !s)}
+            aria-expanded={showSavings}
           >
             <div className="flex items-center gap-2">
               <span className="text-base" aria-hidden="true">🐷</span>
@@ -1320,7 +1323,7 @@ function CategoryView({ items, allocTx, gasBalanceAllTime = 0, token = null, onL
                 {fmt(savingsA)}
                 <span className="text-emerald-700 text-xs font-normal"> / {fmt(savingsB)}</span>
               </span>
-              <span className="text-emerald-600 text-xs">{showSavings ? '▲' : '▼'}</span>
+              <span className="text-emerald-600 text-xs" aria-hidden="true">{showSavings ? '▲' : '▼'}</span>
             </div>
           </button>
           {showSavings && (
@@ -1456,9 +1459,10 @@ function SpendingHeatmap({ allAllocTx }) {
       <button
         className="w-full flex items-center justify-between px-4 py-3 active:opacity-80"
         onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
       >
         <span className="text-white font-semibold text-sm"><span aria-hidden="true">📅</span> Spending Calendar</span>
-        <span className="text-slate-500 text-xs">{open ? '▲' : '▼'}</span>
+        <span className="text-slate-500 text-xs" aria-hidden="true">{open ? '▲' : '▼'}</span>
       </button>
 
       {open && (
