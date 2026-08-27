@@ -350,7 +350,7 @@ function GasCoverageTile({ c }) {
   return (
     <div className={`rounded-xl p-3 h-full border ${enough ? 'bg-emerald-950/40 border-emerald-800/40' : 'bg-amber-950/40 border-amber-800/40'}`}>
       <div className="flex items-start justify-between gap-2">
-        <p className="text-slate-400 text-[10px] uppercase tracking-widest leading-tight">⛽ Gas Coverage</p>
+        <p className="text-slate-400 text-[10px] uppercase tracking-widest leading-tight"><span aria-hidden="true">⛽</span> Gas Coverage</p>
         <button onClick={() => { setDraft(String(monthlyMiles)); setEditing(v => !v); }}
           className="text-[10px] text-slate-500 hover:text-amber-400 shrink-0">✏ miles</button>
       </div>
@@ -849,13 +849,13 @@ function TaxView({ bizTx, bizExp, bizSpend, subs, allocRows, year, onYear, avail
         </div>
         <button onClick={copyText}
           className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 font-medium hover:bg-slate-700 transition-colors">
-          {copied ? '✓ Copied' : '📋 Copy summary'}
+          {copied ? (<><span aria-hidden="true">✓</span> Copied</>) : (<><span aria-hidden="true">📋</span> Copy summary</>)}
         </button>
       </div>
 
       {/* Caveat banner */}
       <div className="flex items-start gap-2 bg-amber-950/50 border border-amber-800/40 rounded-lg px-3 py-2">
-        <span className="text-amber-400 text-xs mt-0.5">⚠</span>
+        <span className="text-amber-400 text-xs mt-0.5" aria-hidden="true">⚠</span>
         <span className="text-amber-300 text-[11px] leading-relaxed">
           Estimate only — not tax advice. You file a Schedule C; confirm every figure with a
           professional (or in FreeTaxUSA) before filing.
@@ -963,7 +963,7 @@ function TaxView({ bizTx, bizExp, bizSpend, subs, allocRows, year, onYear, avail
 
       {/* Mileage note */}
       <p className="text-slate-600 text-[11px] leading-relaxed px-1">
-        🚗 <span className="text-slate-500">Mileage</span> isn't auto-included — log your business miles
+        <span aria-hidden="true">🚗</span> <span className="text-slate-500">Mileage</span> isn't auto-included — log your business miles
         separately and apply the IRS standard mileage rate for the tax year.
       </p>
     </div>
@@ -1302,13 +1302,13 @@ export default function Summary({ token }) {
         <>
           {/* Sub-view toggle: Year-to-Date (Task 11) vs Tax Prep (Task 15) */}
           <div className="px-4 pb-3 flex gap-1.5" role="tablist" aria-label="Year sub-view">
-            {[['ytd', '📊 Year-to-Date'], ['tax', '🧾 Tax Prep']].map(([id, label]) => (
+            {[['ytd', '📊', 'Year-to-Date'], ['tax', '🧾', 'Tax Prep']].map(([id, glyph, label]) => (
               <button key={id} onClick={() => setYearSub(id)}
                 role="tab" aria-selected={yearSub === id} id={`year-sub-${id}`} aria-controls="year-subpanel"
                 className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
                   yearSub === id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                 }`}>
-                {label}
+                <span aria-hidden="true">{glyph}</span> {label}
               </button>
             ))}
           </div>
