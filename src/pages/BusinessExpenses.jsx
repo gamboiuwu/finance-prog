@@ -1582,12 +1582,12 @@ function SalesView({ token, products }) {
           {/* ── Orders & shipping toolbar ── */}
           <div className="bg-slate-800/40 rounded-2xl p-3 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske">📦 Orders &amp; Shipping</p>
+              <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske"><span aria-hidden="true">📦</span> Orders &amp; Shipping</p>
               <div className="flex gap-1.5">
                 <button onClick={() => setTplPicker(true)}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-[11px] font-medium transition-colors">🏷 Templates</button>
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-[11px] font-medium transition-colors"><span aria-hidden="true">🏷</span> Templates</button>
                 <button onClick={() => setShipSetup(true)}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-[11px] font-medium transition-colors">🚚 Setup</button>
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-[11px] font-medium transition-colors"><span aria-hidden="true">🚚</span> Setup</button>
               </div>
             </div>
             <div role="group" aria-label="Order filter" className="flex gap-1.5 overflow-x-auto -mx-1 px-1">
@@ -1697,7 +1697,7 @@ function SalesView({ token, products }) {
                               onClick={e => { e.stopPropagation(); setOrderingTx(t); setExpandedTx(null); }}
                               className="px-3 py-1.5 rounded-lg bg-cyan-700/60 hover:bg-cyan-600 text-cyan-100 text-xs font-medium transition-colors"
                             >
-                              {t.order ? '📦 Order' : '📦 Make order'}
+                              {t.order ? (<><span aria-hidden="true">📦</span> Order</>) : (<><span aria-hidden="true">📦</span> Make order</>)}
                             </button>
                             <button
                               onClick={e => { e.stopPropagation(); setEditingTx(t); setExpandedTx(null); }}
@@ -1874,14 +1874,14 @@ function AccountsView({ token, products, refreshKey }) {
       <p className="text-slate-500 text-xs">
         Each category is a "bucket": <span className="text-emerald-400">earned</span> from sales minus everything
         <span className="text-rose-400"> spent</span>. Spending counts whether you tap a bucket here
-        <span className="text-slate-300"> or</span> log it on the <span className="text-slate-300">Expenses 📒</span> tab —
+        <span className="text-slate-300"> or</span> log it on the <span className="text-slate-300">Expenses <span aria-hidden="true">📒</span></span> tab —
         both feed the same balance.
       </p>
 
       {/* Diagnostics: shows what AccountsView actually read from the sheet */}
       <details className="bg-slate-900 border border-slate-800 rounded-xl text-xs">
         <summary className="px-3 py-2 text-slate-400 cursor-pointer select-none">
-          🔍 Diagnostics — {txns.length} sale row{txns.length === 1 ? '' : 's'}, {spending.length} spending row{spending.length === 1 ? '' : 's'}
+          <span aria-hidden="true">🔍</span> Diagnostics — {txns.length} sale row{txns.length === 1 ? '' : 's'}, {spending.length} spending row{spending.length === 1 ? '' : 's'}
         </summary>
         <div className="px-3 pb-3 space-y-2 font-mono text-[11px] text-slate-400">
           <div>
@@ -2434,7 +2434,7 @@ function ExpensesTab({ token, products }) {
       {reorderAlerts.length > 0 && reorderAlerts.map(p => (
         <div key={p.id} className="bg-amber-900/30 border border-amber-600/50 rounded-xl p-3 flex items-center justify-between gap-3">
           <div>
-            <p className="text-amber-300 text-sm font-semibold">🔔 Reorder: {p.name}</p>
+            <p className="text-amber-300 text-sm font-semibold"><span aria-hidden="true">🔔</span> Reorder: {p.name}</p>
             <p className="text-amber-600 text-xs">COGS ${(cogsByProduct[p.name] || 0).toFixed(2)} reached ${(parseFloat(thresholds[p.id]) || 0).toFixed(2)} threshold</p>
           </div>
           <button onClick={() => setReorderFor(p)}
@@ -2791,7 +2791,7 @@ function InsightsView({ token }) {
       {/* ── Tool 1: Profit & Loss statement ── */}
       <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-slate-300 text-sm font-bold font-broske">📊 Profit &amp; Loss</p>
+          <p className="text-slate-300 text-sm font-bold font-broske"><span aria-hidden="true">📊</span> Profit &amp; Loss</p>
           <span className="text-slate-500 text-[10px] uppercase tracking-wider">{periodLabel}</span>
         </div>
         <div className="space-y-1.5 text-sm font-mono tabular-nums">
@@ -2915,7 +2915,7 @@ function InsightsView({ token }) {
 
         return (
           <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
-            <p className="text-slate-300 text-sm font-bold font-broske mb-3">💡 Ways to Improve Profit <span className="text-slate-600 text-[10px] font-normal">· {periodLabel}</span></p>
+            <p className="text-slate-300 text-sm font-bold font-broske mb-3"><span aria-hidden="true">💡</span> Ways to Improve Profit <span className="text-slate-600 text-[10px] font-normal">· {periodLabel}</span></p>
             <div className="space-y-3">
               {tips.map((tip, i) => (
                 <div key={i} className="flex gap-3 bg-slate-800/60 rounded-xl p-3">
@@ -2934,7 +2934,7 @@ function InsightsView({ token }) {
       {/* ── Tool 2: Spending trends ── */}
       <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-slate-300 text-sm font-bold font-broske">📈 Spending Trend</p>
+          <p className="text-slate-300 text-sm font-bold font-broske"><span aria-hidden="true">📈</span> Spending Trend</p>
           <span className="text-[11px] font-mono tabular-nums">
             {trend.prev > 0 ? (
               <span className={trend.delta > 0 ? 'text-rose-400' : 'text-emerald-400'}>
@@ -2970,7 +2970,7 @@ function InsightsView({ token }) {
 
       {/* ── Tool 3: Top vendors ── */}
       <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
-        <p className="text-slate-300 text-sm font-bold font-broske mb-3">🏷️ Top Vendors <span className="text-slate-600 text-[10px] font-normal">· all time</span></p>
+        <p className="text-slate-300 text-sm font-bold font-broske mb-3"><span aria-hidden="true">🏷️</span> Top Vendors <span className="text-slate-600 text-[10px] font-normal">· all time</span></p>
         {vendors.ranked.length === 0 ? (
           <p className="text-slate-600 text-xs text-center py-2">No vendor data yet — add a payee when logging spending.</p>
         ) : (
