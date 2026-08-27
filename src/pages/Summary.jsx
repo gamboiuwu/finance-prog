@@ -226,10 +226,10 @@ function MetricTile({ label, value, sub, detail, color = 'text-white', verify, w
         <p className="text-slate-500 text-[10px] uppercase tracking-widest leading-tight">{label}</p>
         <div className="flex items-center gap-0.5 shrink-0">
           {detail && (
-            <button onClick={() => setOpen(v => !v)}
+            <button onClick={() => setOpen(v => !v)} aria-label="Show formula details"
               className="text-slate-600 hover:text-blue-400 text-[10px] w-4 h-4 flex items-center justify-center transition-colors">ℹ</button>
           )}
-          <button onClick={onEdit}
+          <button onClick={onEdit} aria-label="Edit value"
             className={`text-[10px] w-4 h-4 flex items-center justify-center transition-colors ${isOverridden ? 'text-amber-400' : 'text-slate-600 hover:text-amber-400'}`}>
             ✏
           </button>
@@ -350,9 +350,9 @@ function GasCoverageTile({ c }) {
   return (
     <div className={`rounded-xl p-3 h-full border ${enough ? 'bg-emerald-950/40 border-emerald-800/40' : 'bg-amber-950/40 border-amber-800/40'}`}>
       <div className="flex items-start justify-between gap-2">
-        <p className="text-slate-400 text-[10px] uppercase tracking-widest leading-tight">⛽ Gas Coverage</p>
+        <p className="text-slate-400 text-[10px] uppercase tracking-widest leading-tight"><span aria-hidden="true">⛽</span> Gas Coverage</p>
         <button onClick={() => { setDraft(String(monthlyMiles)); setEditing(v => !v); }}
-          className="text-[10px] text-slate-500 hover:text-amber-400 shrink-0">✏ miles</button>
+          className="text-[10px] text-slate-500 hover:text-amber-400 shrink-0"><span aria-hidden="true">✏</span> miles</button>
       </div>
 
       <p className={`text-base font-bold mt-1 ${enough ? 'text-emerald-300' : 'text-amber-300'}`}>
@@ -849,13 +849,13 @@ function TaxView({ bizTx, bizExp, bizSpend, subs, allocRows, year, onYear, avail
         </div>
         <button onClick={copyText}
           className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 font-medium hover:bg-slate-700 transition-colors">
-          {copied ? '✓ Copied' : '📋 Copy summary'}
+          {copied ? (<><span aria-hidden="true">✓</span> Copied</>) : (<><span aria-hidden="true">📋</span> Copy summary</>)}
         </button>
       </div>
 
       {/* Caveat banner */}
       <div className="flex items-start gap-2 bg-amber-950/50 border border-amber-800/40 rounded-lg px-3 py-2">
-        <span className="text-amber-400 text-xs mt-0.5">⚠</span>
+        <span className="text-amber-400 text-xs mt-0.5" aria-hidden="true">⚠</span>
         <span className="text-amber-300 text-[11px] leading-relaxed">
           Estimate only — not tax advice. You file a Schedule C; confirm every figure with a
           professional (or in FreeTaxUSA) before filing.
@@ -963,7 +963,7 @@ function TaxView({ bizTx, bizExp, bizSpend, subs, allocRows, year, onYear, avail
 
       {/* Mileage note */}
       <p className="text-slate-600 text-[11px] leading-relaxed px-1">
-        🚗 <span className="text-slate-500">Mileage</span> isn't auto-included — log your business miles
+        <span aria-hidden="true">🚗</span> <span className="text-slate-500">Mileage</span> isn't auto-included — log your business miles
         separately and apply the IRS standard mileage rate for the tax year.
       </p>
     </div>
