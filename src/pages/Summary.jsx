@@ -357,8 +357,8 @@ function GasCoverageTile({ c }) {
 
       <p className={`text-base font-bold mt-1 ${enough ? 'text-emerald-300' : 'text-amber-300'}`}>
         {enough
-          ? `✅ Enough — covers ~${fmtN(milesCovers, 0)} mi`
-          : `⚠ Short ~${fmt(Math.abs(coverage))}/mo`}
+          ? <><span aria-hidden="true">✅</span> Enough — covers ~{fmtN(milesCovers, 0)} mi</>
+          : <><span aria-hidden="true">⚠</span> Short ~{fmt(Math.abs(coverage))}/mo</>}
       </p>
       <p className="text-slate-400 text-[11px] leading-snug mt-0.5">
         {enough
@@ -1302,13 +1302,13 @@ export default function Summary({ token }) {
         <>
           {/* Sub-view toggle: Year-to-Date (Task 11) vs Tax Prep (Task 15) */}
           <div className="px-4 pb-3 flex gap-1.5" role="tablist" aria-label="Year sub-view">
-            {[['ytd', '📊 Year-to-Date'], ['tax', '🧾 Tax Prep']].map(([id, label]) => (
+            {[['ytd', '📊', 'Year-to-Date'], ['tax', '🧾', 'Tax Prep']].map(([id, icon, label]) => (
               <button key={id} onClick={() => setYearSub(id)}
                 role="tab" aria-selected={yearSub === id} id={`year-sub-${id}`} aria-controls="year-subpanel"
                 className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
                   yearSub === id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                 }`}>
-                {label}
+                <span aria-hidden="true">{icon}</span> {label}
               </button>
             ))}
           </div>
