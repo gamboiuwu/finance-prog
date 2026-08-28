@@ -357,8 +357,8 @@ function GasCoverageTile({ c }) {
 
       <p className={`text-base font-bold mt-1 ${enough ? 'text-emerald-300' : 'text-amber-300'}`}>
         {enough
-          ? `✅ Enough — covers ~${fmtN(milesCovers, 0)} mi`
-          : `⚠ Short ~${fmt(Math.abs(coverage))}/mo`}
+          ? (<><span aria-hidden="true">✅</span> Enough — covers ~{fmtN(milesCovers, 0)} mi</>)
+          : (<><span aria-hidden="true">⚠</span> Short ~{fmt(Math.abs(coverage))}/mo</>)}
       </p>
       <p className="text-slate-400 text-[11px] leading-snug mt-0.5">
         {enough
@@ -1271,13 +1271,13 @@ export default function Summary({ token }) {
         <div className="px-4 pb-3 space-y-1.5">
           {insights.good.map((msg, i) => (
             <div key={i} className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-800/40 rounded-lg px-3 py-2">
-              <span className="text-emerald-400 text-xs">✓</span>
+              <span className="text-emerald-400 text-xs" aria-hidden="true">✓</span>
               <span className="text-emerald-300 text-xs">{msg}</span>
             </div>
           ))}
           {insights.watch.map((msg, i) => (
             <div key={i} className="flex items-center gap-2 bg-amber-950/50 border border-amber-800/40 rounded-lg px-3 py-2">
-              <span className="text-amber-400 text-xs">⚠</span>
+              <span className="text-amber-400 text-xs" aria-hidden="true">⚠</span>
               <span className="text-amber-300 text-xs">{msg}</span>
             </div>
           ))}
@@ -1302,13 +1302,13 @@ export default function Summary({ token }) {
         <>
           {/* Sub-view toggle: Year-to-Date (Task 11) vs Tax Prep (Task 15) */}
           <div className="px-4 pb-3 flex gap-1.5" role="tablist" aria-label="Year sub-view">
-            {[['ytd', '📊 Year-to-Date'], ['tax', '🧾 Tax Prep']].map(([id, label]) => (
+            {[['ytd', '📊', 'Year-to-Date'], ['tax', '🧾', 'Tax Prep']].map(([id, glyph, label]) => (
               <button key={id} onClick={() => setYearSub(id)}
                 role="tab" aria-selected={yearSub === id} id={`year-sub-${id}`} aria-controls="year-subpanel"
                 className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
                   yearSub === id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                 }`}>
-                {label}
+                <span aria-hidden="true">{glyph}</span> {label}
               </button>
             ))}
           </div>
