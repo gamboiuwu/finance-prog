@@ -887,8 +887,8 @@ function TaxView({ bizTx, bizExp, bizSpend, subs, allocRows, year, onYear, avail
 
         {/* OpEx (expandable) */}
         <div>
-          <button onClick={() => setShowOpex(v => !v)} className="w-full flex justify-between text-sm">
-            <span className="text-slate-400">− Operating expenses {t.opexByCat.length > 0 && <span className="text-slate-600">{showOpex ? '▾' : '▸'}</span>}</span>
+          <button onClick={() => setShowOpex(v => !v)} aria-expanded={showOpex} className="w-full flex justify-between text-sm">
+            <span className="text-slate-400">− Operating expenses {t.opexByCat.length > 0 && <span className="text-slate-600" aria-hidden="true">{showOpex ? '▾' : '▸'}</span>}</span>
             <span className="font-mono text-rose-300 tabular-nums">{fmt(t.opex)}</span>
           </button>
           {showOpex && t.opexByCat.length > 0 && (
@@ -905,8 +905,8 @@ function TaxView({ bizTx, bizExp, bizSpend, subs, allocRows, year, onYear, avail
 
         {/* Deductible subscriptions (expandable) */}
         <div>
-          <button onClick={() => setShowSubs(v => !v)} className="w-full flex justify-between text-sm">
-            <span className="text-slate-400">− Deductible subscriptions {t.dedSubs.length > 0 && <span className="text-slate-600">{showSubs ? '▾' : '▸'}</span>}</span>
+          <button onClick={() => setShowSubs(v => !v)} aria-expanded={showSubs} className="w-full flex justify-between text-sm">
+            <span className="text-slate-400">− Deductible subscriptions {t.dedSubs.length > 0 && <span className="text-slate-600" aria-hidden="true">{showSubs ? '▾' : '▸'}</span>}</span>
             <span className="font-mono text-rose-300 tabular-nums">{fmt(t.subDeduction)}</span>
           </button>
           {showSubs && (
@@ -939,8 +939,8 @@ function TaxView({ bizTx, bizExp, bizSpend, subs, allocRows, year, onYear, avail
 
       {/* ── Personal income (informational) ── */}
       <div className="bg-slate-900 rounded-xl p-4">
-        <button onClick={() => setShowPersonal(v => !v)} className="w-full flex justify-between items-baseline">
-          <span className="text-slate-500 text-[10px] uppercase tracking-widest">Personal Income {year} {t.personalBySource.length > 0 && <span className="text-slate-600">{showPersonal ? '▾' : '▸'}</span>}</span>
+        <button onClick={() => setShowPersonal(v => !v)} aria-expanded={showPersonal} className="w-full flex justify-between items-baseline">
+          <span className="text-slate-500 text-[10px] uppercase tracking-widest">Personal Income {year} {t.personalBySource.length > 0 && <span className="text-slate-600" aria-hidden="true">{showPersonal ? '▾' : '▸'}</span>}</span>
           <span className="font-mono text-white tabular-nums text-sm">{fmt(t.totalPersonal)}</span>
         </button>
         {showPersonal && (
