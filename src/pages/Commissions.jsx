@@ -82,7 +82,7 @@ function AddModal({ onSave, onClose }) {
       <div className="bg-slate-800 rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[90dvh] overflow-y-auto">
         <div className="flex justify-between items-center">
           <h2 className="text-white font-semibold text-lg">New Inquiry</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">✕</button>
+          <button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-white text-xl"><span aria-hidden="true">✕</span></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
           <Field label="Client Name" value={form.cardName} onChange={v => set('cardName', v)} required />
@@ -298,7 +298,7 @@ export default function Commissions({ token }) {
         return (
           <div className="bg-amber-950/30 border border-amber-800/40 rounded-2xl p-4 space-y-3">
             <div className="flex items-baseline justify-between">
-              <h2 className="text-amber-200 text-sm font-semibold">💰 Awaiting Payment</h2>
+              <h2 className="text-amber-200 text-sm font-semibold"><span aria-hidden="true">💰</span> Awaiting Payment</h2>
               <span className="text-amber-300 text-lg font-black tabular-nums">${arTotal.toFixed(2)}</span>
             </div>
             <p className="text-amber-200/60 text-[11px] -mt-1">
@@ -321,7 +321,7 @@ export default function Commissions({ token }) {
                       disabled={saving}
                       className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-[11px] font-semibold rounded-lg px-2.5 py-1.5 whitespace-nowrap"
                     >
-                      ✓ Mark Paid
+                      <span aria-hidden="true">✓</span> Mark Paid
                     </button>
                   </div>
                 </div>
@@ -343,6 +343,7 @@ export default function Commissions({ token }) {
             <div key={i} className="bg-slate-800 rounded-xl overflow-hidden">
               <button
                 onClick={() => setExpanded(isOpen ? null : i)}
+                aria-expanded={isOpen}
                 className="w-full p-4 text-left"
               >
                 <div className="flex justify-between items-start gap-2">
@@ -359,7 +360,7 @@ export default function Commissions({ token }) {
                   </div>
                   <div className="text-right shrink-0">
                     {agreed > 0 && <p className="text-white text-sm font-semibold">${agreed.toFixed(2)}</p>}
-                    <p className="text-xs text-slate-500">{isOpen ? '▲' : '▼'}</p>
+                    <p className="text-xs text-slate-500" aria-hidden="true">{isOpen ? '▲' : '▼'}</p>
                   </div>
                 </div>
               </button>
@@ -387,7 +388,7 @@ export default function Commissions({ token }) {
                       disabled={saving}
                       className="w-full mt-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg py-2"
                     >
-                      ✓ Mark Paid (${unpaidAmount(inq).toFixed(2)} owed)
+                      <span aria-hidden="true">✓</span> Mark Paid (${unpaidAmount(inq).toFixed(2)} owed)
                     </button>
                   )}
                 </div>
