@@ -1490,7 +1490,7 @@ function SalesView({ token, products }) {
 
       {filtered.length === 0 ? (
         <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-3">
-          <p className="text-4xl">📊</p>
+          <p className="text-4xl" aria-hidden="true">📊</p>
           {transactions.length === 0 ? (
             <>
               <p className="text-white font-semibold font-broske">No transactions yet</p>
@@ -1582,7 +1582,7 @@ function SalesView({ token, products }) {
           {/* ── Orders & shipping toolbar ── */}
           <div className="bg-slate-800/40 rounded-2xl p-3 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske">📦 Orders &amp; Shipping</p>
+              <p className="text-slate-400 text-[10px] uppercase tracking-wider font-broske"><span aria-hidden="true">📦</span> Orders &amp; Shipping</p>
               <div className="flex gap-1.5">
                 <button onClick={() => setTplPicker(true)}
                   className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-[11px] font-medium transition-colors">🏷 Templates</button>
@@ -2434,7 +2434,7 @@ function ExpensesTab({ token, products }) {
       {reorderAlerts.length > 0 && reorderAlerts.map(p => (
         <div key={p.id} className="bg-amber-900/30 border border-amber-600/50 rounded-xl p-3 flex items-center justify-between gap-3">
           <div>
-            <p className="text-amber-300 text-sm font-semibold">🔔 Reorder: {p.name}</p>
+            <p className="text-amber-300 text-sm font-semibold"><span aria-hidden="true">🔔</span> Reorder: {p.name}</p>
             <p className="text-amber-600 text-xs">COGS ${(cogsByProduct[p.name] || 0).toFixed(2)} reached ${(parseFloat(thresholds[p.id]) || 0).toFixed(2)} threshold</p>
           </div>
           <button onClick={() => setReorderFor(p)}
@@ -2611,7 +2611,7 @@ function ExpensesTab({ token, products }) {
       {/* Empty state */}
       {thisMonth.length === 0 && !showForm && (
         <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-3">
-          <p className="text-4xl">📒</p>
+          <p className="text-4xl" aria-hidden="true">📒</p>
           <p className="text-white font-semibold font-broske">No expenses this month</p>
           <p className="text-slate-500 text-sm">Track your business spending — COGS, platform fees, shipping, and more.</p>
         </div>
@@ -2791,7 +2791,7 @@ function InsightsView({ token }) {
       {/* ── Tool 1: Profit & Loss statement ── */}
       <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-slate-300 text-sm font-bold font-broske">📊 Profit &amp; Loss</p>
+          <p className="text-slate-300 text-sm font-bold font-broske"><span aria-hidden="true">📊</span> Profit &amp; Loss</p>
           <span className="text-slate-500 text-[10px] uppercase tracking-wider">{periodLabel}</span>
         </div>
         <div className="space-y-1.5 text-sm font-mono tabular-nums">
@@ -2915,7 +2915,7 @@ function InsightsView({ token }) {
 
         return (
           <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
-            <p className="text-slate-300 text-sm font-bold font-broske mb-3">💡 Ways to Improve Profit <span className="text-slate-600 text-[10px] font-normal">· {periodLabel}</span></p>
+            <p className="text-slate-300 text-sm font-bold font-broske mb-3"><span aria-hidden="true">💡</span> Ways to Improve Profit <span className="text-slate-600 text-[10px] font-normal">· {periodLabel}</span></p>
             <div className="space-y-3">
               {tips.map((tip, i) => (
                 <div key={i} className="flex gap-3 bg-slate-800/60 rounded-xl p-3">
@@ -2934,7 +2934,7 @@ function InsightsView({ token }) {
       {/* ── Tool 2: Spending trends ── */}
       <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-slate-300 text-sm font-bold font-broske">📈 Spending Trend</p>
+          <p className="text-slate-300 text-sm font-bold font-broske"><span aria-hidden="true">📈</span> Spending Trend</p>
           <span className="text-[11px] font-mono tabular-nums">
             {trend.prev > 0 ? (
               <span className={trend.delta > 0 ? 'text-rose-400' : 'text-emerald-400'}>
@@ -2970,7 +2970,7 @@ function InsightsView({ token }) {
 
       {/* ── Tool 3: Top vendors ── */}
       <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
-        <p className="text-slate-300 text-sm font-bold font-broske mb-3">🏷️ Top Vendors <span className="text-slate-600 text-[10px] font-normal">· all time</span></p>
+        <p className="text-slate-300 text-sm font-bold font-broske mb-3"><span aria-hidden="true">🏷️</span> Top Vendors <span className="text-slate-600 text-[10px] font-normal">· all time</span></p>
         {vendors.ranked.length === 0 ? (
           <p className="text-slate-600 text-xs text-center py-2">No vendor data yet — add a payee when logging spending.</p>
         ) : (
@@ -3112,9 +3112,10 @@ export default function BusinessExpenses({ token }) {
           <button
             onClick={() => setShowSettings(true)}
             title="Business settings"
+            aria-label="Business settings"
             className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm px-2.5 py-1.5 rounded-lg transition-colors"
           >
-            ⚙️
+            <span aria-hidden="true">⚙️</span>
           </button>
           <button
             onClick={() => setEditing({ name: '', startPrice: 0, formula: [] })}
@@ -3218,7 +3219,7 @@ export default function BusinessExpenses({ token }) {
         {/* Empty state */}
         {!error && products.length === 0 && viewMode === 'products' && (
           <div className="bg-slate-900 rounded-2xl p-8 text-center space-y-3">
-            <p className="text-4xl">💼</p>
+            <p className="text-4xl" aria-hidden="true">💼</p>
             <p className="text-white font-semibold font-broske">No products yet</p>
             <p className="text-slate-500 text-sm leading-relaxed">Add a product and define how its revenue is allocated across COGS, profit, fees, and more.</p>
             <button
