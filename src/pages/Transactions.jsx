@@ -96,7 +96,7 @@ function AddModal({ categories, onSave, onClose }) {
       <div className="bg-slate-800 rounded-2xl w-full max-w-md p-5 space-y-4">
         <div className="flex justify-between items-center">
           <h2 className="text-white font-semibold text-lg">New Transaction</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+          <button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-white text-xl leading-none"><span aria-hidden="true">✕</span></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
