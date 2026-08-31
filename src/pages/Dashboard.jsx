@@ -4219,10 +4219,10 @@ ${stmtTxns.length ? `
                   <div key={id} className="relative flex-none flex items-center gap-1 group">
                     {showQAEdit && (
                       <div className="flex flex-col gap-0.5">
-                        <button onClick={() => moveUp(i)} disabled={i === 0}
-                          className="text-slate-500 hover:text-slate-300 disabled:opacity-30 leading-none text-[10px]">▲</button>
-                        <button onClick={() => moveDown(i)} disabled={i === qaActions.length - 1}
-                          className="text-slate-500 hover:text-slate-300 disabled:opacity-30 leading-none text-[10px]">▼</button>
+                        <button onClick={() => moveUp(i)} disabled={i === 0} aria-label={`Move ${def.label} up`}
+                          className="text-slate-500 hover:text-slate-300 disabled:opacity-30 leading-none text-[10px]"><span aria-hidden="true">▲</span></button>
+                        <button onClick={() => moveDown(i)} disabled={i === qaActions.length - 1} aria-label={`Move ${def.label} down`}
+                          className="text-slate-500 hover:text-slate-300 disabled:opacity-30 leading-none text-[10px]"><span aria-hidden="true">▼</span></button>
                       </div>
                     )}
                     <button
@@ -4230,30 +4230,31 @@ ${stmtTxns.length ? `
                       className={`flex items-center gap-1.5 text-white text-sm px-3 py-2 rounded-xl transition-colors whitespace-nowrap font-medium
                         ${showQAEdit ? 'bg-slate-700 cursor-default' : 'bg-slate-800 hover:bg-slate-700 active:bg-slate-600'}`}
                     >
-                      <span>{def.icon}</span>
+                      <span aria-hidden="true">{def.icon}</span>
                       <span>{def.label}</span>
                       {id === 'income' && hasCurrentMonthAllocRows === false && !showQAEdit && (
                         <span className="w-2 h-2 rounded-full bg-teal-400 shrink-0" />
                       )}
                     </button>
                     {showQAEdit && (
-                      <button onClick={() => remove(id)}
-                        className="w-5 h-5 rounded-full bg-rose-700 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] leading-none -ml-1">✕</button>
+                      <button onClick={() => remove(id)} aria-label={`Remove ${def.label}`}
+                        className="w-5 h-5 rounded-full bg-rose-700 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] leading-none -ml-1"><span aria-hidden="true">✕</span></button>
                     )}
                   </div>
                 );
               })}
               {showQAEdit && hidden.map(a => (
-                <button key={a.id} onClick={() => add(a.id)}
+                <button key={a.id} onClick={() => add(a.id)} aria-label={`Add ${a.label}`}
                   className="flex-none flex items-center gap-1.5 text-slate-400 hover:text-white text-sm px-3 py-2 rounded-xl border border-dashed border-slate-600 hover:border-slate-400 transition-colors whitespace-nowrap">
-                  <span>{a.icon}</span>
+                  <span aria-hidden="true">{a.icon}</span>
                   <span>+ {a.label}</span>
                 </button>
               ))}
               <button onClick={() => setShowQAEdit(v => !v)}
                 title={showQAEdit ? 'Done' : 'Customize actions'}
+                aria-label={showQAEdit ? 'Done customizing quick actions' : 'Customize quick actions'}
                 className={`flex-none text-sm px-2 py-2 rounded-xl transition-colors ${showQAEdit ? 'bg-blue-600 hover:bg-blue-500 text-white px-3' : 'text-slate-500 hover:text-slate-300'}`}>
-                {showQAEdit ? 'Done' : '⚙'}
+                {showQAEdit ? 'Done' : <span aria-hidden="true">⚙</span>}
               </button>
             </div>
           </>
