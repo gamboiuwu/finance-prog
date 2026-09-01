@@ -4204,7 +4204,8 @@ ${stmtTxns.length ? `
         const hidden = ALL_QA.filter(a => !qaActions.includes(a.id));
         return (
           <>
-            <div className="flex items-center gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+            <div role="region" aria-labelledby="quick-actions-heading" tabIndex={0} className="flex items-center gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+              <h2 id="quick-actions-heading" className="sr-only">Quick actions</h2>
               {qaActions.map((id, i) => {
                 const def = ALL_QA.find(a => a.id === id);
                 if (!def) return null;
