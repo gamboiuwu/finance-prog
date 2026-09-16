@@ -579,6 +579,48 @@ export default function Transactions({ token }) {
         </div>
       )}
 
+      {/* Move today: per-account totals with the envelope lines, deposits only */}
+      {moveToday && (
+        <div role="region" aria-labelledby="move-today-heading" className="bg-slate-800 rounded-2xl overflow-hidden border border-emerald-800/40">
+          <div className="px-3 py-2 flex items-baseline justify-between border-b border-slate-700/60">
+            <h2 id="move-today-heading" className="text-slate-200 text-sm font-medium font-broske">Move today</h2>
+            <span className="text-[10px] text-slate-500">{moveToday.paychecks.length ? moveToday.paychecks.join(' + ') : `${filteredRows.length} rows`}</span>
+          </div>
+          {moveToday.accounts.length === 0 ? (
+            <p className="px-3 py-3 text-xs text-slate-500">Nothing deposited today.</p>
+          ) : (
+            <table className="w-full text-xs tabular-nums" aria-label="Deposits to make today, by account">
+              {moveToday.accounts.map(a => (
+                <tbody key={a} className="border-b border-slate-700/40">
+                  <tr className="bg-slate-900/40">
+                    <td className="px-3 py-1.5 text-slate-200 font-semibold">{a}</td>
+                    <td className="px-3 py-1.5 text-right font-mono font-semibold text-emerald-400">{moveToday.acct[a].total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  </tr>
+                  {Object.entries(moveToday.acct[a].env).sort((x, y) => y[1] - x[1]).map(([env, v]) => (
+                    <tr key={env}>
+                      <td className="pl-6 pr-3 py-1 text-slate-400">{env}</td>
+                      <td className="px-3 py-1 text-right font-mono text-slate-400">{v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+              <tfoot>
+                <tr className="bg-slate-800/90 border-t-2 border-slate-600">
+                  <td className="px-3 py-2 text-slate-200 font-semibold">Total to move</td>
+                  <td className="px-3 py-2 text-right font-mono font-bold text-white">{moveToday.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+          {moveToday.out.length > 0 && (
+            <div className="px-3 py-2 border-t border-slate-700/40 text-[11px] text-slate-500">
+              Also left envelopes today: {moveToday.out.map((o, i) => <span key={i} className="text-rose-400/90">{o.env} −{o.amt.toFixed(2)}{i < moveToday.out.length - 1 ? ', ' : ''}</span>)}
+              <span> — not part of the total above.</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* All-time charts — only shown in All Time mode */}
       {monthFilter === 'all' && rows.length > 0 && (
         <div role="region" aria-labelledby="spending-charts-heading" tabIndex={0} className="space-y-4">
@@ -709,48 +751,6 @@ export default function Transactions({ token }) {
               onToggle={toggleStatus}
             />
           ))}
-        </div>
-      )}
-
-      {/* Move today: per-account totals with the envelope lines, deposits only */}
-      {moveToday && (
-        <div role="region" aria-labelledby="move-today-heading" className="bg-slate-800 rounded-2xl overflow-hidden border border-emerald-800/40">
-          <div className="px-3 py-2 flex items-baseline justify-between border-b border-slate-700/60">
-            <h2 id="move-today-heading" className="text-slate-200 text-sm font-medium font-broske">Move today</h2>
-            <span className="text-[10px] text-slate-500">{moveToday.paychecks.length ? moveToday.paychecks.join(' + ') : `${filteredRows.length} rows`}</span>
-          </div>
-          {moveToday.accounts.length === 0 ? (
-            <p className="px-3 py-3 text-xs text-slate-500">Nothing deposited today.</p>
-          ) : (
-            <table className="w-full text-xs tabular-nums" aria-label="Deposits to make today, by account">
-              {moveToday.accounts.map(a => (
-                <tbody key={a} className="border-b border-slate-700/40">
-                  <tr className="bg-slate-900/40">
-                    <td className="px-3 py-1.5 text-slate-200 font-semibold">{a}</td>
-                    <td className="px-3 py-1.5 text-right font-mono font-semibold text-emerald-400">{moveToday.acct[a].total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  </tr>
-                  {Object.entries(moveToday.acct[a].env).sort((x, y) => y[1] - x[1]).map(([env, v]) => (
-                    <tr key={env}>
-                      <td className="pl-6 pr-3 py-1 text-slate-400">{env}</td>
-                      <td className="px-3 py-1 text-right font-mono text-slate-400">{v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              ))}
-              <tfoot>
-                <tr className="bg-slate-800/90 border-t-2 border-slate-600">
-                  <td className="px-3 py-2 text-slate-200 font-semibold">Total to move</td>
-                  <td className="px-3 py-2 text-right font-mono font-bold text-white">{moveToday.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                </tr>
-              </tfoot>
-            </table>
-          )}
-          {moveToday.out.length > 0 && (
-            <div className="px-3 py-2 border-t border-slate-700/40 text-[11px] text-slate-500">
-              Also left envelopes today: {moveToday.out.map((o, i) => <span key={i} className="text-rose-400/90">{o.env} −{o.amt.toFixed(2)}{i < moveToday.out.length - 1 ? ', ' : ''}</span>)}
-              <span> — not part of the total above.</span>
-            </div>
-          )}
         </div>
       )}
 
