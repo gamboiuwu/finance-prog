@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { mergeMonths, chartMonths } from '../lib/monthHistory';
 import { readRange, readReportLinks, appendRow, ensureSheetTab, batchUpdateCells, clearRow } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
-import { computeGasBudget, saveGasBudget, getGasBudget } from '../lib/gasBudget';
+import { computeGasBudget, saveGasBudget, getGasBudget, syncGasBudget, saveRemoteGasBudget } from '../lib/gasBudget';
 import { SHEETS, MONTHS, LOCAL_BACKEND } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ProcessIncome from '../components/ProcessIncome';
@@ -3238,6 +3238,12 @@ export default function Dashboard({ token }) {
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
+    // First adopt the shared copy from the sheet (App Settings!B3) so a device that
+    // never fetched the price still hands ProcessIncome the same Gas target as the
+    // one that did; then refresh from the live price and push the result back.
+    syncGasBudget(token)
+      .then(rec => { if (!cancelled && rec?.value) setGasBudget(rec.value); })
+      .catch(() => {});
     fetchGasPrices()
       .then(gas => {
         if (cancelled || !gas) return;
@@ -3250,7 +3256,9 @@ export default function Dashboard({ token }) {
           const budget = computeGasBudget({ gasPerGal: nyc, mpg: cachedMpg });
           if (budget) {
             setGasBudget(budget);
-            saveGasBudget(budget, { gasPerGal: nyc, ...(cachedMpg ? { mpg: cachedMpg } : {}) });
+            const meta = { gasPerGal: nyc, ...(cachedMpg ? { mpg: cachedMpg } : {}) };
+            saveGasBudget(budget, meta);
+            saveRemoteGasBudget(token, { value: budget, ...meta, ts: Date.now() });
           }
         }
       })

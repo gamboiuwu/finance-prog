@@ -605,7 +605,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           <p className="px-4 pb-2 text-[11px] text-slate-500">
             {histLoading ? 'Loading this month…' : (
               <>
-                Accrued this month <span className="text-slate-300 font-mono">{money0(totalAlready)}</span> of <span className="text-slate-300 font-mono">{money0(totalAllowance)}</span> targets
+Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalAlready)}</span> of <span className="text-slate-300 font-mono">{money0(totalAllowance)}</span>
                 {' '}· envelopes hold <span className="text-slate-300 font-mono">{money0(totalHoldings)}</span>
                 {totalSpentMo > 0 && <> · spent <span className="text-slate-300 font-mono">{money0(totalSpentMo)}</span> this month</>}
                 {deficitsRepaid.length > 0 && amount > 0 && (

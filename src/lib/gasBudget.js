@@ -11,6 +11,8 @@
 // Computed wherever the gas price is available (Dashboard, Summary) and cached so
 // pages that don't fetch the price (Budget, ProcessIncome) can read the same value.
 
+import { readRange, updateCell, ensureSheetTab } from './sheets';
+
 export const GAS_MILES_PER_DAY = 56.6; // 2 QC/day driving pattern
 export const DEFAULT_MPG = 23.5;
 const KEY = '_fin_gas_budget';
@@ -53,4 +55,49 @@ export function getGasBudget() {
 export function gasAllowance(sheetAllowance = 0) {
   const cached = getGasBudget();
   return cached ? cached.value : sheetAllowance;
+}
+
+// ── Shared copy in the sheet ──────────────────────────────────────────────────
+// The cache above is per device (localStorage), so a phone that fetched the gas
+// price today and a laptop that never did would hand ProcessIncome two different
+// Gas targets (~$185 vs the static $120). App Settings row 3 holds the latest
+// computed budget as JSON so every device reconciles to the same figure. Newest
+// `ts` wins in both directions; all failures are silent (the local cache stands).
+const SETTINGS_TAB = 'App Settings';
+const GAS_LABEL_CELL = 'App Settings!A3';
+const GAS_VAL_CELL   = 'App Settings!B3';
+
+export async function fetchRemoteGasBudget(token) {
+  if (!token) return null;
+  try {
+    const rows = await readRange(token, GAS_VAL_CELL, 'UNFORMATTED_VALUE');
+    const raw = rows?.[0]?.[0];
+    if (raw == null || String(raw).trim() === '') return null;
+    const o = JSON.parse(String(raw));
+    return typeof o.value === 'number' && o.value > 0 ? o : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveRemoteGasBudget(token, record) {
+  if (!token || !record || typeof record.value !== 'number' || !(record.value > 0)) return;
+  try {
+    await ensureSheetTab(token, SETTINGS_TAB);
+    await updateCell(token, GAS_LABEL_CELL, 'Gas budget (dynamic, JSON) - do not edit');
+    await updateCell(token, GAS_VAL_CELL, JSON.stringify(record));
+  } catch { /* best effort */ }
+}
+
+// Reconcile the local cache with the shared copy: adopt the newer one, push ours
+// if it is newer. Returns the record that should be in effect (or null).
+export async function syncGasBudget(token) {
+  const local  = getGasBudget();
+  const remote = await fetchRemoteGasBudget(token);
+  if (remote && (!local || (remote.ts || 0) > (local.ts || 0))) {
+    saveGasBudget(remote.value, remote);
+    return remote;
+  }
+  if (local && (!remote || (local.ts || 0) > (remote.ts || 0))) saveRemoteGasBudget(token, local);
+  return local;
 }
