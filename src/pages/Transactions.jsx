@@ -756,9 +756,10 @@ export default function Transactions({ token }) {
                             <span className="ml-1 text-slate-500">{m}/{d}</span>
                           </td>
                           <td className="px-1 py-1.5 align-top min-w-0">
-                            <div className="text-slate-200 truncate" title={row[3] || ''}>{row[3] || <span className="text-slate-500 italic">no description</span>}</div>
-                            <div className="text-[10px] text-slate-500 truncate">
-                              <span className="text-slate-400">{row[1]}</span>{row[4] ? <span> · {row[4]}</span> : null}
+                            {/* Envelope first: the amount belongs to it. Then what happened, and where. */}
+                            <div className="text-slate-200 truncate">{row[1]}</div>
+                            <div className="text-[10px] text-slate-500 truncate" title={row[3] || ''}>
+                              {row[3] || <span className="italic">no description</span>}{row[4] ? <span className="text-slate-600"> · {row[4]}</span> : null}
                             </div>
                           </td>
                           <td className="px-1 py-1.5 align-top text-right font-mono text-rose-400">{amount < 0 ? money(-amount) : ''}</td>
