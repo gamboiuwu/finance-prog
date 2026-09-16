@@ -41,7 +41,7 @@ function getTxMonthFilter() {
     if (!raw) return 'current';
     const [val, mk] = raw.split('|');
     if (mk !== nowMonthKey()) return 'current';
-    return (val === 'last' || val === 'all') ? val : 'current';
+    return (val === 'today' || val === 'last' || val === 'all') ? val : 'current';
   } catch { return 'current'; }
 }
 
@@ -330,10 +330,13 @@ export default function Transactions({ token }) {
     }
   }
 
+  const todayMs = useMemo(() => { const n = new Date(); return Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()); }, []);
+
   const filteredRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return rows.filter(row => {
       const mk   = monthKey(row[0]);
+      if (monthFilter === 'today'   && txDate(row[0]) !== todayMs) return false;
       if (monthFilter === 'current' && mk !== curMK)  return false;
       if (monthFilter === 'last'    && mk !== prevMK) return false;
       const done = row[5] === 'TRUE' || row[5] === true;
@@ -345,7 +348,34 @@ export default function Transactions({ token }) {
         .join(' ')
         .includes(q);
     });
-  }, [rows, searchQuery, monthFilter, statusFilter, curMK, prevMK]);
+  }, [rows, searchQuery, monthFilter, statusFilter, curMK, prevMK, todayMs]);
+
+  // "Move today" ledger: what to put into each account today, by envelope. Deposits
+  // only (the rows Process Income wrote); anything that left an envelope today is
+  // listed underneath so the cash you actually carry to the bank is clear.
+  const moveToday = useMemo(() => {
+    if (monthFilter !== 'today') return null;
+    const acct = {};
+    const out = [];
+    let paychecks = new Set();
+    for (const row of filteredRows) {
+      const amt = parseAmount(row[2]);
+      const a = String(row[4] || 'Other');
+      if (amt > 0) {
+        if (!acct[a]) acct[a] = { total: 0, env: {} };
+        acct[a].total += amt;
+        acct[a].env[row[1]] = (acct[a].env[row[1]] || 0) + amt;
+        const m = /^Income processed: (\$[\d,.]+(?: from .+?)?)(?: \[|$)/.exec(String(row[3] || ''));
+        if (m) paychecks.add(m[1]);
+      } else if (amt < 0) {
+        out.push({ env: row[1], desc: row[3], account: a, amt: -amt });
+      }
+    }
+    const order = ['Checking', 'Outside Payment', 'Savings', 'Cash', 'Business Tax', 'Subscription'];
+    const accounts = Object.keys(acct).sort((x, y) => (order.indexOf(x) + 1 || 99) - (order.indexOf(y) + 1 || 99));
+    const total = accounts.reduce((t, a) => t + acct[a].total, 0);
+    return { acct, accounts, total, out, paychecks: [...paychecks] };
+  }, [filteredRows, monthFilter]);
 
   const sortedRows = useMemo(() =>
     sortOrder === 'oldest' ? [...filteredRows].reverse() : filteredRows,
@@ -429,7 +459,7 @@ export default function Transactions({ token }) {
     return Object.entries(mm).map(([month, spent]) => ({ month, spent }));
   })();
 
-  const MONTH_LABELS = { current: 'This Month', last: 'Last Month', all: 'All Time' };
+  const MONTH_LABELS = { today: 'Today', current: 'This Month', last: 'Last Month', all: 'All Time' };
   const hasActiveFilter = searchQuery || monthFilter !== 'all' || statusFilter !== 'all';
 
   // Task 280: screen-reader result announcement with active-filter context, so a
@@ -492,7 +522,7 @@ export default function Transactions({ token }) {
       {/* Filter chips */}
       <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-0.5">
         <div role="group" aria-label="Date range" className="flex gap-2 shrink-0">
-          {['current', 'last', 'all'].map(m => (
+          {['today', 'current', 'last', 'all'].map(m => (
             <button key={m} onClick={() => setMonthFilter(m)} aria-pressed={monthFilter === m}
               className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                 monthFilter === m
@@ -679,6 +709,48 @@ export default function Transactions({ token }) {
               onToggle={toggleStatus}
             />
           ))}
+        </div>
+      )}
+
+      {/* Move today: per-account totals with the envelope lines, deposits only */}
+      {moveToday && (
+        <div role="region" aria-labelledby="move-today-heading" className="bg-slate-800 rounded-2xl overflow-hidden border border-emerald-800/40">
+          <div className="px-3 py-2 flex items-baseline justify-between border-b border-slate-700/60">
+            <h2 id="move-today-heading" className="text-slate-200 text-sm font-medium font-broske">Move today</h2>
+            <span className="text-[10px] text-slate-500">{moveToday.paychecks.length ? moveToday.paychecks.join(' + ') : `${filteredRows.length} rows`}</span>
+          </div>
+          {moveToday.accounts.length === 0 ? (
+            <p className="px-3 py-3 text-xs text-slate-500">Nothing deposited today.</p>
+          ) : (
+            <table className="w-full text-xs tabular-nums" aria-label="Deposits to make today, by account">
+              {moveToday.accounts.map(a => (
+                <tbody key={a} className="border-b border-slate-700/40">
+                  <tr className="bg-slate-900/40">
+                    <td className="px-3 py-1.5 text-slate-200 font-semibold">{a}</td>
+                    <td className="px-3 py-1.5 text-right font-mono font-semibold text-emerald-400">{moveToday.acct[a].total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  </tr>
+                  {Object.entries(moveToday.acct[a].env).sort((x, y) => y[1] - x[1]).map(([env, v]) => (
+                    <tr key={env}>
+                      <td className="pl-6 pr-3 py-1 text-slate-400">{env}</td>
+                      <td className="px-3 py-1 text-right font-mono text-slate-400">{v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+              <tfoot>
+                <tr className="bg-slate-800/90 border-t-2 border-slate-600">
+                  <td className="px-3 py-2 text-slate-200 font-semibold">Total to move</td>
+                  <td className="px-3 py-2 text-right font-mono font-bold text-white">{moveToday.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+          {moveToday.out.length > 0 && (
+            <div className="px-3 py-2 border-t border-slate-700/40 text-[11px] text-slate-500">
+              Also left envelopes today: {moveToday.out.map((o, i) => <span key={i} className="text-rose-400/90">{o.env} −{o.amt.toFixed(2)}{i < moveToday.out.length - 1 ? ', ' : ''}</span>)}
+              <span> — not part of the total above.</span>
+            </div>
+          )}
         </div>
       )}
 
