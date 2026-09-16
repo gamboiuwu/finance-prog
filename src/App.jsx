@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { getStoredToken, clearToken } from './lib/auth';
+import { LOCAL_BACKEND } from './config';
 import { isPinSet, isSessionLocked, markUnlocked, clearPin, syncPinFromSheet, clearRemotePin } from './lib/pin';
 import Login from './pages/Login';
 import PinGate from './components/PinGate';
@@ -44,6 +45,23 @@ function AnimatedRoutes({ token }) {
 export default function App() {
   const [token, setToken]           = useState(() => getStoredToken());
   const [pinUnlocked, setPinUnlocked] = useState(() => isPinSet() && !isSessionLocked());
+  // Operator unlock (local backend only): a browser on LIZA itself that visited
+  // /operator/unlock?key=... holds a session token. It is honoured only after the
+  // server confirms it on THIS connection (loopback, not via the tailnet), so the PIN
+  // is skipped for the operator verifying the UI on the server and for nobody else.
+  const [operator, setOperator] = useState(false);
+  useEffect(() => {
+    if (!LOCAL_BACKEND) return;
+    let tok = null;
+    try { tok = sessionStorage.getItem('fin_operator'); } catch {}
+    if (!tok) return;
+    let cancelled = false;
+    fetch(`/operator/check?token=${encodeURIComponent(tok)}`)
+      .then(r => r.ok ? r.json() : { ok: false })
+      .then(j => { if (!cancelled && j?.ok) setOperator(true); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   const [showChangePinMenu, setShowChangePinMenu] = useState(false);
   // Block the create-vs-verify decision until we've checked the shared PIN — but only
   // when this device has no local PIN cached (the case where we'd wrongly offer "create").
@@ -100,8 +118,9 @@ export default function App() {
   //     don't flash the "create PIN" screen and let it overwrite an existing PIN.
   if (!pinHydrated) return <LoadingSpinner />;
 
-  // 2. PIN not set yet, or session is locked → show PIN gate
-  const needsPin = !isPinSet() || !pinUnlocked;
+  // 2. PIN not set yet, or session is locked → show PIN gate (the server-confirmed
+  //    operator session on LIZA's own loopback is the one exception).
+  const needsPin = !operator && (!isPinSet() || !pinUnlocked);
   if (needsPin) {
     return (
       <PinGate
