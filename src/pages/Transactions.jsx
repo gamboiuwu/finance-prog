@@ -73,6 +73,17 @@ function parseSheetDate(val) {
   return null;
 }
 
+// Sort key for a sheet date cell (serial number or M/D/YYYY string) -> ms.
+function txDate(val) {
+  const ds = String(val ?? '').trim();
+  const n = Number(ds);
+  if (!isNaN(n) && n > 1000 && !ds.includes('/')) return Math.round((n - 25569) * 86400000);
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(ds);
+  if (m) return Date.UTC(+m[3], +m[1] - 1, +m[2]);
+  const d = new Date(ds);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
 function monthKey(dateVal) {
   const d = parseSheetDate(dateVal);
   if (!d) return '';
@@ -671,51 +682,103 @@ export default function Transactions({ token }) {
         </div>
       )}
 
-      {/* Chronological view */}
-      {filteredRows.length > 0 && view === 'list' && (
-        <div role="list" aria-label="Transactions" className="space-y-2">
-          {sortedRows.map((row, i) => {
-            const amount   = parseAmount(row[2]);
-            const isCredit = amount > 0;
-            const status   = row[5];
-            return (
-              <div key={i} role="listitem" className="bg-slate-800 rounded-xl p-3 flex items-center gap-3">
-                <div aria-hidden="true" className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-bold
-                  ${isCredit ? 'bg-emerald-900/50 text-emerald-400' : 'bg-rose-900/50 text-rose-400'}`}>
-                  {isCredit ? '↑' : '↓'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-baseline gap-2">
-                    <p className="text-white text-sm font-medium truncate">{row[1]}</p>
-                    <span
-                      aria-label={`${isCredit ? 'received' : 'spent'} $${Math.abs(amount).toFixed(2)}`}
-                      className={`text-base font-bold font-mono tabular-nums shrink-0 ${isCredit ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {isCredit ? '+' : '-'}${Math.abs(amount).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex gap-2 mt-0.5 flex-wrap items-center">
-                    <span aria-label={`on ${row[0]}`} className="text-slate-500 text-xs">{row[0]}</span>
-                    {row[4] && <span aria-label={`account ${row[4]}`} className="text-xs px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded">{row[4]}</span>}
-                    <button
-                      onClick={() => toggleStatus(row[6], status)}
-                      aria-label={`${status === 'TRUE' || status === true ? 'Mark not done' : 'Mark done'}: ${row[3] || row[1] || 'transaction'}`}
-                      aria-pressed={status === 'TRUE' || status === true}
-                      className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                        status === 'TRUE' || status === true
-                          ? 'border-emerald-700/50 text-emerald-500 bg-emerald-900/20 hover:bg-emerald-900/40'
-                          : 'border-slate-700 text-slate-600 hover:text-amber-400 hover:border-amber-700/50 hover:bg-amber-900/20'
-                      }`}
-                    >
-                      {status === 'TRUE' || status === true ? '✓ done' : 'mark done'}
-                    </button>
-                  </div>
-                  {row[3] && <p className="text-slate-400 text-xs mt-0.5 truncate">{row[3]}</p>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* Chronological view: a ledger table (bank-statement convention: Debit = money out,
+          Credit = money in), with a running balance in true date order and day subtotals.
+          The running balance is over the rows currently shown (month/status/search filters),
+          so with "current month" it reads as the month's net flow, day by day. */}
+      {filteredRows.length > 0 && view === 'list' && (() => {
+        const chrono = [...filteredRows].sort((a, b) => txDate(a[0]) - txDate(b[0]) || (a[6] || 0) - (b[6] || 0));
+        let running = 0;
+        const withBal = chrono.map(row => { running += parseAmount(row[2]); return { row, balance: running }; });
+        const ordered = sortOrder === 'oldest' ? withBal : [...withBal].reverse();
+        const days = [];
+        for (const item of ordered) {
+          const key = String(item.row[0]);
+          const last = days[days.length - 1];
+          if (last && last.key === key) last.items.push(item);
+          else days.push({ key, items: [item] });
+        }
+        const totals = withBal.reduce((t, { row }) => {
+          const a = parseAmount(row[2]);
+          if (a < 0) t.debit += -a; else t.credit += a;
+          return t;
+        }, { debit: 0, credit: 0 });
+        const money = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return (
+          <div className="bg-slate-800 rounded-2xl overflow-hidden border border-slate-700/40">
+            <table className="w-full text-xs tabular-nums" role="table" aria-label="Transaction ledger">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wider text-slate-500 bg-slate-800/80">
+                  <th className="text-left px-2 py-2 font-medium w-[3.6rem]">Date</th>
+                  <th className="text-left px-1 py-2 font-medium">Description</th>
+                  <th className="text-right px-1 py-2 font-medium w-[4.6rem]">Debit</th>
+                  <th className="text-right px-1 py-2 font-medium w-[4.6rem]">Credit</th>
+                  <th className="text-right px-2 py-2 font-medium w-[5.2rem]">Balance</th>
+                </tr>
+              </thead>
+              {days.map(day => {
+                const dCredit = day.items.reduce((t, { row }) => t + Math.max(0, parseAmount(row[2])), 0);
+                const dDebit  = day.items.reduce((t, { row }) => t + Math.max(0, -parseAmount(row[2])), 0);
+                const [m, d] = String(day.key).split('/');
+                return (
+                  <tbody key={day.key} className="border-t border-slate-700/60">
+                    <tr className="bg-slate-900/40">
+                      <td colSpan={2} className="px-2 py-1 text-[10px] text-slate-400 font-medium">{day.key}
+                        <span className="text-slate-600 font-normal"> · {day.items.length} {day.items.length === 1 ? 'entry' : 'entries'}</span>
+                      </td>
+                      <td className="px-1 py-1 text-right text-[10px] text-rose-400/80">{dDebit > 0 ? money(dDebit) : ''}</td>
+                      <td className="px-1 py-1 text-right text-[10px] text-emerald-400/80">{dCredit > 0 ? money(dCredit) : ''}</td>
+                      <td className="px-2 py-1"></td>
+                    </tr>
+                    {day.items.map(({ row, balance }) => {
+                      const amount = parseAmount(row[2]);
+                      const isDone = row[5] === 'TRUE' || row[5] === true;
+                      const label  = row[3] || row[1] || 'transaction';
+                      return (
+                        <tr key={row[6]} className={`border-t border-slate-700/30 ${isDone ? '' : 'bg-amber-900/10'}`}>
+                          <td className="px-2 py-1.5 align-top text-slate-500">
+                            <button
+                              onClick={() => toggleStatus(row[6], row[5])}
+                              aria-label={`${isDone ? 'Mark not done' : 'Mark done'}: ${label}`}
+                              aria-pressed={isDone}
+                              title={isDone ? 'Cleared - tap to mark pending' : 'Pending - tap to mark cleared'}
+                              className={`font-mono ${isDone ? 'text-emerald-500' : 'text-amber-400'}`}
+                            >
+                              {isDone ? '✓' : '○'}
+                            </button>
+                            <span className="ml-1 text-slate-500">{m}/{d}</span>
+                          </td>
+                          <td className="px-1 py-1.5 align-top min-w-0">
+                            <div className="text-slate-200 truncate max-w-[11rem] sm:max-w-none" title={row[3] || ''}>{row[3] || <span className="text-slate-500 italic">no description</span>}</div>
+                            <div className="text-[10px] text-slate-500 truncate">
+                              <span className="text-slate-400">{row[1]}</span>{row[4] ? <span> · {row[4]}</span> : null}
+                            </div>
+                          </td>
+                          <td className="px-1 py-1.5 align-top text-right font-mono text-rose-400">{amount < 0 ? money(-amount) : ''}</td>
+                          <td className="px-1 py-1.5 align-top text-right font-mono text-emerald-400">{amount > 0 ? money(amount) : ''}</td>
+                          <td className={`px-2 py-1.5 align-top text-right font-mono ${balance < 0 ? 'text-rose-300' : 'text-slate-300'}`}>{money(balance)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                );
+              })}
+              <tfoot>
+                <tr className="border-t-2 border-slate-600 bg-slate-800/90 font-medium">
+                  <td colSpan={2} className="px-2 py-2 text-slate-300">Totals <span className="text-slate-500 font-normal">({withBal.length} entries)</span></td>
+                  <td className="px-1 py-2 text-right font-mono text-rose-400">{money(totals.debit)}</td>
+                  <td className="px-1 py-2 text-right font-mono text-emerald-400">{money(totals.credit)}</td>
+                  <td className={`px-2 py-2 text-right font-mono ${totals.credit - totals.debit < 0 ? 'text-rose-300' : 'text-white'}`}>{money(totals.credit - totals.debit)}</td>
+                </tr>
+              </tfoot>
+            </table>
+            <p className="px-3 py-2 text-[10px] text-slate-500 border-t border-slate-700/40">
+              Debit = money out of an envelope · Credit = money in · Balance = running net of the rows shown, oldest first.
+              ○ pending · ✓ cleared (tap to toggle).
+            </p>
+          </div>
+        );
+      })()}
 
       {/* Running balance footer */}
       {filteredRows.length > 0 && (
