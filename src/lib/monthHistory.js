@@ -28,6 +28,11 @@ export function monthOf(raw) {
   }
   const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(ds);
   if (m) return { y: Number(m[3]), m: Number(m[1]) };
+  // YYYY-MM-DD (the Dashboard's dateStr). Read the parts: `new Date('2026-09-01')`
+  // is UTC midnight, which is Aug 31 in US time zones, so every 1st-of-month row
+  // used to land in the previous month (Sept read 917.55 instead of 1,795.51).
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(ds);
+  if (iso) return { y: Number(iso[1]), m: Number(iso[2]) };
   const d = new Date(ds);
   return isNaN(d.getTime()) ? null : { y: d.getFullYear(), m: d.getMonth() + 1 };
 }
