@@ -108,7 +108,9 @@ function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = n
       let already = funded;       // what counts as accrued toward it
       let pace = null;            // target-date: {monthsLeft, perMonth, remaining}
       if (pol.policy === 'running') {
-        already = Math.max(0, balance);
+        // The balance itself, deficit included: at -$5.59 against a $185 budget the
+        // envelope needs $190.59, and the $5.59 is repaid before anything else (below).
+        already = balance;
       } else if (pol.policy === 'target-date' && pol.plan) {
         const remaining = Math.max(0, pol.plan.target - Math.max(0, balance));
         const ml        = monthsLeft(pol.plan.targetDate);
@@ -118,7 +120,9 @@ function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = n
         already = funded;                                      // what went in this month toward it
       }
       const stillNeeds = Math.max(0, target - already);
+      const deficit    = pol.policy === 'running' && balance < 0 ? -balance : 0;
       return {
+        deficit,
         type:      e['Type']    || '',
         account:   e['Account'] || 'Other',
         expense:   e['Expense'] || '',
@@ -136,22 +140,39 @@ function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = n
     })
     .sort((a, b) => a.priority - b.priority || b.allowance - a.allowance);
 
+  // ── Stage 1: deficits first (owner rule). A running envelope below zero (Gas after a
+  // fill-up bigger than its balance) is repaid off the top of the income, in priority
+  // order, before either allocation mode sees a dollar. Then the envelope competes for
+  // the rest of its budget like everyone else - in proportional mode too.
+  let remaining = income;
+  const repaid = {};
+  for (const e of eligible) {
+    if (e.deficit <= 0 || remaining <= 0) continue;
+    const pay = Math.min(e.deficit, remaining);
+    repaid[e.type] = pay;
+    remaining -= pay;
+  }
+  const staged = eligible.map(e => {
+    const pay = repaid[e.type] || 0;
+    // After repayment the deficit part of stillNeeds is settled; what remains is the budget.
+    return { ...e, deficitPaid: pay, stillNeeds: Math.max(0, e.stillNeeds - pay) };
+  });
+  const finish = (e, deposit) => {
+    const total    = e.deficitPaid + deposit;
+    const coverage = e.allowance > 0 ? Math.max(0, e.already + total) / e.allowance : 0;
+    return { ...e, deposit: total, budgetDeposit: deposit, pct: income > 0 ? total / income : 0, coverage };
+  };
+
   if (mode === 'proportional') {
-    const totalNeeds = eligible.reduce((s, e) => s + e.stillNeeds, 0);
-    return eligible.map(e => {
-      const deposit  = totalNeeds > 0 ? Math.min(e.stillNeeds, (e.stillNeeds / totalNeeds) * income) : 0;
-      const coverage = e.allowance > 0 ? (e.already + deposit) / e.allowance : 0;
-      return { ...e, deposit, pct: income > 0 ? deposit / income : 0, coverage };
-    });
+    const totalNeeds = staged.reduce((s, e) => s + e.stillNeeds, 0);
+    return staged.map(e => finish(e, totalNeeds > 0 ? Math.min(e.stillNeeds, (e.stillNeeds / totalNeeds) * remaining) : 0));
   }
 
   // Priority-first: fill each category's remaining gap before moving to lower priorities
-  let remaining = income;
-  return eligible.map(e => {
-    const deposit  = Math.min(e.stillNeeds, Math.max(0, remaining));
-    remaining      = Math.max(0, remaining - deposit);
-    const coverage = e.allowance > 0 ? (e.already + deposit) / e.allowance : 0;
-    return { ...e, deposit, pct: income > 0 ? deposit / income : 0, coverage };
+  return staged.map(e => {
+    const deposit = Math.min(e.stillNeeds, Math.max(0, remaining));
+    remaining     = Math.max(0, remaining - deposit);
+    return finish(e, deposit);
   });
 }
 
@@ -332,6 +353,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   const totalHoldings  = expenses.reduce((s, e) => s + ((envStats[e['Type'] || ''] || {}).balance || 0), 0);
   const totalSpentMo   = expenses.reduce((s, e) => s + ((envStats[e['Type'] || ''] || {}).spentMonth || 0), 0);
   const fullEnvelopes  = deposits.filter(d => d.policy === 'monthly' && d.monthlyAllowance > 0 && d.balance >= d.monthlyAllowance).length;
+  const deficitsRepaid = deposits.filter(d => d.deficitPaid > 0);
   const totalCovered   = totalAlready + amount;
   const stillNeeded    = Math.max(0, totalAllowance - totalCovered);
   const coveragePct    = totalAllowance > 0 ? (totalCovered / totalAllowance) * 100 : 0;
@@ -590,6 +612,11 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                   {totalSpentMo > 0 && <span className="text-slate-500"> · {fmt(totalSpentMo)} spent this month</span>}
                   <span className="text-slate-600 ml-1">({alreadyRows.length} rows) {showBreakdown ? '▲' : '▼'}</span>
                 </p>
+                {deficitsRepaid.length > 0 && (
+                  <p className="text-rose-300 text-[11px] mt-0.5" title="A running envelope below zero is repaid off the top, before any allocation.">
+                    Deficit first: {deficitsRepaid.map(d => `${d.type} ${fmt(d.deficitPaid)}${d.deficitPaid < d.deficit ? ` of ${fmt(d.deficit)}` : ''}`).join(', ')} repaid before allocating.
+                  </p>
+                )}
                 {fullEnvelopes > 0 && (
                   <p className="text-amber-400/90 text-[11px] mt-0.5" title="Information only: the engine always measures what accrued this calendar month.">
                     {fullEnvelopes} envelope{fullEnvelopes === 1 ? '' : 's'} hold{fullEnvelopes === 1 ? 's' : ''} more than a month's allowance right now.
@@ -1054,6 +1081,11 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                           <span className="text-slate-500 text-[10px]">goal {fmt(d.allowance)}{d.policy === 'target-date' && d.pace ? '/mo' : ''}</span>
                           {d.policy === 'running' && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-900/60 text-sky-300" title="Running balance: what the envelope holds counts toward its total budget">running</span>
+                          )}
+                          {d.deficitPaid > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300" title="This envelope was below zero; the deficit is repaid before any allocation">
+                              deficit {fmt(d.deficitPaid)} first
+                            </span>
                           )}
                           {d.policy === 'target-date' && d.pace && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fuchsia-900/60 text-fuchsia-300"
