@@ -623,22 +623,16 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           {/* THE LEDGER */}
           <div className="mx-4 mb-3 rounded-xl border border-slate-700/60 overflow-hidden">
             <table className="w-full table-fixed text-xs tabular-nums">
-              <colgroup>
-                <col />
-                <col className="w-[4.4rem]" />
-                <col className="w-[4.4rem]" />
-                <col className="w-[4.4rem]" />
-                <col className={manualMode ? 'w-[5.4rem]' : 'w-[4.6rem]'} />
-                <col className="w-[4.8rem]" />
-              </colgroup>
+              {/* Widths live on the header cells (table-fixed). Need = Target - Accrued is
+                  derivable, so it yields its column to the envelope name on phones. */}
               <thead>
                 <tr className="text-[9px] uppercase tracking-wider text-slate-500 bg-slate-800/80">
                   <th className="text-left px-2 py-1.5 font-medium">Envelope</th>
-                  <th className="text-right px-1 py-1.5 font-medium" title="What the envelope is aiming at this month: its allowance, or the total budget for a running envelope, or this month's share of a dated target">Target</th>
-                  <th className="text-right px-1 py-1.5 font-medium" title="What already counts toward the target: this calendar month's deposits (running: the balance itself)">Accrued</th>
-                  <th className="text-right px-1 py-1.5 font-medium">Need</th>
-                  <th className="text-right px-1 py-1.5 font-medium text-emerald-400">Deposit</th>
-                  <th className="text-right pl-1 pr-2 py-1.5 font-medium" title="What the envelope will hold after this deposit">After</th>
+                  <th className="text-right px-1 py-1.5 font-medium w-[3.9rem] sm:w-[4.4rem]" title="What the envelope is aiming at this month: its allowance, or the total budget for a running envelope, or this month's share of a dated target">Target</th>
+                  <th className="text-right px-1 py-1.5 font-medium w-[3.9rem] sm:w-[4.4rem]" title="What already counts toward the target: this calendar month's deposits (running: the balance itself)">Accrued</th>
+                  <th className="text-right px-1 py-1.5 font-medium hidden sm:table-cell sm:w-[4.4rem]">Need</th>
+                  <th className={`text-right px-1 py-1.5 font-medium text-emerald-400 ${manualMode ? 'w-[4.8rem] sm:w-[5.4rem]' : 'w-[3.9rem] sm:w-[4.6rem]'}`}>Deposit</th>
+                  <th className="text-right pl-1 pr-2 py-1.5 font-medium w-[4.4rem] sm:w-[4.8rem]" title="What the envelope will hold after this deposit">After</th>
                 </tr>
               </thead>
               {accountsInPlan.map(acct => {
@@ -647,7 +641,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                 return (
                   <tbody key={acct} className="border-t border-slate-700/60">
                     <tr className="bg-slate-900/60">
-                      <td colSpan={4} className={`px-2 py-1 text-[10px] font-semibold ${style.color}`}>{style.icon} {acct}</td>
+                      <td colSpan={3} className={`px-2 py-1 text-[10px] font-semibold ${style.color}`}>{style.icon} {acct}</td>
+                      <td className="hidden sm:table-cell"></td>
                       <td className="px-1 py-1 text-right text-[10px] font-mono text-emerald-400/90">{amount > 0 ? money(group.total) : ''}</td>
                       <td></td>
                     </tr>
@@ -671,12 +666,12 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                               {due != null && due <= 3 && <span className="shrink-0 text-[9px] text-amber-400" title={due < 0 ? 'Past due' : due === 0 ? 'Due today' : `Due in ${due} days`}>{due < 0 ? '⚠' : '⏰'}</span>}
                             </div>
                             <div className="text-[9px] text-slate-500 truncate">
-                              holds {money0(d.balance)}{d.policy === 'monthly' && d.monthlyAllowance > 0 && d.balance > 0 ? ` · ${(d.balance / d.monthlyAllowance).toFixed(1)}× mo` : ''}{d.spentMonth > 0 ? ` · spent ${money0(d.spentMonth)}` : ''}
+                              {d.priority === 1 ? 'P1' : d.priority === 2 ? 'P2' : 'P3'} · holds {money0(d.balance)}{d.policy === 'monthly' && d.monthlyAllowance > 0 && d.balance > 0 ? ` · ${(d.balance / d.monthlyAllowance).toFixed(1)}× mo` : ''}{d.spentMonth > 0 ? ` · spent ${money0(d.spentMonth)}` : ''}
                             </div>
                           </td>
                           <td className="px-1 py-1.5 text-right font-mono text-slate-300 align-top">{money0(d.allowance)}</td>
                           <td className={`px-1 py-1.5 text-right font-mono align-top ${d.already < 0 ? 'text-rose-300' : 'text-slate-400'}`}>{d.already < 0 ? `(${money0(-d.already)})` : money(d.already)}</td>
-                          <td className="px-1 py-1.5 text-right font-mono text-slate-400 align-top">{money(d.stillNeeds + (d.deficitPaid || 0))}</td>
+                          <td className="px-1 py-1.5 text-right font-mono text-slate-400 align-top hidden sm:table-cell">{money(d.stillNeeds + (d.deficitPaid || 0))}</td>
                           <td className="px-1 py-1.5 text-right font-mono align-top">
                             {manualMode ? (
                               <input type="number" inputMode="decimal" min="0" step="0.01"
@@ -697,11 +692,12 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
               })}
               {namedSurplus.length > 0 && (
                 <tbody className="border-t border-slate-700/60">
-                  <tr className="bg-slate-900/60"><td colSpan={4} className="px-2 py-1 text-[10px] font-semibold text-amber-300">💰 Surplus (by weight)</td><td className="px-1 py-1 text-right text-[10px] font-mono text-amber-300">{money(surplus)}</td><td></td></tr>
+                  <tr className="bg-slate-900/60"><td colSpan={3} className="px-2 py-1 text-[10px] font-semibold text-amber-300">💰 Surplus (by weight)</td><td className="hidden sm:table-cell"></td><td className="px-1 py-1 text-right text-[10px] font-mono text-amber-300">{money(surplus)}</td><td></td></tr>
                   {namedSurplus.map(it => (
                     <tr key={it.id} className="border-t border-slate-700/30">
                       <td className="px-2 py-1.5 text-slate-200 truncate">{it.name.trim()} <span className="text-slate-500 text-[9px]">· {it.account || 'Savings'} · ×{it.weight}</span></td>
-                      <td colSpan={3}></td>
+                      <td colSpan={2}></td>
+                      <td className="hidden sm:table-cell"></td>
                       <td className="px-1 py-1.5 text-right font-mono text-amber-300">{money0(it.deposit)}</td>
                       <td></td>
                     </tr>
@@ -713,7 +709,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                   <td className="px-2 py-2 text-slate-300">Total <span className="text-slate-500 font-normal">({deposits.filter(d => d.deposit > 0.005).length + namedSurplus.length} deposits)</span></td>
                   <td className="px-1 py-2 text-right font-mono text-slate-300">{money0(totalAllowance)}</td>
                   <td className="px-1 py-2 text-right font-mono text-slate-400">{money0(totalAlready)}</td>
-                  <td className="px-1 py-2 text-right font-mono text-slate-400">{money0(deposits.reduce((s, d) => s + d.stillNeeds + (d.deficitPaid || 0), 0))}</td>
+                  <td className="px-1 py-2 text-right font-mono text-slate-400 hidden sm:table-cell">{money0(deposits.reduce((s, d) => s + d.stillNeeds + (d.deficitPaid || 0), 0))}</td>
                   <td className="px-1 py-2 text-right font-mono text-emerald-400">{amount > 0 ? money0(totalDeposited + namedSurplus.reduce((s, it) => s + it.deposit, 0)) : '—'}</td>
                   <td className="pl-1 pr-2 py-2 text-right font-mono text-white">{money0(totalHoldings + totalDeposited)}</td>
                 </tr>
@@ -721,7 +717,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             </table>
             <p className="px-2 py-1.5 text-[9px] text-slate-500 border-t border-slate-700/40 leading-snug">
               Accrued = this calendar month's deposits (R = running: the balance itself; T = dated target, target is this month's share).
-              A negative accrued is a deficit, repaid first in any mode. After = holds + deposit. ● P1 ● P2 ● P3.
+              A negative accrued is a deficit, repaid first in any mode. Need = target − accrued. After = holds + deposit.
             </p>
           </div>
 
