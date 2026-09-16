@@ -706,14 +706,21 @@ export default function Transactions({ token }) {
         const money = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         return (
           <div className="bg-slate-800 rounded-2xl overflow-hidden border border-slate-700/40">
-            <table className="w-full text-xs tabular-nums" role="table" aria-label="Transaction ledger">
+            <table className="w-full table-fixed text-xs tabular-nums" role="table" aria-label="Transaction ledger">
+              <colgroup>
+                <col className="w-[3.4rem]" />
+                <col />
+                <col className="w-[4.1rem]" />
+                <col className="w-[4.1rem]" />
+                <col className="w-[5.3rem]" />
+              </colgroup>
               <thead>
                 <tr className="text-[10px] uppercase tracking-wider text-slate-500 bg-slate-800/80">
-                  <th className="text-left px-2 py-2 font-medium w-[3.6rem]">Date</th>
+                  <th className="text-left px-2 py-2 font-medium">Date</th>
                   <th className="text-left px-1 py-2 font-medium">Description</th>
-                  <th className="text-right px-1 py-2 font-medium w-[4.6rem]">Debit</th>
-                  <th className="text-right px-1 py-2 font-medium w-[4.6rem]">Credit</th>
-                  <th className="text-right px-2 py-2 font-medium w-[5.2rem]">Balance</th>
+                  <th className="text-right px-1 py-2 font-medium">Debit</th>
+                  <th className="text-right px-1 py-2 font-medium">Credit</th>
+                  <th className="text-right pl-1 pr-3 py-2 font-medium">Balance</th>
                 </tr>
               </thead>
               {days.map(day => {
@@ -749,14 +756,14 @@ export default function Transactions({ token }) {
                             <span className="ml-1 text-slate-500">{m}/{d}</span>
                           </td>
                           <td className="px-1 py-1.5 align-top min-w-0">
-                            <div className="text-slate-200 truncate max-w-[11rem] sm:max-w-none" title={row[3] || ''}>{row[3] || <span className="text-slate-500 italic">no description</span>}</div>
+                            <div className="text-slate-200 truncate" title={row[3] || ''}>{row[3] || <span className="text-slate-500 italic">no description</span>}</div>
                             <div className="text-[10px] text-slate-500 truncate">
                               <span className="text-slate-400">{row[1]}</span>{row[4] ? <span> · {row[4]}</span> : null}
                             </div>
                           </td>
                           <td className="px-1 py-1.5 align-top text-right font-mono text-rose-400">{amount < 0 ? money(-amount) : ''}</td>
                           <td className="px-1 py-1.5 align-top text-right font-mono text-emerald-400">{amount > 0 ? money(amount) : ''}</td>
-                          <td className={`px-2 py-1.5 align-top text-right font-mono ${balance < 0 ? 'text-rose-300' : 'text-slate-300'}`}>{money(balance)}</td>
+                          <td className={`pl-1 pr-3 py-1.5 align-top text-right font-mono ${balance < 0 ? 'text-rose-300' : 'text-slate-300'}`}>{money(balance)}</td>
                         </tr>
                       );
                     })}
@@ -768,7 +775,7 @@ export default function Transactions({ token }) {
                   <td colSpan={2} className="px-2 py-2 text-slate-300">Totals <span className="text-slate-500 font-normal">({withBal.length} entries)</span></td>
                   <td className="px-1 py-2 text-right font-mono text-rose-400">{money(totals.debit)}</td>
                   <td className="px-1 py-2 text-right font-mono text-emerald-400">{money(totals.credit)}</td>
-                  <td className={`px-2 py-2 text-right font-mono ${totals.credit - totals.debit < 0 ? 'text-rose-300' : 'text-white'}`}>{money(totals.credit - totals.debit)}</td>
+                  <td className={`pl-1 pr-3 py-2 text-right font-mono ${totals.credit - totals.debit < 0 ? 'text-rose-300' : 'text-white'}`}>{money(totals.credit - totals.debit)}</td>
                 </tr>
               </tfoot>
             </table>
