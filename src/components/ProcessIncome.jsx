@@ -477,6 +477,17 @@ export default function ProcessIncome({ expenses, token, onClose, defaultIncome,
       if (unassigned > 0.005) {
         rows.push([date, UNASSIGNED, parseFloat(unassigned.toFixed(2)), desc + ' [unassigned]', UNASSIGNED_ACCOUNT, true]);
       }
+      // Rounding each row to cents can leave the block a cent or two off the paycheck
+      // (13 rows summed 417.35 for a $417.34 paycheck). Only when the plan itself is
+      // whole (auto mode, or manual mode fully assigned) push the residue onto the
+      // largest row so the log always sums to what was received.
+      const planned = totalDeposited + surplusDeposits.reduce((t, it) => t + (it.name?.trim() ? it.deposit : 0), 0) + unassigned;
+      const logged  = rows.reduce((t, r) => t + r[2], 0);
+      const residue = Math.round((amount - logged) * 100) / 100;
+      if (rows.length && Math.abs(planned - amount) < 0.005 && residue !== 0 && Math.abs(residue) <= 0.05) {
+        const big = rows.reduce((m, r) => (r[2] > m[2] ? r : m), rows[0]);
+        big[2] = Math.round((big[2] + residue) * 100) / 100;
+      }
       await appendRows(token, 'Allocation Transactions!A:F', rows);
       setDone(true);
       onProcessed?.(amount);
