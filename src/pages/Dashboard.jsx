@@ -4974,7 +4974,9 @@ ${stmtTxns.length ? `
       <div>
         <p className="text-slate-300 font-medium text-sm mb-3 font-broske tracking-wide">Full Year</p>
         <div className="bg-slate-800 rounded-2xl overflow-hidden">
-          {allMonths.filter(m => pm(m['Total Processed Income']) > 0 || pm(m['Allowance Goal']) > 0).map((m, i, arr) => {
+          {/* Same merged month figures as Past Months / the trend chart (log wins where it
+              has rows), so this table can never disagree with the cards above it. */}
+          {months.filter(m => pm(m['Total Processed Income']) > 0 || pm(m['Allowance Goal']) > 0).map((m, i, arr) => {
             const mIncome = pm(m['Total Processed Income']);
             const mSpent  = pm(m['Total Spent']);
             const isCur   = m['Month'] === currentMonth;
