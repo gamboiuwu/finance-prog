@@ -34,7 +34,9 @@ export function computeGasBudget({ gasPerGal, mpg = DEFAULT_MPG, daysInMonth, mi
 export function saveGasBudget(value, meta = {}) {
   if (typeof value !== 'number' || !(value > 0)) return;
   try {
-    localStorage.setItem(KEY, JSON.stringify({ value, ...meta, ts: Date.now() }));
+    // Keep a caller-supplied ts (adopting the shared copy) so the two sides agree
+    // on which record is newer instead of re-pushing on every load.
+    localStorage.setItem(KEY, JSON.stringify({ value, ...meta, ts: meta.ts || Date.now() }));
   } catch {}
 }
 
