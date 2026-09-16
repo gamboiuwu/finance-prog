@@ -1,6 +1,6 @@
-import { SPREADSHEET_ID } from '../config';
+import { SPREADSHEET_ID, SHEETS_BASE } from '../config';
 
-const BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
+const BASE = SHEETS_BASE;
 
 async function request(token, spreadsheetId, path, options = {}) {
   const res = await fetch(`${BASE}/${spreadsheetId}${path}`, {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GOOGLE_CLIENT_ID } from '../config';
+import { GOOGLE_CLIENT_ID, LOCAL_BACKEND } from '../config';
 import { requestAccessToken } from '../lib/auth';
 
 export default function Login({ onLogin }) {
@@ -26,7 +26,7 @@ export default function Login({ onLogin }) {
       <div className="text-center space-y-2">
         <div className="text-5xl mb-4">💰</div>
         <h1 className="text-3xl font-bold text-white">Finance Tracker</h1>
-        <p className="text-slate-400 text-sm">Connected to your Google Sheet</p>
+        <p className="text-slate-400 text-sm">{LOCAL_BACKEND ? 'Self-hosted on your private server' : 'Connected to your Google Sheet'}</p>
       </div>
 
       {missingClientId ? (

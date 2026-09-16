@@ -10,7 +10,7 @@
 // for the daily routine to read — a static site cannot push to the repo itself, so
 // the JSON file is the hand-off.
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { ISSUES_SPREADSHEET_ID } from '../config';
+import { ISSUES_SPREADSHEET_ID, SHEETS_BASE } from '../config';
 
 const STORE_KEY = 'fin_issues';
 const MAX_ISSUES = 30;
@@ -253,7 +253,7 @@ export default function IssueReporter({ token }) {
       try {
         const range = encodeURIComponent('Sheet1!A:I');
         await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${ISSUES_SPREADSHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+          `${SHEETS_BASE}/${ISSUES_SPREADSHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
           {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
