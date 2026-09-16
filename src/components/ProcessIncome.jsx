@@ -204,7 +204,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
 
   // balance type map: type name → 'monthly' | 'running'
   const [balTypes,      setBalTypes]     = useState({});
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showMore,      setShowMore]      = useState(false);   // templates / splits / buckets / month rows
   const [templates,     setTemplates]     = useState(() => {
     try { return JSON.parse(localStorage.getItem('income_templates') || '[]'); }
     catch { return []; }
@@ -391,20 +391,6 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     return { ...it, deposit };
   });
 
-  // Flat "where the money goes" receipt — every line that actually receives money,
-  // budget deposits + named surplus buckets, biggest first. Used for the summary list.
-  const depositPlan = useMemo(() => {
-    const rows = deposits
-      .filter(d => d.deposit > 0.005)
-      .map(d => ({ name: d.type, account: d.account, amount: d.deposit, priority: d.priority, kind: 'budget' }));
-    surplusDeposits.forEach(it => {
-      if (it.name?.trim() && it.deposit > 0.005) {
-        rows.push({ name: it.name.trim(), account: it.account || 'Savings', amount: it.deposit, priority: 4, kind: 'surplus' });
-      }
-    });
-    return rows.sort((a, b) => b.amount - a.amount);
-  }, [deposits, surplusDeposits]);
-
   function addTemplate() {
     const amt = parseFloat(income);
     if (!amt || amt <= 0 || templates.length >= 8) return;
@@ -496,7 +482,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
       const g = byAccount[acct];
       if (!g) return;
       lines.push(`${ACCOUNT_ICONS[acct]?.icon || ''} ${acct}: ${fmt(g.total)}`);
-      g.items.forEach(d => lines.push(`  • ${d.type}: ${fmt(d.deposit)} (${(d.coverage * 100).toFixed(0)}% funded, ${fmt(d.already)} prior)`));
+      g.items.forEach(d => lines.push(`  • ${d.type}: ${fmt(d.deposit)}${d.deficitPaid > 0 ? ` (deficit ${fmt(d.deficitPaid)} repaid first)` : ''} -> holds ${fmt(d.balance + d.deposit)} of ${fmt(d.allowance)} target`));
       lines.push('');
     });
     if (surplus > 0.01 && surplusDeposits.some(it => it.deposit > 0 && it.name?.trim())) {
@@ -512,25 +498,6 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
-
-  // Per-account totals: already this month + being added now
-  const accountTiles = useMemo(() => {
-    const map = {};
-    deposits.forEach(d => {
-      if (!map[d.account]) map[d.account] = { adding: 0, already: 0 };
-      map[d.account].adding  += d.deposit;
-      map[d.account].already += d.already;
-    });
-    surplusDeposits.forEach(it => {
-      if (!it.name?.trim() || it.deposit <= 0) return;
-      const acct = it.account || 'Savings';
-      if (!map[acct]) map[acct] = { adding: 0, already: 0 };
-      map[acct].adding += it.deposit;
-    });
-    return ACCOUNT_ORDER
-      .filter(a => map[a])
-      .map(a => ({ name: a, ...map[a], style: ACCOUNT_ICONS[a] || { icon: '💰', color: 'text-slate-300', bg: 'bg-slate-800 border-slate-700' } }));
-  }, [deposits, surplusDeposits]);
 
   // ── Success ───────────────────────────────────────────────────────────────
   if (done) {
@@ -555,791 +522,334 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     );
   }
 
+  // ── Consolidated view ──────────────────────────────────────────────────────
+  // One ledger, one numbers strip, the controls on two rows, everything else behind
+  // "More". The engine does the thinking (deficits first, then the mode); the page
+  // shows what it decided and why, in columns, not in nine stacked panels.
+  const money = (n) => (Math.abs(n) < 0.005 ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const money0 = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const deficitTotal = deposits.reduce((s, d) => s + (d.deficitPaid || 0), 0);
+  const toEnvelopes  = totalDeposited - deficitTotal;
+  const namedSurplus = surplusDeposits.filter(it => it.name?.trim() && it.deposit > 0.005);
+  const policyMark = (d) => d.policy === 'running' ? 'R' : d.policy === 'target-date' ? 'T' : '';
+  const accountsInPlan = ACCOUNT_ORDER.filter(a => byAccount[a]).concat(Object.keys(byAccount).filter(a => !ACCOUNT_ORDER.includes(a)));
+
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="flex w-full sm:max-w-4xl sm:gap-5 items-end sm:items-start justify-center">
+      <div className="modal-sheet bg-slate-900 w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[94dvh]">
 
-      {/* ── Right panel: account tiles (desktop only) ── */}
-      {amount > 0 && accountTiles.length > 0 && (
-        <div className="hidden sm:flex flex-col gap-3 w-60 shrink-0 self-center">
-          <div className="rounded-2xl border border-blue-800/50 bg-gradient-to-b from-blue-950/50 to-slate-900 overflow-hidden shadow-xl">
-            <div className="px-4 py-3 border-b border-blue-900/50">
-              <p className="text-blue-300 text-[11px] font-bold uppercase tracking-wider">Move money to</p>
-              <p className="text-slate-500 text-[10px] mt-0.5">physical accounts</p>
-            </div>
-            <div className="divide-y divide-blue-900/30">
-              {accountTiles.map(a => (
-                <div key={a.name} className="px-3 py-2.5 flex items-center gap-2.5">
-                  <span className="text-xl shrink-0">{a.style.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-xs font-bold ${a.style.color} leading-tight`}>{a.name}</p>
-                    {a.already > 0 && (
-                      <p className="text-slate-600 font-mono text-[9px] tabular-nums">{fmt(a.already)} prior</p>
-                    )}
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-white font-bold font-mono tabular-nums text-sm">+{fmt(a.adding)}</p>
-                    {a.already > 0 && (
-                      <p className={`font-mono text-[10px] font-semibold tabular-nums ${a.style.color}`}>{fmt(a.adding + a.already)}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-              <div className="px-3 py-2.5 flex items-center justify-between bg-blue-950/30">
-                <span className="text-blue-300 text-xs font-bold">Total</span>
-                <span className="text-white font-extrabold font-mono tabular-nums">{fmt(accountTiles.reduce((s, a) => s + a.adding, 0))}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="modal-sheet bg-slate-900 w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[94dvh]">
-
-        {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-slate-700 shrink-0">
-          <div>
+        {/* Header: title + inputs + mode, compact */}
+        <div className="p-4 border-b border-slate-700 shrink-0 space-y-3">
+          <div className="flex items-center justify-between">
             <h2 className="text-white font-bold text-lg">Process Income</h2>
-            {histLoading ? (
-              <p className="text-slate-400 text-xs mt-0.5">Loading month history…</p>
-            ) : (
-              <button
-                onClick={() => setShowBreakdown(v => !v)}
-                className="text-left mt-0.5"
-              >
-                <p className="text-slate-400 text-xs underline decoration-dotted underline-offset-2">
-                  {fmt(totalAlready)} accrued toward this month's targets · envelopes hold {fmt(totalHoldings)}
-                  {totalSpentMo > 0 && <span className="text-slate-500"> · {fmt(totalSpentMo)} spent this month</span>}
-                  <span className="text-slate-600 ml-1">({alreadyRows.length} rows) {showBreakdown ? '▲' : '▼'}</span>
-                </p>
-                {deficitsRepaid.length > 0 && (
-                  <p className="text-rose-300 text-[11px] mt-0.5" title="A running envelope below zero is repaid off the top, before any allocation.">
-                    Deficit first: {deficitsRepaid.map(d => `${d.type} ${fmt(d.deficitPaid)}${d.deficitPaid < d.deficit ? ` of ${fmt(d.deficit)}` : ''}`).join(', ')} repaid before allocating.
-                  </p>
-                )}
-                {fullEnvelopes > 0 && (
-                  <p className="text-amber-400/90 text-[11px] mt-0.5" title="Information only: the engine always measures what accrued this calendar month.">
-                    {fullEnvelopes} envelope{fullEnvelopes === 1 ? '' : 's'} hold{fullEnvelopes === 1 ? 's' : ''} more than a month's allowance right now.
-                  </p>
-                )}
-              </button>
-            )}
-            {showBreakdown && (
-              <div className="mt-2 bg-slate-800 rounded-xl p-3 space-y-1 text-xs max-h-48 overflow-y-auto">
-                {alreadyRows.length === 0 ? (
-                  <p className="text-slate-500">No rows found for this month.</p>
-                ) : (
-                  alreadyRows.map((r, i) => (
-                    <div key={i} className="flex justify-between items-center gap-2 text-[11px]">
-                      <span className="text-slate-500 shrink-0 font-mono">{String(r[0]).slice(0,10)}</span>
-                      <span className="text-slate-300 truncate flex-1">{r[1] || '—'}</span>
-                      <span className="text-white font-mono tabular-nums shrink-0">{fmt(pm(r[2]))}</span>
-                      {r[4] && <span className="text-slate-600 shrink-0 text-[10px] truncate max-w-[80px]">{r[4]}</span>}
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
+            <button onClick={onClose} aria-label="Close" className="text-slate-500 hover:text-white text-xl leading-none px-2">×</button>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:bg-slate-600 flex items-center justify-center">✕</button>
-        </div>
-
-        {/* Scrollable middle — allocation mode + inputs + breakdown scroll together
-            so the category list is never crushed into a sliver on short viewports. */}
-        <div className="overflow-y-auto flex-1 min-h-0">
-
-        {/* Allocation mode toggle */}
-        <div className="px-5 pt-4">
-          <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-2">Allocation Mode</p>
-          <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
-            <button
-              onClick={() => setMode('priority')}
-              title="Priority First: Fills P1 (Essential) categories completely before moving to P2, then P3. Ensures rent and critical expenses are always covered first. Any income left after all goals are met becomes surplus and can be distributed by weight (see Surplus Distribution below)."
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
-                mode === 'priority' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              🎯 Priority First
-            </button>
-            <button
-              onClick={() => setMode('proportional')}
-              title="Proportional: Splits income across all categories at once, proportional to their share of total remaining need. E.g. if Rent needs $800 and Food needs $200 (total $1000 needed) and you have $500, Rent gets $400 and Food gets $100. Fair distribution, but may leave essential bills partially unfunded if income is low."
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
-                mode === 'proportional' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              ⚖️ Proportional
-            </button>
-
-          </div>
-          <p className="text-slate-500 text-[10px] mt-1.5 cursor-help"
-            title={mode === 'priority'
-              ? 'Income fills P1 categories first (e.g. rent, utilities), then P2 (stability), then P3 (optional). Any remaining income after all goals are fully funded goes to Surplus Distribution (if configured below).'
-              : 'Income is proportionally split based on each category\'s share of total remaining need. If one category needs $800 and another needs $200, the first gets 80% and the second gets 20% of whatever you deposit.'}
-          >
-            {mode === 'priority'
-              ? 'P1 gaps filled first → P2 → P3 → surplus by weight'
-              : 'Each category gets its proportional share of remaining need'}
-          </p>
-        </div>
-
-        {/* Inputs */}
-        <div className="p-5 border-b border-slate-700 space-y-3 pt-3">
-
-          {/* ── Quick-fill templates ── */}
-          {(templates.length > 0 || showManageTpl) ? (
-            <div className="space-y-2">
-              <div className="flex items-center">
-                <p className="text-slate-500 text-[10px] uppercase tracking-wider flex-1">Quick Fill</p>
-                <button onClick={() => setShowManageTpl(v => !v)} className="text-slate-600 text-[10px] hover:text-slate-400 transition-colors">
-                  {showManageTpl ? 'Done' : '⚙ Manage'}
-                </button>
-              </div>
-              <div className="flex gap-2 overflow-x-auto pb-0.5">
-                {templates.map(t => (
-                  showManageTpl ? (
-                    <div key={t.id} className="shrink-0 flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-full pl-3 pr-1 py-1">
-                      <span className="text-slate-300 text-xs whitespace-nowrap">{t.name} · {fmt(t.amount)}</span>
-                      <button onClick={() => deleteTemplate(t.id)} className="w-4 h-4 rounded-full bg-slate-700 hover:bg-rose-900/50 text-slate-500 hover:text-rose-400 text-[10px] flex items-center justify-center transition-colors">✕</button>
-                    </div>
-                  ) : (
-                    <button
-                      key={t.id}
-                      onClick={() => setIncome(String(t.amount.toFixed(2)))}
-                      className="shrink-0 px-3 py-1.5 rounded-full bg-blue-900/40 border border-blue-800/50 text-blue-300 text-xs font-medium hover:bg-blue-800/60 active:scale-95 transition-all whitespace-nowrap"
-                    >
-                      {t.name} · {fmt(t.amount)}
-                    </button>
-                  )
-                ))}
-                {!showManageTpl && templates.length < 8 && (
-                  <button onClick={() => setShowManageTpl(true)} className="shrink-0 px-2.5 py-1.5 rounded-full bg-slate-700/60 border border-slate-700 text-slate-500 text-xs hover:text-slate-300 transition-colors">+</button>
-                )}
-              </div>
-              {showManageTpl && (
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newTplName}
-                    onChange={e => setNewTplName(e.target.value)}
-                    placeholder="Name (optional)"
-                    className="flex-1 bg-slate-700/60 text-slate-300 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-600"
-                    onKeyDown={e => e.key === 'Enter' && addTemplate()}
-                  />
-                  <button
-                    onClick={addTemplate}
-                    disabled={!income || parseFloat(income) <= 0 || templates.length >= 8}
-                    className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white text-xs font-medium transition-colors whitespace-nowrap"
-                  >
-                    Save {income && parseFloat(income) > 0 ? fmt(parseFloat(income)) : 'amount'}
-                  </button>
-                </div>
-              )}
-              {showManageTpl && templates.length === 0 && (
-                <p className="text-slate-600 text-xs text-center py-1">Enter an amount below, then save it as a template</p>
-              )}
-            </div>
-          ) : (
-            <button onClick={() => setShowManageTpl(true)} className="text-slate-600 text-xs hover:text-slate-400 transition-colors">
-              + Add quick-fill templates
-            </button>
-          )}
-
-          <div>
-            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-2">Net Amount Received</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-xl font-bold">$</span>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono">$</span>
               <input
-                type="number" step="0.01" min="0"
-                value={income}
-                onChange={e => setIncome(e.target.value)}
-                placeholder="0.00"
-                autoFocus
-                className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3.5 outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
+                type="number" inputMode="decimal" min="0" step="0.01"
+                value={income} onChange={e => setIncome(e.target.value)} placeholder="0.00" autoFocus
+                aria-label="Income amount"
+                className="w-full bg-slate-800 text-white font-mono text-lg rounded-xl pl-7 pr-3 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500 tabular-nums"
               />
             </div>
-            {gasBalance !== null && gasBalance !== undefined && (
-              <button
-                type="button"
-                className={`mt-2 w-full flex items-center justify-between px-4 py-2.5 rounded-xl border transition-colors ${gasBalance > 0 ? 'bg-emerald-900/30 border-emerald-800/40 hover:bg-emerald-900/50' : gasBalance < 0 ? 'bg-rose-900/20 border-rose-800/30' : 'bg-slate-800 border-slate-700'}`}
-                onClick={() => {
-                  if (gasBalance > 0) setIncome(prev => {
-                    const cur = parseFloat(prev) || 0;
-                    return String((cur + gasBalance).toFixed(2));
-                  });
-                }}
-                title={gasBalance > 0 ? 'Click to add gas savings to this income deposit' : undefined}
-              >
-                <span className={`text-xs ${gasBalance > 0 ? 'text-emerald-400' : gasBalance < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
-                  ⛽ Gas balance (all time)
-                </span>
-                <span className={`font-mono font-bold text-sm ${gasBalance > 0 ? 'text-emerald-300' : gasBalance < 0 ? 'text-rose-300' : 'text-slate-400'}`}>
-                  {gasBalance > 0 ? `+$${gasBalance.toFixed(2)}` : gasBalance < 0 ? `-$${Math.abs(gasBalance).toFixed(2)}` : '$0.00'}
-                  {gasBalance > 0 && <span className="text-[10px] text-emerald-600 ml-1 font-normal">tap to add →</span>}
-                </span>
-              </button>
-            )}
-          </div>
-          <div>
-            <label className="text-slate-400 text-xs uppercase tracking-wider block mb-1.5">Source (optional)</label>
             <input
-              type="text"
-              value={source}
-              onChange={e => setSource(e.target.value)}
-              placeholder="e.g. Retro Fitness, Commission"
-              className="w-full bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
+              value={source} onChange={e => setSource(e.target.value)} placeholder="from (employer)"
+              aria-label="Income source"
+              className="w-[42%] bg-slate-800 text-white rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500 placeholder-slate-600"
             />
           </div>
-
-          {/* Priority tier summary — shows already + this deposit */}
-          {!histLoading && (
-            <div className="grid grid-cols-3 gap-2 pt-1">
-              {[
-                { p: 1, label: 'Essential', color: '#f43f5e', gradFrom: 'from-rose-950/60',   gradTo: 'to-slate-800', border: 'border-rose-800/30',   textClass: 'text-rose-400'   },
-                { p: 2, label: 'Stability', color: '#f59e0b', gradFrom: 'from-amber-950/60',  gradTo: 'to-slate-800', border: 'border-amber-800/30',  textClass: 'text-amber-400'  },
-                { p: 3, label: 'Optional',  color: '#8b5cf6', gradFrom: 'from-violet-950/60', gradTo: 'to-slate-800', border: 'border-violet-800/30', textClass: 'text-violet-400' },
-              ].map(({ p, label, color, gradFrom, gradTo, border, textClass }) => {
-                const tier       = tierTotals[p];
-                const total      = tier.already + (amount > 0 ? tier.deposit : 0);
-                const tierPct    = tier.budget > 0 ? Math.min((total / tier.budget) * 100, 100) : 0;
-                const alreadyPct = tier.budget > 0 ? Math.min((tier.already / tier.budget) * 100, 100) : 0;
-                const newPct     = tier.budget > 0 ? Math.min((amount > 0 ? tier.deposit / tier.budget * 100 : 0), 100) : 0;
-                const isFull     = tierPct >= 100;
-                return (
-                  <div key={p} className={`bg-gradient-to-b ${gradFrom} ${gradTo} rounded-xl p-3 border ${border} space-y-2`}>
-                    <p className={`text-[9px] font-bold uppercase tracking-wider ${textClass}`}>P{p} {label}</p>
-                    <div className="flex items-end justify-between gap-1">
-                      <p className="text-white text-sm font-bold font-mono tabular-nums leading-none">{fmt(total)}</p>
-                      <p className={`text-xl font-black tabular-nums leading-none ${isFull ? 'text-emerald-400' : textClass}`}>
-                        {tierPct.toFixed(0)}<span className="text-[10px] font-bold">%</span>
-                      </p>
-                    </div>
-                    {/* Segmented bar: faded = already, solid = new */}
-                    <div className="w-full bg-slate-900/60 rounded-full h-3 overflow-hidden">
-                      <div className="h-3 flex overflow-hidden rounded-full">
-                        <div style={{ width: `${alreadyPct}%`, background: color, opacity: 0.35 }} className="transition-all duration-300" />
-                        <div style={{ width: `${newPct}%`, background: `linear-gradient(90deg, ${color}cc, ${color})` }} className="transition-all duration-300" />
-                      </div>
-                    </div>
-                    <p className="text-slate-600 text-[9px] font-mono">{tier.budget > 0 ? fmt(tier.budget) : '—'} goal</p>
-                  </div>
-                );
-              })}
+          <div className="flex items-center gap-2 text-xs">
+            <div className="flex bg-slate-800 rounded-lg p-0.5 gap-0.5">
+              <button onClick={() => setMode('priority')}
+                title="Priority first: after deficits, fill every P1 envelope's remaining need, then P2, then P3."
+                className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${mode === 'priority' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>Priority</button>
+              <button onClick={() => setMode('proportional')}
+                title="Proportional: after deficits, split the rest across all envelopes in proportion to their remaining need."
+                className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${mode === 'proportional' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>Proportional</button>
             </div>
-          )}
-
-          <div className="flex justify-between items-center text-xs">
-            <span className="text-slate-500">Monthly goal: <span className="text-slate-300">{fmt(totalAllowance)}</span></span>
-            <span className={`font-semibold ${coveragePct >= 100 ? 'text-emerald-400' : 'text-amber-400'}`}>
-              {coveragePct.toFixed(0)}% covered
-            </span>
-          </div>
-
-          {/* ── Manual allocation override (Task 77) ── */}
-          {amount > 0 && !histLoading && (
-            <div className="space-y-2 pt-1">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setManualMode(v => !v)}
-                  title="Override the auto-split: edit each category's deposit by hand. Your numbers are written to the log exactly as you set them."
-                  className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all border ${
-                    manualMode
-                      ? 'bg-indigo-600 text-white border-indigo-500'
-                      : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
-                  }`}
-                >
-                  {manualMode ? '✏️ Adjusting — edit any amount below' : '✏️ Adjust amounts manually'}
-                </button>
-                {manualMode && Object.keys(overrides).length > 0 && (
-                  <button
-                    onClick={() => setOverrides({})}
-                    className="py-2 px-3 rounded-xl text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700 hover:text-slate-200 transition-colors whitespace-nowrap"
-                  >↻ Reset to auto</button>
-                )}
+            <button onClick={() => { setManualMode(v => !v); if (manualMode) setOverrides({}); }}
+              title="Edit any deposit by hand; untouched rows keep the engine's figure."
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors ${manualMode ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
+              {manualMode ? '✎ Manual on' : '✎ Manual'}
+            </button>
+            {templates.length > 0 && !showMore && (
+              <div className="flex gap-1 overflow-x-auto ml-auto">
+                {templates.slice(0, 3).map(t => (
+                  <button key={t.id} onClick={() => setIncome(String(t.amount.toFixed(2)))}
+                    className="shrink-0 px-2 py-1 rounded-full bg-slate-800 text-slate-300 text-[11px] hover:bg-slate-700 font-mono">{t.name} {fmt(t.amount)}</button>
+                ))}
               </div>
-
-              {/* Saved splits (Task 80) — tap to apply. A split is stored as each
-                  category's SHARE of income, so it scales to whatever you earned this
-                  time; applying it seeds the manual amounts so you can still tweak. */}
-              {splits.length > 0 && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center">
-                    <p className="text-slate-500 text-[10px] uppercase tracking-wider flex-1">💾 My splits</p>
-                    <button onClick={() => setManageSplits(v => !v)} className="text-slate-600 text-[10px] hover:text-slate-400 transition-colors">
-                      {manageSplits ? 'Done' : '⚙ Manage'}
-                    </button>
-                  </div>
-                  <div className="flex gap-2 overflow-x-auto pb-0.5">
-                    {splits.map(s => (
-                      manageSplits ? (
-                        <div key={s.id} className="shrink-0 flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-full pl-3 pr-1 py-1">
-                          <span className="text-slate-300 text-xs whitespace-nowrap">{s.name}</span>
-                          <button onClick={() => deleteSplit(s.id)} aria-label={`Delete split ${s.name}`} className="w-4 h-4 rounded-full bg-slate-700 hover:bg-rose-900/50 text-slate-500 hover:text-rose-400 text-[10px] flex items-center justify-center transition-colors">✕</button>
-                        </div>
-                      ) : (
-                        <button
-                          key={s.id}
-                          onClick={() => applySplit(s)}
-                          title={`Apply "${s.name}" — fills each category by its saved share of this income`}
-                          className="shrink-0 px-3 py-1.5 rounded-full bg-indigo-900/40 border border-indigo-800/50 text-indigo-300 text-xs font-medium hover:bg-indigo-800/60 active:scale-95 transition-all whitespace-nowrap"
-                        >
-                          {s.name}
-                        </button>
-                      )
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {manualMode && (
-                <div className={`rounded-xl px-3 py-2 flex items-center justify-between text-xs border ${
-                  Math.abs(leftToAssign) < 0.01 ? 'bg-emerald-900/30 border-emerald-800/40'
-                    : leftToAssign > 0 ? 'bg-amber-900/30 border-amber-800/40'
-                    : 'bg-rose-900/30 border-rose-800/40'
-                }`}>
-                  <span className="text-slate-400">
-                    <span className="text-white font-semibold font-mono tabular-nums">{fmt(totalDeposited)}</span> of {fmt(amount)} assigned
-                  </span>
-                  <span className={`font-bold font-mono tabular-nums ${
-                    Math.abs(leftToAssign) < 0.01 ? 'text-emerald-400'
-                      : leftToAssign > 0 ? 'text-amber-400' : 'text-rose-400'
-                  }`}>
-                    {Math.abs(leftToAssign) < 0.01 ? '✓ fully assigned'
-                      : leftToAssign > 0 ? `${fmt(leftToAssign)} left to assign`
-                      : `${fmt(Math.abs(leftToAssign))} over`}
-                  </span>
-                </div>
-              )}
-
-              {/* Save the current split for reuse (Task 80) */}
-              {manualMode && (
-                showSaveSplit ? (
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newSplitName}
-                      onChange={e => setNewSplitName(e.target.value)}
-                      placeholder="Name this split (optional)"
-                      autoFocus
-                      onKeyDown={e => e.key === 'Enter' && saveSplit()}
-                      className="flex-1 bg-slate-700/60 text-slate-300 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
-                    />
-                    <button
-                      onClick={saveSplit}
-                      disabled={splits.length >= MAX_SPLITS || totalDeposited <= 0.005}
-                      className="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 disabled:opacity-40 text-white text-xs font-medium transition-colors whitespace-nowrap"
-                    >Save</button>
-                    <button onClick={() => { setShowSaveSplit(false); setNewSplitName(''); }} aria-label="Cancel saving this split" className="px-2 py-1.5 rounded-lg bg-slate-700 text-slate-400 text-xs transition-colors">✕</button>
-                  </div>
-                ) : (
-                  splits.length < MAX_SPLITS && totalDeposited > 0.005 && (
-                    <button onClick={() => setShowSaveSplit(true)} className="text-indigo-400 text-[11px] hover:text-indigo-300 transition-colors font-medium">
-                      💾 Save this split for next time
-                    </button>
-                  )
-                )
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* Breakdown by account */}
-        <div className="p-4 space-y-3">
-          {/* ── By-account summary: where the money physically moves ── */}
-          {amount > 0 && accountTiles.length > 0 && (
-            <div className="rounded-2xl border border-blue-800/50 bg-gradient-to-b from-blue-950/40 to-slate-900 overflow-hidden shadow-lg">
-              <div className="px-4 py-3 border-b border-blue-900/50 flex items-center justify-between">
-                <div>
-                  <p className="text-blue-300 text-xs font-bold uppercase tracking-wider">Move the money to</p>
-                  <p className="text-slate-500 text-[10px] mt-0.5">physical accounts to fund today</p>
-                </div>
-                <span className="text-blue-400 text-lg">↓</span>
-              </div>
-              <div className="divide-y divide-blue-900/30">
-                {accountTiles.map(a => (
-                  <div key={a.name} className="px-4 py-3 flex items-center gap-3">
-                    <span className="text-2xl shrink-0">{a.style.icon}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-bold ${a.style.color}`}>{a.name}</p>
-                      {a.already > 0 && (
-                        <p className="text-slate-500 text-[10px] font-mono">{fmt(a.already)} already deposited this month</p>
-                      )}
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-white font-bold font-mono tabular-nums text-base">+{fmt(a.adding)}</p>
-                      {a.already > 0 && (
-                        <p className={`text-[11px] font-mono tabular-nums ${a.style.color}`}>{fmt(a.adding + a.already)} total</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                <div className="px-4 py-3 flex items-center justify-between bg-blue-950/30">
-                  <span className="text-blue-300 text-sm font-bold">Total to move</span>
-                  <span className="text-white font-extrabold font-mono tabular-nums text-base">{fmt(accountTiles.reduce((s, a) => s + a.adding, 0))}</span>
-                </div>
-              </div>
-            </div>
-          )}
+        {/* Scrollable body */}
+        <div className="overflow-y-auto flex-1 min-h-0">
 
-          {/* ── Where the money goes — flat receipt list ──────── */}
-          {amount > 0 && depositPlan.length > 0 && (
-            <div className="rounded-2xl border border-emerald-800/40 bg-gradient-to-b from-emerald-950/40 to-slate-900 overflow-hidden">
-              <div className="px-4 py-3 flex items-center justify-between border-b border-emerald-900/40">
-                <div>
-                  <p className="text-emerald-300 text-xs font-bold uppercase tracking-wider">🧾 Where it goes</p>
-                  <p className="text-slate-500 text-[10px] mt-0.5">{depositPlan.length} deposit{depositPlan.length !== 1 ? 's' : ''} · process top to bottom</p>
-                </div>
-                <button
-                  onClick={copyText}
-                  className="text-emerald-400 hover:text-emerald-300 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-emerald-900/40 border border-emerald-800/40 transition-colors shrink-0"
-                >{copied ? '✓ Copied' : '📋 Copy'}</button>
+          {/* Numbers strip: what the engine decided, in one line of figures */}
+          <div className="px-4 pt-3 pb-2 grid grid-cols-4 gap-2 text-center">
+            {[
+              ['Income', amount, 'text-white'],
+              ['Deficits', deficitTotal, deficitTotal > 0 ? 'text-rose-300' : 'text-slate-500'],
+              ['Envelopes', toEnvelopes, 'text-emerald-400'],
+              ['Surplus', surplus, surplus > 0.005 ? 'text-amber-300' : 'text-slate-500'],
+            ].map(([label, val, cls]) => (
+              <div key={label} className="bg-slate-800/70 rounded-lg py-2">
+                <p className="text-[9px] uppercase tracking-wider text-slate-500">{label}</p>
+                <p className={`font-mono tabular-nums text-sm font-bold ${cls}`}>{amount > 0 ? money0(val) : '—'}</p>
               </div>
-              <div className="divide-y divide-slate-800/60">
-                {depositPlan.map((r, i) => {
-                  const priClr = r.kind === 'surplus' ? 'text-emerald-400'
-                    : r.priority === 1 ? 'text-rose-400' : r.priority === 2 ? 'text-amber-400' : 'text-violet-400';
-                  return (
-                    <div key={i} className="px-4 py-2.5 flex items-center gap-3">
-                      <span className="text-emerald-300 font-mono font-bold text-sm tabular-nums w-20 shrink-0 text-right">
-                        +{fmt(r.amount)}
-                      </span>
-                      <span className={`shrink-0 ${priClr}`}>→</span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-white text-sm truncate leading-tight">{r.name}</p>
-                        <p className="text-slate-500 text-[10px] leading-tight">
-                          {r.account}{r.kind === 'surplus' ? ' · surplus' : ` · P${r.priority}`}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-                <div className="px-4 py-2.5 flex items-center gap-3 bg-slate-800/60">
-                  <span className="text-white font-mono font-bold text-sm tabular-nums w-20 shrink-0 text-right">
-                    {fmt(depositPlan.reduce((s, r) => s + r.amount, 0))}
-                  </span>
-                  <span className="text-slate-600 shrink-0">→</span>
-                  <span className="text-slate-300 text-xs font-semibold flex-1">Total allocated</span>
-                </div>
-              </div>
-            </div>
-          )}
+            ))}
+          </div>
+          <p className="px-4 pb-2 text-[11px] text-slate-500">
+            {histLoading ? 'Loading this month…' : (
+              <>
+                Accrued this month <span className="text-slate-300 font-mono">{money0(totalAlready)}</span> of <span className="text-slate-300 font-mono">{money0(totalAllowance)}</span> targets
+                {' '}· envelopes hold <span className="text-slate-300 font-mono">{money0(totalHoldings)}</span>
+                {totalSpentMo > 0 && <> · spent <span className="text-slate-300 font-mono">{money0(totalSpentMo)}</span> this month</>}
+                {deficitsRepaid.length > 0 && amount > 0 && (
+                  <> · <span className="text-rose-300">deficit {deficitsRepaid.map(d => `${d.type} ${money0(d.deficitPaid)}`).join(', ')} taken off the top first</span></>
+                )}
+                {manualMode && amount > 0 && (
+                  <> · <span className={leftToAssign < -0.005 ? 'text-rose-400' : leftToAssign > 0.005 ? 'text-amber-300' : 'text-emerald-400'}>
+                    {leftToAssign < -0.005 ? `${money0(-leftToAssign)} over-assigned` : leftToAssign > 0.005 ? `${money0(leftToAssign)} left to assign` : 'fully assigned'}
+                  </span></>
+                )}
+              </>
+            )}
+          </p>
 
-          {amount <= 0 && !histLoading && (
-            <div className="space-y-2">
-              <p className="text-slate-600 text-center py-4 text-sm">Enter an amount above to see where it goes</p>
-              {/* Show current month state even without entering amount */}
-              {Object.keys(alreadyByType).length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-slate-500 text-xs uppercase tracking-wider px-1">Already deposited this month</p>
-                  {expenses
-                    .filter(e => pm(e['Monthly Allowance ($)']) > 0 && alreadyByType[e['Type'] || ''] > 0)
-                    .map((e, i) => {
-                      const already   = alreadyByType[e['Type'] || ''] || 0;
-                      const allowance = pm(e['Monthly Allowance ($)']);
-                      const pct       = allowance > 0 ? (already / allowance) * 100 : 0;
+          {/* THE LEDGER */}
+          <div className="mx-4 mb-3 rounded-xl border border-slate-700/60 overflow-hidden">
+            <table className="w-full table-fixed text-xs tabular-nums">
+              <colgroup>
+                <col />
+                <col className="w-[4.4rem]" />
+                <col className="w-[4.4rem]" />
+                <col className="w-[4.4rem]" />
+                <col className={manualMode ? 'w-[5.4rem]' : 'w-[4.6rem]'} />
+                <col className="w-[4.8rem]" />
+              </colgroup>
+              <thead>
+                <tr className="text-[9px] uppercase tracking-wider text-slate-500 bg-slate-800/80">
+                  <th className="text-left px-2 py-1.5 font-medium">Envelope</th>
+                  <th className="text-right px-1 py-1.5 font-medium" title="What the envelope is aiming at this month: its allowance, or the total budget for a running envelope, or this month's share of a dated target">Target</th>
+                  <th className="text-right px-1 py-1.5 font-medium" title="What already counts toward the target: this calendar month's deposits (running: the balance itself)">Accrued</th>
+                  <th className="text-right px-1 py-1.5 font-medium">Need</th>
+                  <th className="text-right px-1 py-1.5 font-medium text-emerald-400">Deposit</th>
+                  <th className="text-right pl-1 pr-2 py-1.5 font-medium" title="What the envelope will hold after this deposit">After</th>
+                </tr>
+              </thead>
+              {accountsInPlan.map(acct => {
+                const group = byAccount[acct];
+                const style = ACCOUNT_ICONS[acct] || { icon: '💰', color: 'text-slate-300' };
+                return (
+                  <tbody key={acct} className="border-t border-slate-700/60">
+                    <tr className="bg-slate-900/60">
+                      <td colSpan={4} className={`px-2 py-1 text-[10px] font-semibold ${style.color}`}>{style.icon} {acct}</td>
+                      <td className="px-1 py-1 text-right text-[10px] font-mono text-emerald-400/90">{amount > 0 ? money(group.total) : ''}</td>
+                      <td></td>
+                    </tr>
+                    {group.items.map(d => {
+                      const after = d.balance + d.deposit;
+                      const met = d.allowance > 0 && d.already + d.deposit >= d.allowance - 0.005;
+                      const due = dueDates[d.type] != null && d.stillNeeds > 0 ? dueDates[d.type] - todayDay : null;
                       return (
-                        <div key={i} className="bg-slate-800/60 rounded-xl px-4 py-2.5 flex justify-between items-center gap-3">
-                          <div>
-                            <p className="text-white text-sm">{e['Type']}</p>
-                            <p className="text-slate-500 text-[10px]">goal {fmt(allowance)} · {pct.toFixed(0)}% funded</p>
-                          </div>
-                          <span className="text-emerald-400 font-mono font-semibold text-sm shrink-0">{fmt(already)}</span>
-                        </div>
+                        <tr key={d.type} className="border-t border-slate-700/30">
+                          <td className="px-2 py-1.5 min-w-0">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.priority === 1 ? 'bg-rose-400' : d.priority === 2 ? 'bg-amber-400' : 'bg-violet-400'}`} title={`P${d.priority} ${PRIORITY_LABEL[d.priority] || ''}`} />
+                              <span className="text-slate-200 truncate">{d.type}</span>
+                              {policyMark(d) && (
+                                <span className={`shrink-0 text-[9px] px-1 rounded ${d.policy === 'running' ? 'bg-sky-900/70 text-sky-300' : 'bg-fuchsia-900/70 text-fuchsia-300'}`}
+                                  title={d.policy === 'running' ? 'Running balance: the balance counts toward the total budget' : d.pace ? `${fmt(d.pace.remaining)} to collect for ${fmt(d.pace.target)} in ${d.pace.monthsLeft} month(s)` : 'Target by date'}>
+                                  {policyMark(d)}
+                                </span>
+                              )}
+                              {d.deficitPaid > 0 && <span className="shrink-0 text-[9px] px-1 rounded bg-rose-900/70 text-rose-300" title="Deficit repaid first, before allocation">−{money0(d.deficitPaid)} first</span>}
+                              {due != null && due <= 3 && <span className="shrink-0 text-[9px] text-amber-400" title={due < 0 ? 'Past due' : due === 0 ? 'Due today' : `Due in ${due} days`}>{due < 0 ? '⚠' : '⏰'}</span>}
+                            </div>
+                            <div className="text-[9px] text-slate-500 truncate">
+                              holds {money0(d.balance)}{d.policy === 'monthly' && d.monthlyAllowance > 0 && d.balance > 0 ? ` · ${(d.balance / d.monthlyAllowance).toFixed(1)}× mo` : ''}{d.spentMonth > 0 ? ` · spent ${money0(d.spentMonth)}` : ''}
+                            </div>
+                          </td>
+                          <td className="px-1 py-1.5 text-right font-mono text-slate-300 align-top">{money0(d.allowance)}</td>
+                          <td className={`px-1 py-1.5 text-right font-mono align-top ${d.already < 0 ? 'text-rose-300' : 'text-slate-400'}`}>{d.already < 0 ? `(${money0(-d.already)})` : money(d.already)}</td>
+                          <td className="px-1 py-1.5 text-right font-mono text-slate-400 align-top">{money(d.stillNeeds + (d.deficitPaid || 0))}</td>
+                          <td className="px-1 py-1.5 text-right font-mono align-top">
+                            {manualMode ? (
+                              <input type="number" inputMode="decimal" min="0" step="0.01"
+                                aria-label={`Deposit for ${d.type}`}
+                                value={overrides[d.type] ?? d.deposit.toFixed(2)}
+                                onChange={e => setOverrides(o => ({ ...o, [d.type]: e.target.value }))}
+                                className={`w-full bg-slate-800 rounded px-1 py-0.5 text-right font-mono text-xs outline-none focus:ring-1 focus:ring-amber-500 ${overrides[d.type] !== undefined ? 'text-amber-300' : 'text-emerald-400'}`} />
+                            ) : (
+                              <span className={d.deposit > 0.005 ? 'text-emerald-400 font-semibold' : 'text-slate-600'}>{money(d.deposit)}</span>
+                            )}
+                          </td>
+                          <td className={`pl-1 pr-2 py-1.5 text-right font-mono align-top ${after < 0 ? 'text-rose-300' : met ? 'text-emerald-300' : 'text-slate-300'}`} title={met ? 'Target met' : ''}>{money0(after)}</td>
+                        </tr>
                       );
                     })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {amount > 0 && ACCOUNT_ORDER.map(acct => {
-            const group = byAccount[acct];
-            if (!group) return null;
-            const style = ACCOUNT_ICONS[acct] || { icon: '💰', color: 'text-slate-300', bg: 'bg-slate-800 border-slate-700' };
-            return (
-              <div key={acct} className={`rounded-2xl overflow-hidden border ${style.bg}`}>
-                <div className="px-4 py-3 flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">{style.icon}</span>
-                    <span className={`font-bold text-sm ${style.color}`}>{acct}</span>
-                  </div>
-                  <div className="text-right">
-                    <p className={`text-lg font-bold ${style.color}`}>{fmt(group.total)}</p>
-                    <p className="text-slate-500 text-xs">{amount > 0 ? ((group.total / amount) * 100).toFixed(1) : 0}% of deposit</p>
-                  </div>
-                </div>
-                <div className="bg-slate-800/80 divide-y divide-slate-700/40">
-                  {group.items.map((d, i) => (
-                    <div key={i} className="px-4 py-3 flex justify-between items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-white text-sm truncate">{d.type}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                          <span className={`text-[10px] ${d.priority === 1 ? 'text-rose-400' : d.priority === 2 ? 'text-amber-400' : 'text-violet-400'}`}>
-                            P{d.priority} {PRIORITY_LABEL[d.priority]}
-                          </span>
-                          <span className="text-slate-600 text-[10px]">·</span>
-                          <span className="text-slate-500 text-[10px]">goal {fmt(d.allowance)}{d.policy === 'target-date' && d.pace ? '/mo' : ''}</span>
-                          {d.policy === 'running' && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-900/60 text-sky-300" title="Running balance: what the envelope holds counts toward its total budget">running</span>
-                          )}
-                          {d.deficitPaid > 0 && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300" title="This envelope was below zero; the deficit is repaid before any allocation">
-                              deficit {fmt(d.deficitPaid)} first
-                            </span>
-                          )}
-                          {d.policy === 'target-date' && d.pace && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fuchsia-900/60 text-fuchsia-300"
-                              title={`${fmt(d.pace.remaining)} still to collect for a ${fmt(d.pace.target)} target in ${d.pace.monthsLeft} month${d.pace.monthsLeft === 1 ? '' : 's'}`}>
-                              → {fmt(d.pace.target)} by {d.pace.targetDate ? `${d.pace.targetDate.getMonth() + 1}/${d.pace.targetDate.getFullYear()}` : 'date'}
-                            </span>
-                          )}
-                          <span className="text-slate-600 text-[10px]">·</span>
-                          <span className={`text-[10px] ${d.balance < 0 ? 'text-rose-400' : d.monthlyAllowance > 0 && d.balance >= d.monthlyAllowance && d.policy === 'monthly' ? 'text-amber-400' : 'text-slate-500'}`}
-                            title="What this envelope holds right now (every deposit minus every spend in the log)">
-                            holds {fmt(d.balance)}{d.policy === 'monthly' && d.monthlyAllowance > 0 && d.balance > 0 ? ` (${(d.balance / d.monthlyAllowance).toFixed(1)}× monthly)` : ''}
-                          </span>
-                          {d.spentMonth > 0 && (
-                            <>
-                              <span className="text-slate-600 text-[10px]">·</span>
-                              <span className="text-slate-500 text-[10px]">spent {fmt(d.spentMonth)} this month</span>
-                            </>
-                          )}
-                          {dueDates[d.type] != null && d.stillNeeds > 0 && (() => {
-                            const diff = dueDates[d.type] - todayDay;
-                            if (diff < 0) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium">⚠ Past due</span>;
-                            if (diff <= 3) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/60 text-amber-300 font-medium">⏰ {diff === 0 ? 'Due today' : `Due in ${diff}d`}</span>;
-                            return null;
-                          })()}
-                        </div>
-                        {/* Already-contributed bar */}
-                        {(() => {
-                          const isRunning = (balTypes[d.type] || 'monthly') === 'running';
-                          const alreadyPct = d.allowance > 0 ? Math.min(Math.max((d.already / d.allowance) * 100, 0), 100) : 0;
-                          const depositPct = d.allowance > 0 ? Math.min((d.deposit / d.allowance) * 100, 100) : 0;
-                          return (
-                            <div className="mt-1.5 space-y-0.5">
-                              <div className="flex h-2 bg-slate-700 rounded-full overflow-hidden">
-                                <div style={{ width: `${alreadyPct}%`, background: d.already < 0 ? '#f43f5e' : '#10b981', opacity: 0.5 }}
-                                  title={isRunning ? `Net balance: ${fmt(d.already)}` : `Prior deposits: ${fmt(d.already)}`} />
-                                <div style={{ width: `${depositPct}%`, background: '#3b82f6' }}
-                                  title={`Adding: ${fmt(d.deposit)}`} />
-                              </div>
-                              <div className="flex justify-between text-[10px] text-slate-600">
-                                {d.already !== 0 && (
-                                  <span className={d.already < 0 ? 'text-rose-600' : 'text-emerald-600'}>
-                                    {isRunning
-                                      ? `${d.already >= 0 ? '+' : ''}${fmt(d.already)} net balance`
-                                      : `${fmt(d.already)} prior`}
-                                  </span>
-                                )}
-                                {d.stillNeeds > 0 && d.stillNeeds !== d.allowance && (
-                                  <span className="ml-auto">{fmt(d.stillNeeds)} still needed</span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                      <div className="text-right shrink-0 flex flex-col items-end gap-1">
-                        {manualMode ? (
-                          <div className="relative">
-                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold pointer-events-none">$</span>
-                            <input
-                              type="number" min="0" step="0.01"
-                              value={overrides[d.type] !== undefined ? overrides[d.type] : d.deposit.toFixed(2)}
-                              onChange={e => setOverrides(prev => ({ ...prev, [d.type]: e.target.value }))}
-                              onFocus={e => e.target.select()}
-                              className="w-24 bg-slate-700 text-white text-sm font-semibold rounded-lg pl-5 pr-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 font-mono tabular-nums text-right"
-                            />
-                          </div>
-                        ) : (
-                          <p className="text-white text-sm font-semibold">+{fmt(d.deposit)}</p>
-                        )}
-                        <CoverageChip coverage={d.coverage} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Surplus Distribution */}
-          {amount > 0 && (
-            <div className="space-y-3">
-              <div
-                className="flex items-center justify-between"
-                title="Surplus is income that remains after every budget category's monthly goal is fully funded. Configure weighted buckets here to decide where that extra money goes — e.g. savings, investments, fun money."
-              >
-                <div>
-                  <p className={`text-xs font-bold uppercase tracking-wider ${surplus > 0.01 ? 'text-emerald-400' : 'text-slate-500'}`}>
-                    💰 Surplus Distribution
-                  </p>
-                  <p className="text-slate-500 text-[10px] mt-0.5">
-                    {surplus > 0.01
-                      ? `${fmt(surplus)} left after all goals are funded`
-                      : 'No surplus yet — income covers goals only'}
-                  </p>
-                </div>
-                <button
-                  onClick={addSurplusItem}
-                  className="text-emerald-400 hover:text-emerald-300 text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-900/30 border border-emerald-800/40 transition-colors"
-                >
-                  + Add
-                </button>
-              </div>
-
-              {surplusItems.length > 0 && (
-                <div className="bg-slate-800/40 rounded-xl p-3 text-xs text-slate-400 leading-relaxed"
-                  title="How weights work: Each bucket's share = its weight ÷ sum of all weights. Weight 2 out of a total of 5 = 2/5 = 40% of the surplus. Higher weight = bigger slice. The weights don't have to add up to any specific number — only the ratios matter."
-                >
-                  <span className="text-white font-semibold">How weights work: </span>
-                  Each bucket's share = <span className="text-emerald-400 font-mono">its weight ÷ total weight</span>.{' '}
-                  {surplusItems.length >= 2 && surplusTotalWeight > 0 && (() => {
-                    const example = surplusItems.slice(0, 2);
-                    const w0 = parseFloat(example[0]?.weight) || 0;
-                    const w1 = parseFloat(example[1]?.weight) || 0;
-                    const n0 = example[0]?.name?.trim() || 'First';
-                    const n1 = example[1]?.name?.trim() || 'Second';
-                    return (
-                      <span>
-                        E.g. {n0} (weight {w0}) + {n1} (weight {w1}) = {surplusTotalWeight} total →{' '}
-                        {n0} gets {surplusTotalWeight > 0 ? ((w0 / surplusTotalWeight) * 100).toFixed(0) : 0}%,{' '}
-                        {n1} gets {surplusTotalWeight > 0 ? ((w1 / surplusTotalWeight) * 100).toFixed(0) : 0}%.
-                      </span>
-                    );
-                  })()}
-                </div>
-              )}
-
-              {surplusItems.map(it => {
-                const weight = parseFloat(it.weight) || 0;
-                const share  = surplusTotalWeight > 0 ? weight / surplusTotalWeight : 0;
-                const deposit = share * surplus;
-                return (
-                  <div key={it.id} className={`rounded-xl p-3 space-y-2 border ${surplus > 0.01 ? 'bg-slate-800 border-emerald-800/30' : 'bg-slate-800/60 border-slate-700/50'}`}>
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={it.name}
-                        onChange={e => updateSurplusItem(it.id, 'name', e.target.value)}
-                        placeholder="Category name (e.g. Savings, Fun Money)"
-                        className="flex-1 bg-slate-700 text-white rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-emerald-500 placeholder-slate-600"
-                      />
-                      <button
-                        onClick={() => removeSurplusItem(it.id)}
-                        className="w-7 h-7 rounded-lg bg-slate-700 text-slate-500 hover:text-rose-400 flex items-center justify-center text-sm transition-colors shrink-0"
-                      >✕</button>
-                    </div>
-                    <div className="flex gap-2">
-                      <select
-                        value={it.account}
-                        onChange={e => updateSurplusItem(it.id, 'account', e.target.value)}
-                        className="flex-1 bg-slate-700 text-white rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-emerald-500"
-                      >
-                        {ACCOUNT_ORDER.map(a => <option key={a}>{a}</option>)}
-                      </select>
-                      <div
-                        className="relative"
-                        title={`Weight ${weight} out of total ${surplusTotalWeight} = ${surplusTotalWeight > 0 ? ((weight / surplusTotalWeight) * 100).toFixed(0) : 0}% of surplus. Higher weight = larger share. The numbers don't have to add up to anything specific — only the ratios matter.`}
-                      >
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold">×</span>
-                        <input
-                          type="number" min="0" step="0.5"
-                          value={it.weight}
-                          onChange={e => updateSurplusItem(it.id, 'weight', e.target.value)}
-                          placeholder="1"
-                          className="w-20 bg-slate-700 text-white rounded-lg pl-7 pr-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-emerald-500 font-mono tabular-nums"
-                        />
-                      </div>
-                    </div>
-                    {surplusTotalWeight > 0 && surplus > 0 && (
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                          <div className="h-1.5 rounded-full bg-emerald-500 transition-all" style={{ width: `${share * 100}%` }} />
-                        </div>
-                        <span className="text-slate-500 font-mono text-[10px] w-8 text-right tabular-nums">{(share * 100).toFixed(0)}%</span>
-                        <span className="text-emerald-400 font-bold font-mono text-sm tabular-nums w-16 text-right">{fmt(deposit)}</span>
-                      </div>
-                    )}
-                    {surplus <= 0.01 && (
-                      <p className="text-slate-600 text-[10px]">Will activate when income exceeds all budget goals</p>
-                    )}
-                  </div>
+                  </tbody>
                 );
               })}
-
-              {surplusItems.length === 0 && (
-                <div className="text-center py-3 text-slate-600 text-xs border border-dashed border-slate-700/60 rounded-xl cursor-pointer hover:border-slate-600 transition-colors" onClick={addSurplusItem}>
-                  Tap "+ Add" to configure where surplus income goes
-                </div>
+              {namedSurplus.length > 0 && (
+                <tbody className="border-t border-slate-700/60">
+                  <tr className="bg-slate-900/60"><td colSpan={4} className="px-2 py-1 text-[10px] font-semibold text-amber-300">💰 Surplus (by weight)</td><td className="px-1 py-1 text-right text-[10px] font-mono text-amber-300">{money(surplus)}</td><td></td></tr>
+                  {namedSurplus.map(it => (
+                    <tr key={it.id} className="border-t border-slate-700/30">
+                      <td className="px-2 py-1.5 text-slate-200 truncate">{it.name.trim()} <span className="text-slate-500 text-[9px]">· {it.account || 'Savings'} · ×{it.weight}</span></td>
+                      <td colSpan={3}></td>
+                      <td className="px-1 py-1.5 text-right font-mono text-amber-300">{money0(it.deposit)}</td>
+                      <td></td>
+                    </tr>
+                  ))}
+                </tbody>
               )}
+              <tfoot>
+                <tr className="border-t-2 border-slate-600 bg-slate-800/90 font-semibold">
+                  <td className="px-2 py-2 text-slate-300">Total <span className="text-slate-500 font-normal">({deposits.filter(d => d.deposit > 0.005).length + namedSurplus.length} deposits)</span></td>
+                  <td className="px-1 py-2 text-right font-mono text-slate-300">{money0(totalAllowance)}</td>
+                  <td className="px-1 py-2 text-right font-mono text-slate-400">{money0(totalAlready)}</td>
+                  <td className="px-1 py-2 text-right font-mono text-slate-400">{money0(deposits.reduce((s, d) => s + d.stillNeeds + (d.deficitPaid || 0), 0))}</td>
+                  <td className="px-1 py-2 text-right font-mono text-emerald-400">{amount > 0 ? money0(totalDeposited + namedSurplus.reduce((s, it) => s + it.deposit, 0)) : '—'}</td>
+                  <td className="pl-1 pr-2 py-2 text-right font-mono text-white">{money0(totalHoldings + totalDeposited)}</td>
+                </tr>
+              </tfoot>
+            </table>
+            <p className="px-2 py-1.5 text-[9px] text-slate-500 border-t border-slate-700/40 leading-snug">
+              Accrued = this calendar month's deposits (R = running: the balance itself; T = dated target, target is this month's share).
+              A negative accrued is a deficit, repaid first in any mode. After = holds + deposit. ● P1 ● P2 ● P3.
+            </p>
+          </div>
 
-              {surplusItems.length > 0 && surplus > 0.01 && (
-                <div className="flex justify-between items-center px-1 text-xs">
-                  <span className="text-slate-500">Total surplus distributed</span>
-                  <span className="text-emerald-400 font-bold font-mono tabular-nums">{fmt(surplus)}</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Summary totals */}
-          {amount > 0 && (
-            <div className="bg-slate-800 rounded-2xl p-4 border border-slate-600 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-400">This deposit</span>
-                <span className="text-white font-bold">{fmt(amount)}</span>
-              </div>
-              {totalAlready > 0 && (
-                <>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-400">Already deposited this month</span>
-                    <span className="text-emerald-400">{fmt(totalAlready)}</span>
+          {/* More: templates, splits, surplus buckets, this month's rows */}
+          <div className="mx-4 mb-4">
+            <button onClick={() => setShowMore(v => !v)} className="w-full text-left text-[11px] text-slate-500 hover:text-slate-300 py-1.5">
+              {showMore ? '▾' : '▸'} More — quick-fill, saved splits, surplus buckets, this month's rows
+              {surplus > 0.005 && surplusItems.length === 0 && <span className="text-amber-300"> · {money0(surplus)} surplus has no buckets yet</span>}
+            </button>
+            {showMore && (
+              <div className="space-y-4 text-xs pt-1">
+                {/* Quick-fill templates */}
+                <div>
+                  <div className="flex items-center mb-1.5">
+                    <p className="text-slate-500 text-[10px] uppercase tracking-wider flex-1">Quick fill</p>
+                    <button onClick={() => setShowManageTpl(v => !v)} className="text-slate-600 text-[10px] hover:text-slate-400">{showManageTpl ? 'Done' : '⚙ Manage'}</button>
                   </div>
-                  <div className="flex justify-between text-sm border-t border-slate-700 pt-2">
-                    <span className="text-slate-400">Total month coverage</span>
-                    <span className="text-white font-bold">{fmt(totalCovered)}</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {templates.map(t => (
+                      <span key={t.id} className="inline-flex items-center gap-1">
+                        <button onClick={() => setIncome(String(t.amount.toFixed(2)))} className="px-2 py-1 rounded-full bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono">{t.name} {fmt(t.amount)}</button>
+                        {showManageTpl && <button onClick={() => deleteTemplate(t.id)} className="w-4 h-4 rounded-full bg-slate-700 text-slate-500 hover:text-rose-400 text-[10px]">✕</button>}
+                      </span>
+                    ))}
+                    {showManageTpl && templates.length < 8 && (
+                      <span className="inline-flex gap-1">
+                        <input value={newTplName} onChange={e => setNewTplName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTemplate()} placeholder="name for current amount"
+                          className="bg-slate-800 text-white rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-500 placeholder-slate-600 w-40" />
+                        <button onClick={addTemplate} disabled={!income || parseFloat(income) <= 0 || templates.length >= 8} className="px-2 py-1 rounded-lg bg-emerald-700 disabled:opacity-40 text-white">Add</button>
+                      </span>
+                    )}
+                    {templates.length === 0 && !showManageTpl && <span className="text-slate-600">none — ⚙ Manage to add the amounts you process often</span>}
                   </div>
-                </>
-              )}
-              {stillNeeded > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">Still needed for goal</span>
-                  <span className="text-amber-400 font-bold">{fmt(stillNeeded)}</span>
                 </div>
-              )}
-              <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden flex">
-                <div style={{ width: `${totalAllowance > 0 ? Math.min((totalAlready / totalAllowance) * 100, 100) : 0}%`, background: '#10b981', opacity: 0.5 }} />
-                <div style={{ width: `${totalAllowance > 0 ? Math.min((amount / totalAllowance) * 100, 100) : 0}%`, background: '#3b82f6' }} />
-              </div>
-              <p className="text-slate-500 text-xs text-right">{coveragePct.toFixed(0)}% of {fmt(totalAllowance)} monthly goal</p>
-            </div>
-          )}
 
-          {logError && (
-            <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm">{logError}</div>
-          )}
-        </div>
-        {/* end scrollable middle */}
+                {/* Saved splits */}
+                <div>
+                  <div className="flex items-center mb-1.5">
+                    <p className="text-slate-500 text-[10px] uppercase tracking-wider flex-1">Saved splits (manual mode)</p>
+                    {splits.length > 0 && <button onClick={() => setManageSplits(v => !v)} className="text-slate-600 text-[10px] hover:text-slate-400">{manageSplits ? 'Done' : '⚙ Manage'}</button>}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 items-center">
+                    {splits.map(sp => (
+                      <span key={sp.id} className="inline-flex items-center gap-1">
+                        <button onClick={() => applySplit(sp)} className="px-2 py-1 rounded-full bg-indigo-900/50 text-indigo-200 hover:bg-indigo-900">{sp.name}</button>
+                        {manageSplits && <button onClick={() => deleteSplit(sp.id)} aria-label={`Delete split ${sp.name}`} className="w-4 h-4 rounded-full bg-slate-700 text-slate-500 hover:text-rose-400 text-[10px]">✕</button>}
+                      </span>
+                    ))}
+                    {showSaveSplit ? (
+                      <span className="inline-flex gap-1">
+                        <input value={newSplitName} onChange={e => setNewSplitName(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveSplit()} placeholder="split name"
+                          className="bg-slate-800 text-white rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600 w-32" />
+                        <button onClick={saveSplit} disabled={splits.length >= MAX_SPLITS || totalDeposited <= 0.005} className="px-2 py-1 rounded-lg bg-indigo-700 disabled:opacity-40 text-white">Save</button>
+                        <button onClick={() => { setShowSaveSplit(false); setNewSplitName(''); }} aria-label="Cancel saving this split" className="px-2 py-1 rounded-lg bg-slate-700 text-slate-400">✕</button>
+                      </span>
+                    ) : (
+                      splits.length < MAX_SPLITS && totalDeposited > 0.005 && (
+                        <button onClick={() => setShowSaveSplit(true)} className="text-indigo-400 hover:text-indigo-300">+ save current split</button>
+                      )
+                    )}
+                    {splits.length === 0 && !showSaveSplit && totalDeposited <= 0.005 && <span className="text-slate-600">none saved</span>}
+                  </div>
+                </div>
+
+                {/* Surplus buckets */}
+                <div>
+                  <div className="flex items-center mb-1.5">
+                    <p className="text-slate-500 text-[10px] uppercase tracking-wider flex-1" title="Income left after every envelope's need is met is split across these buckets by weight (share = weight ÷ total weight).">Surplus buckets</p>
+                    <button onClick={addSurplusItem} className="text-slate-600 text-[10px] hover:text-slate-400">+ bucket</button>
+                  </div>
+                  {surplusItems.length === 0 ? (
+                    <p className="text-slate-600">none — surplus stays unassigned</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {surplusItems.map(it => {
+                        const weight = parseFloat(it.weight) || 0;
+                        const share  = surplusTotalWeight > 0 ? weight / surplusTotalWeight : 0;
+                        return (
+                          <div key={it.id} className="flex gap-1.5 items-center">
+                            <input value={it.name} onChange={e => updateSurplusItem(it.id, 'name', e.target.value)} placeholder="bucket name"
+                              className="flex-1 min-w-0 bg-slate-800 text-white rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-500 placeholder-slate-600" />
+                            <select value={it.account} onChange={e => updateSurplusItem(it.id, 'account', e.target.value)} className="bg-slate-800 text-white rounded-lg px-1.5 py-1 outline-none w-24">
+                              {ACCOUNT_ORDER.map(a => <option key={a}>{a}</option>)}
+                            </select>
+                            <input type="number" min="0" step="1" value={it.weight} onChange={e => updateSurplusItem(it.id, 'weight', e.target.value)} aria-label="weight"
+                              className="w-12 bg-slate-800 text-white rounded-lg px-1.5 py-1 text-right font-mono outline-none" />
+                            <span className="w-10 text-right text-slate-500 font-mono">{(share * 100).toFixed(0)}%</span>
+                            <button onClick={() => removeSurplusItem(it.id)} className="w-6 h-6 rounded-lg bg-slate-800 text-slate-500 hover:text-rose-400">✕</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* This month's deposits so far */}
+                <div>
+                  <p className="text-slate-500 text-[10px] uppercase tracking-wider mb-1.5">Deposited this month ({alreadyRows.length} rows)</p>
+                  {alreadyRows.length === 0 ? <p className="text-slate-600">nothing yet this month</p> : (
+                    <div className="max-h-40 overflow-y-auto space-y-0.5 font-mono text-[11px]">
+                      {alreadyRows.map((r, i) => (
+                        <div key={i} className="flex gap-2">
+                          <span className="text-slate-500 w-16 shrink-0">{typeof r[0] === 'number' ? (parseSheetDate(r[0]) ? `${parseSheetDate(r[0]).getMonth() + 1}/${parseSheetDate(r[0]).getDate()}` : '') : String(r[0]).slice(0, 5)}</span>
+                          <span className="text-slate-300 truncate flex-1">{r[1]}</span>
+                          <span className="text-emerald-400 shrink-0">{money0(pm(r[2]))}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Actions */}
-        {amount > 0 && (
-          <div className="p-4 border-t border-slate-700 flex gap-3 shrink-0">
-            <button onClick={copyText} className="py-3 px-4 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium transition-colors">
-              {copied ? '✓' : '📋'}
-            </button>
-            <button
-              onClick={handleProcess}
-              disabled={logging || histLoading}
-              className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-sm font-bold transition-colors"
-            >
-              {logging ? 'Logging…' : `✓ Process & Log ${deposits.filter(d => d.deposit > 0).length} Deposits`}
-            </button>
-          </div>
-        )}
-      </div>
-
+        <div className="p-3 border-t border-slate-700 flex gap-2 shrink-0 items-center">
+          {logError && <p className="text-rose-400 text-xs flex-1 truncate" title={logError}>{logError}</p>}
+          {!logError && <p className="text-slate-500 text-[11px] flex-1 truncate">{amount > 0 ? `${mode === 'priority' ? 'Priority' : 'Proportional'} · ${money0(totalDeposited + namedSurplus.reduce((s, it) => s + it.deposit, 0))} of ${money0(amount)} placed` : 'Enter an amount to see the plan'}</p>}
+          <button onClick={copyText} disabled={!(amount > 0)} className="py-2.5 px-3 rounded-xl bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-white text-sm">{copied ? '✓' : '📋'}</button>
+          <button
+            onClick={handleProcess}
+            disabled={logging || histLoading || !(amount > 0)}
+            className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-sm font-bold transition-colors"
+          >
+            {logging ? 'Logging…' : `✓ Process ${deposits.filter(d => d.deposit > 0.005).length + namedSurplus.length} deposits`}
+          </button>
+        </div>
       </div>
     </div>
   );
