@@ -1,4 +1,4 @@
-import { SPREADSHEET_ID, SHEETS_BASE } from '../config';
+import { SPREADSHEET_ID, SHEETS_BASE, LOCAL_BACKEND } from '../config';
 
 const BASE = SHEETS_BASE;
 
@@ -32,6 +32,9 @@ export async function readRangeFrom(token, sheetId, range) {
 
 // Read Monthly Summary Report Link column as formulas to extract hyperlink URLs
 export async function readReportLinks(token) {
+  // Report links are Google spreadsheet ids; with the local backend there is nothing
+  // at the other end, and the Dashboard shows past months from the log instead.
+  if (LOCAL_BACKEND) return {};
   const data = await request(
     token,
     SPREADSHEET_ID,
@@ -107,6 +110,26 @@ export async function appendRow(token, range, values) {
   return request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(target)}?valueInputOption=USER_ENTERED`, {
     method: 'PUT',
     body: JSON.stringify({ values: [values] }),
+  });
+}
+
+// Append several rows in ONE write. Process Income used to append its 10-20 envelope
+// rows one at a time (each a column read + a PUT), so a paycheck was 20-40 round trips
+// and a failure midway left it half-recorded. Here the next free row is found once and
+// the whole block lands in a single request: faster, and the paycheck is all-or-nothing.
+export async function appendRows(token, range, rowsValues) {
+  if (!rowsValues.length) return null;
+  const m = /^(.+)!([A-Z]+):([A-Z]+)$/.exec(range);
+  if (!m) throw new Error(`appendRows needs a column range like Sheet!A:F, got ${range}`);
+  const [, sheet, firstCol, lastCol] = m;
+  const rows = await readRange(token, `${sheet}!${firstCol}:${lastCol}`, 'UNFORMATTED_VALUE');
+  const rowNum = rows.length + 1;
+  const width = Math.max(1, ...rowsValues.map(r => r.length));
+  const endCol = numToCol(colToNum(firstCol) + width - 1);
+  const target = `${sheet}!${firstCol}${rowNum}:${endCol}${rowNum + rowsValues.length - 1}`;
+  return request(token, SPREADSHEET_ID, `/values/${encodeURIComponent(target)}?valueInputOption=USER_ENTERED`, {
+    method: 'PUT',
+    body: JSON.stringify({ values: rowsValues }),
   });
 }
 

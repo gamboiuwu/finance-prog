@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { mergeMonths, chartMonths } from '../lib/monthHistory';
 import { readRange, readReportLinks, appendRow, ensureSheetTab, batchUpdateCells, clearRow } from '../lib/sheets';
 import { fetchGasPrices } from '../lib/gasPrice';
 import { computeGasBudget, saveGasBudget, getGasBudget } from '../lib/gasBudget';
-import { SHEETS, MONTHS } from '../config';
+import { SHEETS, MONTHS, LOCAL_BACKEND } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ProcessIncome from '../components/ProcessIncome';
 import { ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
@@ -3260,7 +3261,11 @@ export default function Dashboard({ token }) {
   if (loading) return <LoadingSpinner />;
   if (error)   return <div className="p-4 text-red-400">Error: {error}</div>;
 
-  const current = allMonths.find(
+  // Month history: Monthly Summary rows with income/spent from the transaction log
+  // wherever the log has rows (see lib/monthHistory.js). The sheet's own figures
+  // stopped updating in June; the log is the ground truth the tiles already use.
+  const months = mergeMonths(allMonths, allAllocTx, currentYear);
+  const current = months.find(
     m => m['Month'] === currentMonth && String(m['Year']) === String(currentYear)
   );
 
@@ -3317,13 +3322,7 @@ export default function Dashboard({ token }) {
   const dayOfMonth    = now.getDate();
   const daysLeftIncl  = Math.max(1, daysInMo - dayOfMonth + 1); // include today
 
-  const chartData = allMonths
-    .filter(m => pm(m['Total Processed Income']) > 0)
-    .map(m => {
-      const inc = pm(m['Total Processed Income']);
-      const spt = pm(m['Total Spent']);
-      return { month: m['Month']?.slice(0, 3), income: inc, spent: spt, net: inc - spt };
-    });
+  const chartData = chartMonths(months);
 
   // Expected/recurring monthly income = mean of the last-6 COMPLETED months'
   // processed income. Excludes the current (still partial) month so a mid-month
@@ -3339,9 +3338,11 @@ export default function Dashboard({ token }) {
     ? completedIncomes.reduce((s, v) => s + v, 0) / completedIncomes.length
     : income;
 
-  const pastMonths = allMonths.filter(
-    m => reportLinks[m['Month']] && m['Month'] !== currentMonth
-  );
+  // Past months: with the local backend, every month the log knows about (no Google
+  // report sheet needed); otherwise only months that have a report link.
+  const pastMonths = LOCAL_BACKEND
+    ? months.filter(m => m.fromLog && m['Month'] !== currentMonth)
+    : allMonths.filter(m => reportLinks[m['Month']] && m['Month'] !== currentMonth);
 
   const formatGasDate = (d) => {
     if (!d) return '';
@@ -4930,7 +4931,7 @@ ${stmtTxns.length ? `
       {/* ── Past month report cards ──────────────────────────── */}
       {pastMonths.length > 0 && (
         <div>
-          <p className="text-slate-300 font-medium text-sm mb-3 font-broske tracking-wide">Past Monthly Reports</p>
+          <p className="text-slate-300 font-medium text-sm mb-3 font-broske tracking-wide">{LOCAL_BACKEND ? 'Past Months (from your log)' : 'Past Monthly Reports'}</p>
           <div className="space-y-2">
             {pastMonths.map((m, i) => {
               const mIncome = pm(m['Total Processed Income']);
@@ -4939,8 +4940,9 @@ ${stmtTxns.length ? `
               const mNet    = mIncome - mSpent;
               const mPct    = mGoal > 0 ? Math.min((mIncome / mGoal) * 100, 100) : 0;
               return (
-                <button key={i} onClick={() => navigate(`/month/${reportLinks[m['Month']]}/${m['Month']}`)}
-                  className="w-full bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-left transition-colors"
+                <button key={i}
+                  onClick={() => reportLinks[m['Month']] && navigate(`/month/${reportLinks[m['Month']]}/${m['Month']}`)}
+                  className={`w-full bg-slate-800 rounded-xl p-4 text-left transition-colors ${reportLinks[m['Month']] ? 'hover:bg-slate-700' : 'cursor-default'}`}
                 >
                   <div className="flex justify-between items-start mb-2">
                     <div>

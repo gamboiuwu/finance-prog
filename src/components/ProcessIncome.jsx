@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { appendRow, readRange } from '../lib/sheets';
+import { appendRow, appendRows, readRange } from '../lib/sheets';
 
 const ACCOUNT_ICONS = {
   'Checking':        { icon: '🏧', color: 'text-blue-400',    bg: 'bg-blue-900/30 border-blue-800/40'     },
@@ -51,7 +51,12 @@ const isGas = (type) => String(type || '').trim().toLowerCase() === 'gas';
 // Proportional mode: distribute proportionally across remaining gaps.
 // gasBalance: all-time running net for Gas (from Dashboard); if provided, Gas uses this
 // instead of the monthly-only allocated amount so we never over-deposit into Gas.
-function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = null, gasBudget = null) {
+// THE RULE (owner, 2026-09-16): what has ALREADY accrued to an envelope is measured over
+// the calendar month - from the 1st to the last day - at all times. Not a rolling window,
+// not an all-time balance, not a per-device setting. `alreadyByType` is exactly that:
+// every deposit that landed in the envelope this month. What the envelope holds overall
+// (envStats.balance) is shown on each row for judgement, never fed into the arithmetic.
+function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = null, gasBudget = null, envStats = {}) {
   if (!income) return [];
   const isGasDynamic = typeof gasBudget === 'number' && !isNaN(gasBudget) && gasBudget > 0;
   const eligible = expenses
@@ -64,9 +69,11 @@ function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = n
       const allowance  = (isGas(e['Type']) && isGasDynamic)
         ? gasBudget
         : pm(e['Monthly Allowance ($)']);
-      const already    = (isGas(e['Type']) && typeof gasBalance === 'number' && !isNaN(gasBalance))
-        ? Math.max(0, gasBalance)  // use all-time net so balance > allowance → stillNeeds = 0
-        : (alreadyByType[e['Type'] || ''] || 0);
+      const stats      = envStats[e['Type'] || ''] || { balance: 0, fundedMonth: 0, spentMonth: 0 };
+      // Month window for every envelope, Gas included (the all-time gas balance used to
+      // stand in here; it is still shown on the row and in the gas tile, not counted).
+      const funded     = alreadyByType[e['Type'] || ''] || 0;
+      const already    = funded;
       const stillNeeds = Math.max(0, allowance - already);
       return {
         type:      e['Type']    || '',
@@ -76,6 +83,9 @@ function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = n
         allowance,
         already,
         stillNeeds,
+        balance:     stats.balance,
+        fundedMonth: funded,
+        spentMonth:  stats.spentMonth,
       };
     })
     .sort((a, b) => a.priority - b.priority || b.allowance - a.allowance);
@@ -115,6 +125,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   const [copied,        setCopied]       = useState(false);
   const [alreadyByType, setAlreadyByType] = useState({});
   const [alreadyRows,   setAlreadyRows]  = useState([]);
+  const [envStats,      setEnvStats]     = useState({});
   const [histLoading,   setHistLoading]  = useState(true);
   const [dueDates] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch { return {}; }
@@ -175,6 +186,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         const [, ...data] = rows;
         const allValid = data.filter(r => r[0]);
         const map = {};
+        const stats = {};
 
         allValid.forEach(r => {
           const type = String(r[1] || '');
@@ -183,20 +195,22 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           if (!d) return;
           const amt = pm(r[2]);
           const isCurrentMonth = d.getMonth() + 1 === mo && d.getFullYear() === yr;
-          const isIncomeRow    = String(r[3] || '').toLowerCase().startsWith('income processed');
 
-          if ((types[type] || 'monthly') === 'running') {
-            // All-time net: count every positive deposit AND every negative spend
-            map[type] = (map[type] || 0) + amt;
-          } else {
-            // Monthly: only current-month income-processed deposits
-            if (isCurrentMonth && amt > 0 && isIncomeRow) {
-              map[type] = (map[type] || 0) + amt;
-            }
-          }
+          const st = stats[type] || (stats[type] = { balance: 0, fundedMonth: 0, spentMonth: 0 });
+          st.balance += amt;                                   // what the envelope holds now
+          if (isCurrentMonth && amt > 0) st.fundedMonth += amt; // everything that landed in it this month
+          if (isCurrentMonth && amt < 0) st.spentMonth += -amt; // everything that left it this month
+
+          // Accrued this month = every deposit that landed in the envelope between the 1st
+          // and the last day of the current month: a paycheck split, a manual "Funded -"
+          // row, a reimbursement. (Counting only "Income processed" rows made the engine
+          // fund an envelope twice after a manual top-up; an all-time "running" figure
+          // made it skip envelopes that legitimately need this month's allowance.)
+          if (isCurrentMonth && amt > 0) map[type] = (map[type] || 0) + amt;
         });
 
         setAlreadyByType(map);
+        setEnvStats(stats);
 
         // Diagnostic row list: current-month income rows only (for header breakdown)
         setAlreadyRows(
@@ -218,8 +232,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   const [manualMode, setManualMode] = useState(false);
   const [overrides,  setOverrides]  = useState({});
   const baseDeposits   = useMemo(
-    () => calcDeposits(expenses, amount, mode, alreadyByType, gasBalance, gasBudget),
-    [expenses, amount, mode, alreadyByType, gasBalance, gasBudget]
+    () => calcDeposits(expenses, amount, mode, alreadyByType, gasBalance, gasBudget, envStats),
+    [expenses, amount, mode, alreadyByType, gasBalance, gasBudget, envStats]
   );
   // In manual mode, each category's deposit can be overridden by hand; rows the user
   // hasn't touched keep their auto-suggested figure. Everything downstream (tier
@@ -241,11 +255,11 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     if (isGas(e['Type']) && gasDynamic) return s + gasBudget;
     return s + pm(e['Monthly Allowance ($)']);
   }, 0);
-  // "Already" must use the gas all-time balance for Gas (not the monthly alloc map),
-  // mirroring calcDeposits — otherwise the header "% covered" double-counts gas.
-  const hasGasItem     = expenses.some(e => isGas(e['Type']));
-  const totalAlready   = Object.entries(alreadyByType).reduce((s, [t, v]) => isGas(t) ? s : s + v, 0)
-    + (hasGasItem && typeof gasBalance === 'number' && !isNaN(gasBalance) ? Math.max(0, gasBalance) : 0);
+  // Accrued this month across all envelopes - the same month-window figure the engine uses.
+  const totalAlready   = Object.values(alreadyByType).reduce((s, v) => s + v, 0);
+  const totalHoldings  = expenses.reduce((s, e) => s + ((envStats[e['Type'] || ''] || {}).balance || 0), 0);
+  const totalSpentMo   = expenses.reduce((s, e) => s + ((envStats[e['Type'] || ''] || {}).spentMonth || 0), 0);
+  const fullEnvelopes  = deposits.filter(d => d.allowance > 0 && d.balance >= d.allowance).length;
   const totalCovered   = totalAlready + amount;
   const stillNeeded    = Math.max(0, totalAllowance - totalCovered);
   const coveragePct    = totalAllowance > 0 ? (totalCovered / totalAllowance) * 100 : 0;
@@ -362,18 +376,17 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
       ? `Income processed: ${fmt(amount)} from ${source}`
       : `Income processed: ${fmt(amount)}`;
     try {
+      // One block write for the whole paycheck (see appendRows): all-or-nothing.
+      const rows = [];
       for (const d of deposits) {
         if (d.deposit <= 0) continue;
-        await appendRow(token, 'Allocation Transactions!A:F', [
-          date, d.type, parseFloat(d.deposit.toFixed(2)), desc, d.account, true,
-        ]);
+        rows.push([date, d.type, parseFloat(d.deposit.toFixed(2)), desc, d.account, true]);
       }
       for (const it of surplusDeposits) {
         if (it.deposit <= 0 || !it.name?.trim()) continue;
-        await appendRow(token, 'Allocation Transactions!A:F', [
-          date, it.name.trim(), parseFloat(it.deposit.toFixed(2)), desc + ' [surplus]', it.account, true,
-        ]);
+        rows.push([date, it.name.trim(), parseFloat(it.deposit.toFixed(2)), desc + ' [surplus]', it.account, true]);
       }
+      await appendRows(token, 'Allocation Transactions!A:F', rows);
       setDone(true);
       onProcessed?.(amount);
     } catch (e) {
@@ -501,9 +514,15 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                 className="text-left mt-0.5"
               >
                 <p className="text-slate-400 text-xs underline decoration-dotted underline-offset-2">
-                  {fmt(totalAlready)} covered (deposits + running balances)
-                  <span className="text-slate-600 ml-1">({alreadyRows.length} rows this month) {showBreakdown ? '▲' : '▼'}</span>
+                  {fmt(totalAlready)} accrued this month (1st → today) · envelopes hold {fmt(totalHoldings)}
+                  {totalSpentMo > 0 && <span className="text-slate-500"> · {fmt(totalSpentMo)} spent this month</span>}
+                  <span className="text-slate-600 ml-1">({alreadyRows.length} rows) {showBreakdown ? '▲' : '▼'}</span>
                 </p>
+                {fullEnvelopes > 0 && (
+                  <p className="text-amber-400/90 text-[11px] mt-0.5" title="Information only: the engine always measures what accrued this calendar month.">
+                    {fullEnvelopes} envelope{fullEnvelopes === 1 ? '' : 's'} hold{fullEnvelopes === 1 ? 's' : ''} more than a month's allowance right now.
+                  </p>
+                )}
               </button>
             )}
             {showBreakdown && (
@@ -552,6 +571,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
             >
               ⚖️ Proportional
             </button>
+
           </div>
           <p className="text-slate-500 text-[10px] mt-1.5 cursor-help"
             title={mode === 'priority'
@@ -960,6 +980,17 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                           </span>
                           <span className="text-slate-600 text-[10px]">·</span>
                           <span className="text-slate-500 text-[10px]">goal {fmt(d.allowance)}</span>
+                          <span className="text-slate-600 text-[10px]">·</span>
+                          <span className={`text-[10px] ${d.balance < 0 ? 'text-rose-400' : d.allowance > 0 && d.balance >= d.allowance ? 'text-amber-400' : 'text-slate-500'}`}
+                            title="What this envelope holds right now (every deposit minus every spend in the log)">
+                            holds {fmt(d.balance)}{d.allowance > 0 && d.balance > 0 ? ` (${(d.balance / d.allowance).toFixed(1)}× monthly)` : ''}
+                          </span>
+                          {d.spentMonth > 0 && (
+                            <>
+                              <span className="text-slate-600 text-[10px]">·</span>
+                              <span className="text-slate-500 text-[10px]">spent {fmt(d.spentMonth)} this month</span>
+                            </>
+                          )}
                           {dueDates[d.type] != null && d.stillNeeds > 0 && (() => {
                             const diff = dueDates[d.type] - todayDay;
                             if (diff < 0) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 font-medium">⚠ Past due</span>;
