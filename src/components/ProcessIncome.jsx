@@ -11,6 +11,12 @@ const ACCOUNT_ICONS = {
 };
 
 const PRIORITY_LABEL = { 1: 'Essential', 2: 'Stability', 3: 'Optional' };
+// Every dollar of a paycheck is written to the log. Income that no envelope needs and
+// no surplus bucket claims lands here (a suspense envelope, in accounting terms) so the
+// log's month income equals what was actually received. Two paychecks (2026-05-20,
+// 2026-09-01) silently dropped $945.33 before this existed; see ops/JOURNAL.md.
+const UNASSIGNED = 'Unassigned';
+const UNASSIGNED_ACCOUNT = 'Checking';
 const ACCOUNT_ORDER  = ['Checking', 'Outside Payment', 'Savings', 'Cash', 'Business Tax', 'Subscription'];
 
 function fmt(n)  { return (n != null && !isNaN(n)) ? `$${Number(n).toFixed(2)}` : '—'; }
@@ -182,7 +188,7 @@ function CoverageChip({ coverage }) {
   return                     <span className="text-[10px] font-medium text-rose-400   bg-rose-900/40   px-1.5 py-0.5 rounded-full">✗ Unfunded</span>;
 }
 
-export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose, defaultIncome, onProcessed, gasBalance, gasBudget = null }) {
+export default function ProcessIncome({ expenses, token, onClose, defaultIncome, onProcessed, gasBalance, gasBudget = null }) {
   const [income,        setIncome]       = useState(defaultIncome > 0 ? String(defaultIncome.toFixed(2)) : '');
   const [source,        setSource]       = useState('');
   const [mode,          setMode]         = useState('priority');
@@ -390,6 +396,8 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     const deposit = surplusTotalWeight > 0 && surplus > 0 ? (weight / surplusTotalWeight) * surplus : 0;
     return { ...it, deposit };
   });
+  // Surplus that no named bucket claims (no buckets, blank names, zero weights).
+  const unassigned = Math.max(0, surplus - surplusDeposits.reduce((s, it) => s + (it.name?.trim() ? it.deposit : 0), 0));
 
   function addTemplate() {
     const amt = parseFloat(income);
@@ -466,6 +474,9 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         if (it.deposit <= 0 || !it.name?.trim()) continue;
         rows.push([date, it.name.trim(), parseFloat(it.deposit.toFixed(2)), desc + ' [surplus]', it.account, true]);
       }
+      if (unassigned > 0.005) {
+        rows.push([date, UNASSIGNED, parseFloat(unassigned.toFixed(2)), desc + ' [unassigned]', UNASSIGNED_ACCOUNT, true]);
+      }
       await appendRows(token, 'Allocation Transactions!A:F', rows);
       setDone(true);
       onProcessed?.(amount);
@@ -494,6 +505,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
         lines.push(`  • ${it.name} (${it.account}): ${fmt(it.deposit)} — weight ${wt} = ${share}% of surplus`);
       });
     }
+    if (unassigned > 0.005) lines.push(`⏸ ${UNASSIGNED} (${UNASSIGNED_ACCOUNT}): ${fmt(unassigned)} — not needed by any envelope, parked`);
     navigator.clipboard.writeText(lines.join('\n'));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -507,11 +519,14 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
           <div className="text-5xl">✅</div>
           <h2 className="text-white text-xl font-bold">Income Processed!</h2>
           <p className="text-slate-400 text-sm">
-            {deposits.filter(d => d.deposit > 0).length + surplusDeposits.filter(it => it.deposit > 0 && it.name?.trim()).length} deposits totalling{' '}
+            {deposits.filter(d => d.deposit > 0).length + surplusDeposits.filter(it => it.deposit > 0 && it.name?.trim()).length + (unassigned > 0.005 ? 1 : 0)} deposits totalling{' '}
             <span className="text-emerald-400 font-semibold">{fmt(amount)}</span> logged using{' '}
             <span className="text-blue-400">{mode === 'priority' ? 'priority-first' : 'proportional'}</span> allocation
             {surplus > 0.01 && surplusDeposits.some(it => it.deposit > 0) && (
               <>, with <span className="text-emerald-400">{fmt(surplus)}</span> surplus distributed by weight</>
+            )}
+            {unassigned > 0.005 && (
+              <>, <span className="text-amber-300">{fmt(unassigned)}</span> parked in {UNASSIGNED} ({UNASSIGNED_ACCOUNT}) until you move it</>
             )}.
           </p>
           <button onClick={onClose} className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors">
@@ -690,9 +705,9 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
                   </tbody>
                 );
               })}
-              {namedSurplus.length > 0 && (
+              {(namedSurplus.length > 0 || unassigned > 0.005) && (
                 <tbody className="border-t border-slate-700/60">
-                  <tr className="bg-slate-900/60"><td colSpan={3} className="px-2 py-1 text-[10px] font-semibold text-amber-300">💰 Surplus (by weight)</td><td className="hidden sm:table-cell"></td><td className="px-1 py-1 text-right text-[10px] font-mono text-amber-300">{money(surplus)}</td><td></td></tr>
+                  <tr className="bg-slate-900/60"><td colSpan={3} className="px-2 py-1 text-[10px] font-semibold text-amber-300">💰 Surplus{namedSurplus.length > 0 ? ' (by weight)' : ''}</td><td className="hidden sm:table-cell"></td><td className="px-1 py-1 text-right text-[10px] font-mono text-amber-300">{money(surplus)}</td><td></td></tr>
                   {namedSurplus.map(it => (
                     <tr key={it.id} className="border-t border-slate-700/30">
                       <td className="px-2 py-1.5 text-slate-200 truncate">{it.name.trim()} <span className="text-slate-500 text-[9px]">· {it.account || 'Savings'} · ×{it.weight}</span></td>
@@ -702,15 +717,24 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
                       <td></td>
                     </tr>
                   ))}
+                  {unassigned > 0.005 && (
+                    <tr className="border-t border-slate-700/30">
+                      <td className="px-2 py-1.5 text-slate-200 truncate" title="No envelope needs it and no bucket claims it; logged so the month's income stays whole. Move it from the Budget page.">{UNASSIGNED} <span className="text-slate-500 text-[9px]">· {UNASSIGNED_ACCOUNT} · parked</span></td>
+                      <td colSpan={2}></td>
+                      <td className="hidden sm:table-cell"></td>
+                      <td className="px-1 py-1.5 text-right font-mono text-amber-300">{money0(unassigned)}</td>
+                      <td></td>
+                    </tr>
+                  )}
                 </tbody>
               )}
               <tfoot>
                 <tr className="border-t-2 border-slate-600 bg-slate-800/90 font-semibold">
-                  <td className="px-2 py-2 text-slate-300">Total <span className="text-slate-500 font-normal">({deposits.filter(d => d.deposit > 0.005).length + namedSurplus.length} deposits)</span></td>
+                  <td className="px-2 py-2 text-slate-300">Total <span className="text-slate-500 font-normal">({deposits.filter(d => d.deposit > 0.005).length + namedSurplus.length + (unassigned > 0.005 ? 1 : 0)} deposits)</span></td>
                   <td className="px-1 py-2 text-right font-mono text-slate-300">{money0(totalAllowance)}</td>
                   <td className="px-1 py-2 text-right font-mono text-slate-400">{money0(totalAlready)}</td>
                   <td className="px-1 py-2 text-right font-mono text-slate-400 hidden sm:table-cell">{money0(deposits.reduce((s, d) => s + d.stillNeeds + (d.deficitPaid || 0), 0))}</td>
-                  <td className="px-1 py-2 text-right font-mono text-emerald-400">{amount > 0 ? money0(totalDeposited + namedSurplus.reduce((s, it) => s + it.deposit, 0)) : '—'}</td>
+                  <td className="px-1 py-2 text-right font-mono text-emerald-400">{amount > 0 ? money0(totalDeposited + namedSurplus.reduce((s, it) => s + it.deposit, 0) + unassigned) : '—'}</td>
                   <td className="pl-1 pr-2 py-2 text-right font-mono text-white">{money0(totalHoldings + totalDeposited)}</td>
                 </tr>
               </tfoot>
@@ -725,7 +749,7 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
           <div className="mx-4 mb-4">
             <button onClick={() => setShowMore(v => !v)} className="w-full text-left text-[11px] text-slate-500 hover:text-slate-300 py-1.5">
               {showMore ? '▾' : '▸'} More — quick-fill, saved splits, surplus buckets, this month's rows
-              {surplus > 0.005 && surplusItems.length === 0 && <span className="text-amber-300"> · {money0(surplus)} surplus has no buckets yet</span>}
+              {unassigned > 0.005 && <span className="text-amber-300"> · {money0(unassigned)} will be parked in {UNASSIGNED} (add buckets to place it)</span>}
             </button>
             {showMore && (
               <div className="space-y-4 text-xs pt-1">
@@ -836,14 +860,14 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
         {/* Actions */}
         <div className="p-3 border-t border-slate-700 flex gap-2 shrink-0 items-center">
           {logError && <p className="text-rose-400 text-xs flex-1 truncate" title={logError}>{logError}</p>}
-          {!logError && <p className="text-slate-500 text-[11px] flex-1 truncate">{amount > 0 ? `${mode === 'priority' ? 'Priority' : 'Proportional'} · ${money0(totalDeposited + namedSurplus.reduce((s, it) => s + it.deposit, 0))} of ${money0(amount)} placed` : 'Enter an amount to see the plan'}</p>}
+          {!logError && <p className="text-slate-500 text-[11px] flex-1 truncate">{amount > 0 ? `${mode === 'priority' ? 'Priority' : 'Proportional'} · ${money0(totalDeposited + namedSurplus.reduce((s, it) => s + it.deposit, 0))} placed${unassigned > 0.005 ? ` · ${money0(unassigned)} parked` : ''} of ${money0(amount)}` : 'Enter an amount to see the plan'}</p>}
           <button onClick={copyText} disabled={!(amount > 0)} className="py-2.5 px-3 rounded-xl bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-white text-sm">{copied ? '✓' : '📋'}</button>
           <button
             onClick={handleProcess}
             disabled={logging || histLoading || !(amount > 0)}
             className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-sm font-bold transition-colors"
           >
-            {logging ? 'Logging…' : `✓ Process ${deposits.filter(d => d.deposit > 0.005).length + namedSurplus.length} deposits`}
+            {logging ? 'Logging…' : `✓ Process ${deposits.filter(d => d.deposit > 0.005).length + namedSurplus.length + (unassigned > 0.005 ? 1 : 0)} deposits`}
           </button>
         </div>
       </div>

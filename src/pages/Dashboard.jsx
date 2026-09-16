@@ -6158,7 +6158,6 @@ ${stmtTxns.length ? `
         <ProcessIncome
           expenses={expenses}
           token={token}
-          alreadyProcessed={income}
           gasBalance={gasBalance}
           gasBudget={gasBudget}
           onClose={() => setShowIncome(false)}

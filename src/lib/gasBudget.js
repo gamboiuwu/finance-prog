@@ -84,11 +84,16 @@ export async function fetchRemoteGasBudget(token) {
 
 export async function saveRemoteGasBudget(token, record) {
   if (!token || !record || typeof record.value !== 'number' || !(record.value > 0)) return;
-  try {
-    await ensureSheetTab(token, SETTINGS_TAB);
+  const write = async () => {
     await updateCell(token, GAS_LABEL_CELL, 'Gas budget (dynamic, JSON) - do not edit');
     await updateCell(token, GAS_VAL_CELL, JSON.stringify(record));
-  } catch { /* best effort */ }
+  };
+  try {
+    await write();
+  } catch {
+    // Only a missing tab warrants the addSheet call (it 400s when the tab exists).
+    try { await ensureSheetTab(token, SETTINGS_TAB); await write(); } catch { /* best effort */ }
+  }
 }
 
 // Reconcile the local cache with the shared copy: adopt the newer one, push ours
