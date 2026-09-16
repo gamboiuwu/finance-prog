@@ -51,18 +51,48 @@ const isGas = (type) => String(type || '').trim().toLowerCase() === 'gas';
 // Proportional mode: distribute proportionally across remaining gaps.
 // gasBalance: all-time running net for Gas (from Dashboard); if provided, Gas uses this
 // instead of the monthly-only allocated amount so we never over-deposit into Gas.
-// THE RULE (owner, 2026-09-16): what has ALREADY accrued to an envelope is measured over
-// the calendar month - from the 1st to the last day - at all times. Not a rolling window,
-// not an all-time balance, not a per-device setting. `alreadyByType` is exactly that:
-// every deposit that landed in the envelope this month. What the envelope holds overall
-// (envStats.balance) is shown on each row for judgement, never fed into the arithmetic.
-function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = null, gasBudget = null, envStats = {}) {
+// ── Funding policies (owner, 2026-09-16) ─────────────────────────────────────
+// What has ALREADY accrued to an envelope, and what it is aiming at, depends on the
+// envelope's policy. The policy comes from the sheet so every device agrees:
+//   monthly      accrued = deposits this calendar month (1st -> last day, at all times);
+//                target  = the monthly allowance.                        [default]
+//   running      accrued = the envelope's all-time balance; target = the total budget
+//                (Gas: the live dynamic gas budget). A reserve, not a monthly amount.
+//   target-date  accrued = the all-time balance toward a target; this month's need is
+//                (target - balance) / months left until the date. Comes from a Plans
+//                row whose Name matches the envelope (Target, Target Date), or an
+//                explicit policy. Prepared now, activates when such a row exists.
+// Resolution order: a `Policy` column in Monthly Expenses (monthly|running|target),
+// else Gas -> running, else a matching Plan with a target date -> target-date, else
+// the legacy per-device 'running' flag from the Budget page, else monthly.
+export function policyFor(e, plansByName = {}, balTypes = {}) {
+  const type = String(e['Type'] || '').trim();
+  const col  = String(e['Policy'] || '').trim().toLowerCase();
+  if (col === 'running' || col === 'monthly') return { policy: col };
+  if (col === 'target' || col === 'target-date') return { policy: 'target-date', plan: plansByName[type.toLowerCase()] || null };
+  if (isGas(type)) return { policy: 'running' };
+  const plan = plansByName[type.toLowerCase()];
+  if (plan && plan.target > 0 && plan.targetDate) return { policy: 'target-date', plan };
+  if ((balTypes[type] || 'monthly') === 'running') return { policy: 'running' };
+  return { policy: 'monthly' };
+}
+
+// Whole months from `now` to `date` (a Date), never less than 1.
+export function monthsLeft(date, now = new Date()) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) return 1;
+  const m = (date.getFullYear() - now.getFullYear()) * 12 + (date.getMonth() - now.getMonth()) + (date.getDate() >= now.getDate() ? 1 : 0);
+  return Math.max(1, m);
+}
+
+function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = null, gasBudget = null, envStats = {}, policies = {}) {
   if (!income) return [];
   const isGasDynamic = typeof gasBudget === 'number' && !isNaN(gasBudget) && gasBudget > 0;
   const eligible = expenses
     // Gas is always eligible when we have a live dynamic budget, even if the sheet
     // allowance is 0/stale — the real target comes from the gas price.
-    .filter(e => pm(e['Monthly Allowance ($)']) > 0 || (isGas(e['Type']) && isGasDynamic))
+    .filter(e => pm(e['Monthly Allowance ($)']) > 0 || (isGas(e['Type']) && isGasDynamic)
+      // A target-date envelope is defined by its plan, not by a monthly allowance.
+      || (policies[e['Type'] || '']?.policy === 'target-date' && policies[e['Type'] || '']?.plan))
     .map(e => {
       // Gas uses the live dynamic budget (scales with gas price) instead of the
       // static sheet allowance, so the target is the ~$185 reserve, not $120.
@@ -70,20 +100,36 @@ function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = n
         ? gasBudget
         : pm(e['Monthly Allowance ($)']);
       const stats      = envStats[e['Type'] || ''] || { balance: 0, fundedMonth: 0, spentMonth: 0 };
-      // Month window for every envelope, Gas included (the all-time gas balance used to
-      // stand in here; it is still shown on the row and in the gas tile, not counted).
-      const funded     = alreadyByType[e['Type'] || ''] || 0;
-      const already    = funded;
-      const stillNeeds = Math.max(0, allowance - already);
+      const funded     = alreadyByType[e['Type'] || ''] || 0;          // this calendar month
+      const balance    = (isGas(e['Type']) && typeof gasBalance === 'number' && !isNaN(gasBalance) && !envStats[e['Type'] || ''])
+        ? gasBalance : stats.balance;                                     // all-time
+      const pol        = policies[e['Type'] || ''] || { policy: 'monthly' };
+      let target = allowance;     // what this envelope is aiming at
+      let already = funded;       // what counts as accrued toward it
+      let pace = null;            // target-date: {monthsLeft, perMonth, remaining}
+      if (pol.policy === 'running') {
+        already = Math.max(0, balance);
+      } else if (pol.policy === 'target-date' && pol.plan) {
+        const remaining = Math.max(0, pol.plan.target - Math.max(0, balance));
+        const ml        = monthsLeft(pol.plan.targetDate);
+        const perMonth  = remaining / ml;
+        pace   = { monthsLeft: ml, perMonth, remaining, target: pol.plan.target, targetDate: pol.plan.targetDate };
+        target = Math.min(remaining, Math.max(perMonth, 0));   // this month's share of the target
+        already = funded;                                      // what went in this month toward it
+      }
+      const stillNeeds = Math.max(0, target - already);
       return {
         type:      e['Type']    || '',
         account:   e['Account'] || 'Other',
         expense:   e['Expense'] || '',
         priority:  parseInt(e['Priority']) || 2,
-        allowance,
+        allowance: target,
+        monthlyAllowance: pm(e['Monthly Allowance ($)']),
         already,
         stillNeeds,
-        balance:     stats.balance,
+        policy:      pol.policy,
+        pace,
+        balance,
         fundedMonth: funded,
         spentMonth:  stats.spentMonth,
       };
@@ -126,6 +172,9 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   const [alreadyByType, setAlreadyByType] = useState({});
   const [alreadyRows,   setAlreadyRows]  = useState([]);
   const [envStats,      setEnvStats]     = useState({});
+  // Plans tab rows by lower-cased name: { target, saved, perMonth, targetDate } - the source of
+  // target-date policies. Loaded alongside the log; absent tab = no target-date envelopes.
+  const [plansByName,   setPlansByName]  = useState({});
   const [histLoading,   setHistLoading]  = useState(true);
   const [dueDates] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch { return {}; }
@@ -181,6 +230,26 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     try { types = JSON.parse(localStorage.getItem('_fin_budget_balance_type') || '{}'); } catch {}
     setBalTypes(types);
 
+    readRange(token, 'Plans!A:K', 'UNFORMATTED_VALUE')
+      .then(rows => {
+        const [head, ...data] = rows || [];
+        if (!head) return;
+        const col = n => head.findIndex(h => String(h).trim().toLowerCase() === n);
+        const iName = col('name'), iTarget = col('target'), iSaved = col('saved'), iPer = col('per month'), iDate = col('target date'), iStatus = col('status');
+        const byName = {};
+        data.forEach(r => {
+          const name = String(r[iName] || '').trim();
+          if (!name) return;
+          if (iStatus >= 0 && r[iStatus] && String(r[iStatus]).toLowerCase() !== 'active') return;
+          byName[name.toLowerCase()] = {
+            target: pm(r[iTarget]), saved: pm(r[iSaved]), perMonth: pm(r[iPer]),
+            targetDate: iDate >= 0 ? parseSheetDate(r[iDate]) : null,
+          };
+        });
+        setPlansByName(byName);
+      })
+      .catch(() => {});
+
     readRange(token, 'Allocation Transactions!A:F', 'UNFORMATTED_VALUE')
       .then(rows => {
         const [, ...data] = rows;
@@ -231,9 +300,14 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
   // `overrides` = { [type]: editedAmountString }. Off by default → pure auto-split.
   const [manualMode, setManualMode] = useState(false);
   const [overrides,  setOverrides]  = useState({});
+  const policies = useMemo(() => {
+    const out = {};
+    expenses.forEach(e => { out[e['Type'] || ''] = policyFor(e, plansByName, balTypes); });
+    return out;
+  }, [expenses, plansByName, balTypes]);
   const baseDeposits   = useMemo(
-    () => calcDeposits(expenses, amount, mode, alreadyByType, gasBalance, gasBudget, envStats),
-    [expenses, amount, mode, alreadyByType, gasBalance, gasBudget, envStats]
+    () => calcDeposits(expenses, amount, mode, alreadyByType, gasBalance, gasBudget, envStats, policies),
+    [expenses, amount, mode, alreadyByType, gasBalance, gasBudget, envStats, policies]
   );
   // In manual mode, each category's deposit can be overridden by hand; rows the user
   // hasn't touched keep their auto-suggested figure. Everything downstream (tier
@@ -250,16 +324,14 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
     });
   }, [baseDeposits, manualMode, overrides, amount]);
   const gasDynamic     = typeof gasBudget === 'number' && gasBudget > 0;
-  const totalAllowance = expenses.reduce((s, e) => {
-    // Gas contributes its live dynamic budget to the monthly goal, not the static sheet value.
-    if (isGas(e['Type']) && gasDynamic) return s + gasBudget;
-    return s + pm(e['Monthly Allowance ($)']);
-  }, 0);
-  // Accrued this month across all envelopes - the same month-window figure the engine uses.
-  const totalAlready   = Object.values(alreadyByType).reduce((s, v) => s + v, 0);
+  // The goal this deposit is measured against: each envelope's policy-aware target.
+  const totalAllowance = baseDeposits.reduce((s, d) => s + d.allowance, 0);
+  // Accrued toward each envelope's target under its policy (monthly window, running
+  // balance, or target pace) - the same figures the engine fills against.
+  const totalAlready   = baseDeposits.reduce((s, d) => s + d.already, 0);
   const totalHoldings  = expenses.reduce((s, e) => s + ((envStats[e['Type'] || ''] || {}).balance || 0), 0);
   const totalSpentMo   = expenses.reduce((s, e) => s + ((envStats[e['Type'] || ''] || {}).spentMonth || 0), 0);
-  const fullEnvelopes  = deposits.filter(d => d.allowance > 0 && d.balance >= d.allowance).length;
+  const fullEnvelopes  = deposits.filter(d => d.policy === 'monthly' && d.monthlyAllowance > 0 && d.balance >= d.monthlyAllowance).length;
   const totalCovered   = totalAlready + amount;
   const stillNeeded    = Math.max(0, totalAllowance - totalCovered);
   const coveragePct    = totalAllowance > 0 ? (totalCovered / totalAllowance) * 100 : 0;
@@ -514,7 +586,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                 className="text-left mt-0.5"
               >
                 <p className="text-slate-400 text-xs underline decoration-dotted underline-offset-2">
-                  {fmt(totalAlready)} accrued this month (1st → today) · envelopes hold {fmt(totalHoldings)}
+                  {fmt(totalAlready)} accrued toward this month's targets · envelopes hold {fmt(totalHoldings)}
                   {totalSpentMo > 0 && <span className="text-slate-500"> · {fmt(totalSpentMo)} spent this month</span>}
                   <span className="text-slate-600 ml-1">({alreadyRows.length} rows) {showBreakdown ? '▲' : '▼'}</span>
                 </p>
@@ -979,11 +1051,20 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                             P{d.priority} {PRIORITY_LABEL[d.priority]}
                           </span>
                           <span className="text-slate-600 text-[10px]">·</span>
-                          <span className="text-slate-500 text-[10px]">goal {fmt(d.allowance)}</span>
+                          <span className="text-slate-500 text-[10px]">goal {fmt(d.allowance)}{d.policy === 'target-date' && d.pace ? '/mo' : ''}</span>
+                          {d.policy === 'running' && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-900/60 text-sky-300" title="Running balance: what the envelope holds counts toward its total budget">running</span>
+                          )}
+                          {d.policy === 'target-date' && d.pace && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fuchsia-900/60 text-fuchsia-300"
+                              title={`${fmt(d.pace.remaining)} still to collect for a ${fmt(d.pace.target)} target in ${d.pace.monthsLeft} month${d.pace.monthsLeft === 1 ? '' : 's'}`}>
+                              → {fmt(d.pace.target)} by {d.pace.targetDate ? `${d.pace.targetDate.getMonth() + 1}/${d.pace.targetDate.getFullYear()}` : 'date'}
+                            </span>
+                          )}
                           <span className="text-slate-600 text-[10px]">·</span>
-                          <span className={`text-[10px] ${d.balance < 0 ? 'text-rose-400' : d.allowance > 0 && d.balance >= d.allowance ? 'text-amber-400' : 'text-slate-500'}`}
+                          <span className={`text-[10px] ${d.balance < 0 ? 'text-rose-400' : d.monthlyAllowance > 0 && d.balance >= d.monthlyAllowance && d.policy === 'monthly' ? 'text-amber-400' : 'text-slate-500'}`}
                             title="What this envelope holds right now (every deposit minus every spend in the log)">
-                            holds {fmt(d.balance)}{d.allowance > 0 && d.balance > 0 ? ` (${(d.balance / d.allowance).toFixed(1)}× monthly)` : ''}
+                            holds {fmt(d.balance)}{d.policy === 'monthly' && d.monthlyAllowance > 0 && d.balance > 0 ? ` (${(d.balance / d.monthlyAllowance).toFixed(1)}× monthly)` : ''}
                           </span>
                           {d.spentMonth > 0 && (
                             <>
