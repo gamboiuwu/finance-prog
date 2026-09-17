@@ -51,6 +51,7 @@ export default function AuditReports() {
   const job = st?.job;
   const docLabel = (d) => d.startsWith('Audit') ? 'Audit — controls, exceptions, reconciliation'
     : d.startsWith('Register') ? 'Register — every transaction, running balance'
+    : d.startsWith('Business') ? 'Business — sales, pool spending, expenses, pool balances'
     : d.replace(/^Statement-(\d{4})-(\d{2})\.pdf$/, (_, y, m) => `Statement — ${new Date(+y, +m - 1, 1).toLocaleString('en-US', { month: 'long' })} ${y}`);
 
   return (
