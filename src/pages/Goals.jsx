@@ -6,6 +6,7 @@
 // goals are measured against personal cash flow, business goals against business
 // revenue vs expenses.
 import { useState, useEffect, useCallback } from 'react';
+import { cents } from '../lib/allocation';
 import { readPlans, savePlan, deletePlan, updatePlanProgress } from '../lib/sheetWrite';
 import { appendRow } from '../lib/sheets';
 import { parsePlans, derivePersonalCashflow, deriveBusinessCashflow } from '../lib/dragonOverview';
@@ -507,7 +508,7 @@ export default function Goals({ token, embedded = false }) {
     try {
       if (goal.scope !== 'business') {
         await appendRow(token, 'Allocation Transactions!A:F', [
-          todayISO(), goal.name, amount,
+          todayISO(), goal.name, cents(amount),
           `Goal contribution: ${goal.name}`, 'Savings', true,
         ]);
       }

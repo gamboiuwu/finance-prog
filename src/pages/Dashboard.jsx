@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { cents } from '../lib/allocation';
 import { useNavigate } from 'react-router-dom';
 import { mergeMonths, chartMonths } from '../lib/monthHistory';
 import { readRange, readReportLinks, appendRow, ensureSheetTab, batchUpdateCells, clearRow } from '../lib/sheets';
@@ -3367,7 +3368,7 @@ export default function Dashboard({ token }) {
     const desc = gasDesc ? `Gas fill-up: ${gasDesc}` : 'Gas fill-up';
     try {
       await appendRow(token, 'Allocation Transactions!A:F', [
-        date, 'Gas', -Math.abs(amt), desc, 'Cash', false,
+        date, 'Gas', -Math.abs(cents(amt)), desc, 'Cash', false,
       ]);
       setGasLogDone(true);
       setGasAmount('');
@@ -3397,7 +3398,7 @@ export default function Dashboard({ token }) {
     const account = matched?.['Account'] || 'Checking';
     try {
       await appendRow(token, 'Allocation Transactions!A:F', [
-        date, expCategory, -Math.abs(amt), desc, account, false,
+        date, expCategory, -Math.abs(cents(amt)), desc, account, false,
       ]);
       setExpLogDone(true);
       setExpAmount('');

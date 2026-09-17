@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { cents } from '../lib/allocation';
 import { readRange, appendRow, updateCell } from '../lib/sheets';
 import { SHEETS, LOCAL_BACKEND } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -101,7 +102,7 @@ function AddModal({ categories, onSave, onClose }) {
   function handleSubmit(e) {
     e.preventDefault();
     if (!form.adjustment || isNaN(parseFloat(form.adjustment))) return;
-    onSave([form.date, form.category, parseFloat(form.adjustment), form.description, form.account, form.status === 'TRUE']);
+    onSave([form.date, form.category, cents(parseFloat(form.adjustment)), form.description, form.account, form.status === 'TRUE']);
   }
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">

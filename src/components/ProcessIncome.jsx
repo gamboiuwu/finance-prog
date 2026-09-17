@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { appendRow, appendRows, readRange } from '../lib/sheets';
+import { calcDeposits, policyFor, monthsLeft, isGas, splitSurplus, planRows, UNASSIGNED, UNASSIGNED_ACCOUNT, pm } from '../lib/allocation';
+export { policyFor, monthsLeft };
 
 const ACCOUNT_ICONS = {
   'Checking':        { icon: '🏧', color: 'text-blue-400',    bg: 'bg-blue-900/30 border-blue-800/40'     },
@@ -11,16 +13,9 @@ const ACCOUNT_ICONS = {
 };
 
 const PRIORITY_LABEL = { 1: 'Essential', 2: 'Stability', 3: 'Optional' };
-// Every dollar of a paycheck is written to the log. Income that no envelope needs and
-// no surplus bucket claims lands here (a suspense envelope, in accounting terms) so the
-// log's month income equals what was actually received. Two paychecks (2026-05-20,
-// 2026-09-01) silently dropped $945.33 before this existed; see ops/JOURNAL.md.
-const UNASSIGNED = 'Unassigned';
-const UNASSIGNED_ACCOUNT = 'Checking';
 const ACCOUNT_ORDER  = ['Checking', 'Outside Payment', 'Savings', 'Cash', 'Business Tax', 'Subscription'];
 
 function fmt(n)  { return (n != null && !isNaN(n)) ? `$${Number(n).toFixed(2)}` : '—'; }
-function pm(val) { const n = parseFloat(String(val || '').replace(/[$,\s]/g, '')); return isNaN(n) ? 0 : n; }
 
 function todayStr() {
   const d = new Date();
@@ -46,140 +41,6 @@ function parseSheetDate(val) {
   if (parts.length === 3)
     return new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
   return null;
-}
-
-// Case/whitespace-insensitive Gas match — the sheet may store "gas" or " Gas ".
-// Must agree with Budget.jsx so the gas-balance override never silently misses.
-const isGas = (type) => String(type || '').trim().toLowerCase() === 'gas';
-
-// Deposits fill each category's *remaining gap* (goal minus already contributed).
-// Priority mode: fill P1 gaps before P2, then P3.
-// Proportional mode: distribute proportionally across remaining gaps.
-// gasBalance: all-time running net for Gas (from Dashboard); if provided, Gas uses this
-// instead of the monthly-only allocated amount so we never over-deposit into Gas.
-// ── Funding policies (owner, 2026-09-16) ─────────────────────────────────────
-// What has ALREADY accrued to an envelope, and what it is aiming at, depends on the
-// envelope's policy. The policy comes from the sheet so every device agrees:
-//   monthly      accrued = deposits this calendar month (1st -> last day, at all times);
-//                target  = the monthly allowance.                        [default]
-//   running      accrued = the envelope's all-time balance; target = the total budget
-//                (Gas: the live dynamic gas budget). A reserve, not a monthly amount.
-//   target-date  accrued = the all-time balance toward a target; this month's need is
-//                (target - balance) / months left until the date. Comes from a Plans
-//                row whose Name matches the envelope (Target, Target Date), or an
-//                explicit policy. Prepared now, activates when such a row exists.
-// Resolution order: a `Policy` column in Monthly Expenses (monthly|running|target),
-// else Gas -> running, else a matching Plan with a target date -> target-date, else
-// the legacy per-device 'running' flag from the Budget page, else monthly.
-export function policyFor(e, plansByName = {}, balTypes = {}) {
-  const type = String(e['Type'] || '').trim();
-  const col  = String(e['Policy'] || '').trim().toLowerCase();
-  if (col === 'running' || col === 'monthly') return { policy: col };
-  if (col === 'target' || col === 'target-date') return { policy: 'target-date', plan: plansByName[type.toLowerCase()] || null };
-  if (isGas(type)) return { policy: 'running' };
-  const plan = plansByName[type.toLowerCase()];
-  if (plan && plan.target > 0 && plan.targetDate) return { policy: 'target-date', plan };
-  if ((balTypes[type] || 'monthly') === 'running') return { policy: 'running' };
-  return { policy: 'monthly' };
-}
-
-// Whole months from `now` to `date` (a Date), never less than 1.
-export function monthsLeft(date, now = new Date()) {
-  if (!(date instanceof Date) || isNaN(date.getTime())) return 1;
-  const m = (date.getFullYear() - now.getFullYear()) * 12 + (date.getMonth() - now.getMonth()) + (date.getDate() >= now.getDate() ? 1 : 0);
-  return Math.max(1, m);
-}
-
-function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBalance = null, gasBudget = null, envStats = {}, policies = {}) {
-  if (!income) return [];
-  const isGasDynamic = typeof gasBudget === 'number' && !isNaN(gasBudget) && gasBudget > 0;
-  const eligible = expenses
-    // Gas is always eligible when we have a live dynamic budget, even if the sheet
-    // allowance is 0/stale — the real target comes from the gas price.
-    .filter(e => pm(e['Monthly Allowance ($)']) > 0 || (isGas(e['Type']) && isGasDynamic)
-      // A target-date envelope is defined by its plan, not by a monthly allowance.
-      || (policies[e['Type'] || '']?.policy === 'target-date' && policies[e['Type'] || '']?.plan))
-    .map(e => {
-      // Gas uses the live dynamic budget (scales with gas price) instead of the
-      // static sheet allowance, so the target is the ~$185 reserve, not $120.
-      const allowance  = (isGas(e['Type']) && isGasDynamic)
-        ? gasBudget
-        : pm(e['Monthly Allowance ($)']);
-      const stats      = envStats[e['Type'] || ''] || { balance: 0, fundedMonth: 0, spentMonth: 0 };
-      const funded     = alreadyByType[e['Type'] || ''] || 0;          // this calendar month
-      const balance    = (isGas(e['Type']) && typeof gasBalance === 'number' && !isNaN(gasBalance) && !envStats[e['Type'] || ''])
-        ? gasBalance : stats.balance;                                     // all-time
-      const pol        = policies[e['Type'] || ''] || { policy: 'monthly' };
-      let target = allowance;     // what this envelope is aiming at
-      let already = funded;       // what counts as accrued toward it
-      let pace = null;            // target-date: {monthsLeft, perMonth, remaining}
-      if (pol.policy === 'running') {
-        // The balance itself, deficit included: at -$5.59 against a $185 budget the
-        // envelope needs $190.59, and the $5.59 is repaid before anything else (below).
-        already = balance;
-      } else if (pol.policy === 'target-date' && pol.plan) {
-        const remaining = Math.max(0, pol.plan.target - Math.max(0, balance));
-        const ml        = monthsLeft(pol.plan.targetDate);
-        const perMonth  = remaining / ml;
-        pace   = { monthsLeft: ml, perMonth, remaining, target: pol.plan.target, targetDate: pol.plan.targetDate };
-        target = Math.min(remaining, Math.max(perMonth, 0));   // this month's share of the target
-        already = funded;                                      // what went in this month toward it
-      }
-      const stillNeeds = Math.max(0, target - already);
-      const deficit    = pol.policy === 'running' && balance < 0 ? -balance : 0;
-      return {
-        deficit,
-        type:      e['Type']    || '',
-        account:   e['Account'] || 'Other',
-        expense:   e['Expense'] || '',
-        priority:  parseInt(e['Priority']) || 2,
-        allowance: target,
-        monthlyAllowance: pm(e['Monthly Allowance ($)']),
-        already,
-        stillNeeds,
-        policy:      pol.policy,
-        pace,
-        balance,
-        fundedMonth: funded,
-        spentMonth:  stats.spentMonth,
-      };
-    })
-    .sort((a, b) => a.priority - b.priority || b.allowance - a.allowance);
-
-  // ── Stage 1: deficits first (owner rule). A running envelope below zero (Gas after a
-  // fill-up bigger than its balance) is repaid off the top of the income, in priority
-  // order, before either allocation mode sees a dollar. Then the envelope competes for
-  // the rest of its budget like everyone else - in proportional mode too.
-  let remaining = income;
-  const repaid = {};
-  for (const e of eligible) {
-    if (e.deficit <= 0 || remaining <= 0) continue;
-    const pay = Math.min(e.deficit, remaining);
-    repaid[e.type] = pay;
-    remaining -= pay;
-  }
-  const staged = eligible.map(e => {
-    const pay = repaid[e.type] || 0;
-    // After repayment the deficit part of stillNeeds is settled; what remains is the budget.
-    return { ...e, deficitPaid: pay, stillNeeds: Math.max(0, e.stillNeeds - pay) };
-  });
-  const finish = (e, deposit) => {
-    const total    = e.deficitPaid + deposit;
-    const coverage = e.allowance > 0 ? Math.max(0, e.already + total) / e.allowance : 0;
-    return { ...e, deposit: total, budgetDeposit: deposit, pct: income > 0 ? total / income : 0, coverage };
-  };
-
-  if (mode === 'proportional') {
-    const totalNeeds = staged.reduce((s, e) => s + e.stillNeeds, 0);
-    return staged.map(e => finish(e, totalNeeds > 0 ? Math.min(e.stillNeeds, (e.stillNeeds / totalNeeds) * remaining) : 0));
-  }
-
-  // Priority-first: fill each category's remaining gap before moving to lower priorities
-  return staged.map(e => {
-    const deposit = Math.min(e.stillNeeds, Math.max(0, remaining));
-    remaining     = Math.max(0, remaining - deposit);
-    return finish(e, deposit);
-  });
 }
 
 function CoverageChip({ coverage }) {
@@ -391,13 +252,9 @@ export default function ProcessIncome({ expenses, token, onClose, defaultIncome,
   // Manual-mode running tally (signed): +ve = still to assign, −ve = over-assigned.
   const leftToAssign = amount - totalDeposited;
   const surplusTotalWeight = surplusItems.reduce((s, it) => s + (parseFloat(it.weight) || 0), 0);
-  const surplusDeposits = surplusItems.map(it => {
-    const weight = parseFloat(it.weight) || 0;
-    const deposit = surplusTotalWeight > 0 && surplus > 0 ? (weight / surplusTotalWeight) * surplus : 0;
-    return { ...it, deposit };
-  });
-  // Surplus that no named bucket claims (no buckets, blank names, zero weights).
-  const unassigned = Math.max(0, surplus - surplusDeposits.reduce((s, it) => s + (it.name?.trim() ? it.deposit : 0), 0));
+  const { deposits: surplusDeposits, unassigned } = splitSurplus(surplus, surplusItems);
+  // Manual mode can over-assign; the plan is then not whole and Process is blocked.
+  const overAssigned = leftToAssign < -0.005;
 
   function addTemplate() {
     const amt = parseFloat(income);
@@ -464,30 +321,9 @@ export default function ProcessIncome({ expenses, token, onClose, defaultIncome,
       ? `Income processed: ${fmt(amount)} from ${source}`
       : `Income processed: ${fmt(amount)}`;
     try {
-      // One block write for the whole paycheck (see appendRows): all-or-nothing.
-      const rows = [];
-      for (const d of deposits) {
-        if (d.deposit <= 0) continue;
-        rows.push([date, d.type, parseFloat(d.deposit.toFixed(2)), desc, d.account, true]);
-      }
-      for (const it of surplusDeposits) {
-        if (it.deposit <= 0 || !it.name?.trim()) continue;
-        rows.push([date, it.name.trim(), parseFloat(it.deposit.toFixed(2)), desc + ' [surplus]', it.account, true]);
-      }
-      if (unassigned > 0.005) {
-        rows.push([date, UNASSIGNED, parseFloat(unassigned.toFixed(2)), desc + ' [unassigned]', UNASSIGNED_ACCOUNT, true]);
-      }
-      // Rounding each row to cents can leave the block a cent or two off the paycheck
-      // (13 rows summed 417.35 for a $417.34 paycheck). Only when the plan itself is
-      // whole (auto mode, or manual mode fully assigned) push the residue onto the
-      // largest row so the log always sums to what was received.
-      const planned = totalDeposited + surplusDeposits.reduce((t, it) => t + (it.name?.trim() ? it.deposit : 0), 0) + unassigned;
-      const logged  = rows.reduce((t, r) => t + r[2], 0);
-      const residue = Math.round((amount - logged) * 100) / 100;
-      if (rows.length && Math.abs(planned - amount) < 0.005 && residue !== 0 && Math.abs(residue) <= 0.05) {
-        const big = rows.reduce((m, r) => (r[2] > m[2] ? r : m), rows[0]);
-        big[2] = Math.round((big[2] + residue) * 100) / 100;
-      }
+      // One block write for the whole paycheck (see appendRows): all-or-nothing, and
+      // planRows guarantees the block equals the paycheck to the cent or throws.
+      const { rows } = planRows({ deposits, surplusDeposits, unassigned, amount, date, desc });
       await appendRows(token, 'Allocation Transactions!A:F', rows);
       setDone(true);
       onProcessed?.(amount);
@@ -516,7 +352,7 @@ export default function ProcessIncome({ expenses, token, onClose, defaultIncome,
         lines.push(`  • ${it.name} (${it.account}): ${fmt(it.deposit)} — weight ${wt} = ${share}% of surplus`);
       });
     }
-    if (unassigned > 0.005) lines.push(`⏸ ${UNASSIGNED} (${UNASSIGNED_ACCOUNT}): ${fmt(unassigned)} — not needed by any envelope, parked`);
+    if (unassigned >= 0.05) lines.push(`⏸ ${UNASSIGNED} (${UNASSIGNED_ACCOUNT}): ${fmt(unassigned)} — not needed by any envelope, parked`);
     navigator.clipboard.writeText(lines.join('\n'));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -530,13 +366,13 @@ export default function ProcessIncome({ expenses, token, onClose, defaultIncome,
           <div className="text-5xl">✅</div>
           <h2 className="text-white text-xl font-bold">Income Processed!</h2>
           <p className="text-slate-400 text-sm">
-            {deposits.filter(d => d.deposit > 0).length + surplusDeposits.filter(it => it.deposit > 0 && it.name?.trim()).length + (unassigned > 0.005 ? 1 : 0)} deposits totalling{' '}
+            {deposits.filter(d => d.deposit > 0).length + surplusDeposits.filter(it => it.deposit > 0 && it.name?.trim()).length + (unassigned >= 0.05 ? 1 : 0)} deposits totalling{' '}
             <span className="text-emerald-400 font-semibold">{fmt(amount)}</span> logged using{' '}
             <span className="text-blue-400">{mode === 'priority' ? 'priority-first' : 'proportional'}</span> allocation
             {surplus > 0.01 && surplusDeposits.some(it => it.deposit > 0) && (
               <>, with <span className="text-emerald-400">{fmt(surplus)}</span> surplus distributed by weight</>
             )}
-            {unassigned > 0.005 && (
+            {unassigned >= 0.05 && (
               <>, <span className="text-amber-300">{fmt(unassigned)}</span> parked in {UNASSIGNED} ({UNASSIGNED_ACCOUNT}) until you move it</>
             )}.
           </p>
@@ -716,7 +552,7 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
                   </tbody>
                 );
               })}
-              {(namedSurplus.length > 0 || unassigned > 0.005) && (
+              {(namedSurplus.length > 0 || unassigned >= 0.05) && (
                 <tbody className="border-t border-slate-700/60">
                   <tr className="bg-slate-900/60"><td colSpan={3} className="px-2 py-1 text-[10px] font-semibold text-amber-300">💰 Surplus{namedSurplus.length > 0 ? ' (by weight)' : ''}</td><td className="hidden sm:table-cell"></td><td className="px-1 py-1 text-right text-[10px] font-mono text-amber-300">{money(surplus)}</td><td></td></tr>
                   {namedSurplus.map(it => (
@@ -728,7 +564,7 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
                       <td></td>
                     </tr>
                   ))}
-                  {unassigned > 0.005 && (
+                  {unassigned >= 0.05 && (
                     <tr className="border-t border-slate-700/30">
                       <td className="px-2 py-1.5 text-slate-200 truncate" title="No envelope needs it and no bucket claims it; logged so the month's income stays whole. Move it from the Budget page.">{UNASSIGNED} <span className="text-slate-500 text-[9px]">· {UNASSIGNED_ACCOUNT} · parked</span></td>
                       <td colSpan={2}></td>
@@ -741,7 +577,7 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
               )}
               <tfoot>
                 <tr className="border-t-2 border-slate-600 bg-slate-800/90 font-semibold">
-                  <td className="px-2 py-2 text-slate-300">Total <span className="text-slate-500 font-normal">({deposits.filter(d => d.deposit > 0.005).length + namedSurplus.length + (unassigned > 0.005 ? 1 : 0)} deposits)</span></td>
+                  <td className="px-2 py-2 text-slate-300">Total <span className="text-slate-500 font-normal">({deposits.filter(d => d.deposit > 0.005).length + namedSurplus.length + (unassigned >= 0.05 ? 1 : 0)} deposits)</span></td>
                   <td className="px-1 py-2 text-right font-mono text-slate-300">{money0(totalAllowance)}</td>
                   <td className="px-1 py-2 text-right font-mono text-slate-400">{money0(totalAlready)}</td>
                   <td className="px-1 py-2 text-right font-mono text-slate-400 hidden sm:table-cell">{money0(deposits.reduce((s, d) => s + d.stillNeeds + (d.deficitPaid || 0), 0))}</td>
@@ -760,7 +596,7 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
           <div className="mx-4 mb-4">
             <button onClick={() => setShowMore(v => !v)} className="w-full text-left text-[11px] text-slate-500 hover:text-slate-300 py-1.5">
               {showMore ? '▾' : '▸'} More — quick-fill, saved splits, surplus buckets, this month's rows
-              {unassigned > 0.005 && <span className="text-amber-300"> · {money0(unassigned)} will be parked in {UNASSIGNED} (add buckets to place it)</span>}
+              {unassigned >= 0.05 && <span className="text-amber-300"> · {money0(unassigned)} will be parked in {UNASSIGNED} (add buckets to place it)</span>}
             </button>
             {showMore && (
               <div className="space-y-4 text-xs pt-1">
@@ -871,14 +707,15 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
         {/* Actions */}
         <div className="p-3 border-t border-slate-700 flex gap-2 shrink-0 items-center">
           {logError && <p className="text-rose-400 text-xs flex-1 truncate" title={logError}>{logError}</p>}
-          {!logError && <p className="text-slate-500 text-[11px] flex-1 truncate">{amount > 0 ? `${mode === 'priority' ? 'Priority' : 'Proportional'} · ${money0(totalDeposited + namedSurplus.reduce((s, it) => s + it.deposit, 0))} placed${unassigned > 0.005 ? ` · ${money0(unassigned)} parked` : ''} of ${money0(amount)}` : 'Enter an amount to see the plan'}</p>}
+          {!logError && <p className="text-slate-500 text-[11px] flex-1 truncate">{amount > 0 ? `${mode === 'priority' ? 'Priority' : 'Proportional'} · ${money0(totalDeposited + namedSurplus.reduce((s, it) => s + it.deposit, 0))} placed${unassigned >= 0.05 ? ` · ${money0(unassigned)} parked` : ''} of ${money0(amount)}` : 'Enter an amount to see the plan'}</p>}
           <button onClick={copyText} disabled={!(amount > 0)} className="py-2.5 px-3 rounded-xl bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-white text-sm">{copied ? '✓' : '📋'}</button>
           <button
             onClick={handleProcess}
-            disabled={logging || histLoading || !(amount > 0)}
+            disabled={logging || histLoading || !(amount > 0) || overAssigned}
+            title={overAssigned ? `Assigned ${fmt(-leftToAssign)} more than the paycheck - reduce a deposit first` : undefined}
             className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-sm font-bold transition-colors"
           >
-            {logging ? 'Logging…' : `✓ Process ${deposits.filter(d => d.deposit > 0.005).length + namedSurplus.length + (unassigned > 0.005 ? 1 : 0)} deposits`}
+            {logging ? 'Logging…' : `✓ Process ${deposits.filter(d => d.deposit > 0.005).length + namedSurplus.length + (unassigned >= 0.05 ? 1 : 0)} deposits`}
           </button>
         </div>
       </div>
