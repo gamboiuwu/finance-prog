@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { readRange, appendRow, updateCell } from '../lib/sheets';
-import { SHEETS } from '../config';
+import { SHEETS, LOCAL_BACKEND } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -496,6 +496,7 @@ export default function Transactions({ token }) {
           className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl px-4 py-2 text-sm font-medium">
           + Add
         </button>
+
       </div>
 
       {/* Search bar */}
@@ -714,6 +715,13 @@ export default function Transactions({ token }) {
             }`}>
             {copied ? '✓' : 'CSV'}
           </button>
+          {LOCAL_BACKEND && (
+            <a href="/reports/" target="_blank" rel="noopener"
+               title="Year audit: controls, exceptions, envelope reconciliation, monthly statements and the full register as PDFs (regenerated nightly)"
+               className="rounded-xl px-3 py-2 text-xs border shrink-0 transition-colors bg-slate-800 text-slate-400 border-slate-700 hover:text-white">
+              Audit
+            </a>
+          )}
           {/* Task 272: announce the CSV copied state to screen readers (dedicated polite region, silent otherwise) */}
           <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
             {copied ? 'Transactions copied to clipboard as CSV' : ''}
