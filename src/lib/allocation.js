@@ -11,7 +11,7 @@
 export const UNASSIGNED = 'Unassigned';
 export const UNASSIGNED_ACCOUNT = 'Checking';
 
-function pm(val) { const n = parseFloat(String(val || '').replace(/[$,\s]/g, '')); return isNaN(n) ? 0 : n; }
+export function pm(val) { const n = parseFloat(String(val || '').replace(/[$,\s]/g, '')); return isNaN(n) ? 0 : n; }
 
 // Case/whitespace-insensitive Gas match — the sheet may store "gas" or " Gas ".
 // Must agree with Budget.jsx so the gas-balance override never silently misses.
