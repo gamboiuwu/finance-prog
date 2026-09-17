@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { readRange, appendRow, updateCell } from '../lib/sheets';
 import { SHEETS, LOCAL_BACKEND } from '../config';
 import LoadingSpinner from '../components/LoadingSpinner';
+import AuditReports from '../components/AuditReports';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const ACCOUNTS  = ['Cash', 'Checking', 'Savings', 'Outside Payment', 'Business Tax', 'Subscription', 'Liabilities'];
@@ -690,6 +691,9 @@ export default function Transactions({ token }) {
         </div>
       )}
 
+      {/* Audit & statements: generate + open the year's PDFs (local backend only) */}
+      {LOCAL_BACKEND && <AuditReports />}
+
       {/* View / Sort / CSV controls */}
       {(filteredRows.length > 0 || rows.length > 0) && (
         <div className="flex items-center gap-2">
@@ -715,13 +719,6 @@ export default function Transactions({ token }) {
             }`}>
             {copied ? '✓' : 'CSV'}
           </button>
-          {LOCAL_BACKEND && (
-            <a href="/reports/" target="_blank" rel="noopener"
-               title="Year audit: controls, exceptions, envelope reconciliation, monthly statements and the full register as PDFs (regenerated nightly)"
-               className="rounded-xl px-3 py-2 text-xs border shrink-0 transition-colors bg-slate-800 text-slate-400 border-slate-700 hover:text-white">
-              Audit
-            </a>
-          )}
           {/* Task 272: announce the CSV copied state to screen readers (dedicated polite region, silent otherwise) */}
           <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
             {copied ? 'Transactions copied to clipboard as CSV' : ''}
