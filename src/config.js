@@ -32,6 +32,8 @@ export const SHEETS = {
   BUSINESS_ACCOUNT_SPENDING: 'Business Account Spending',
   BUSINESS_EXPENSES: 'Business Expenses',
   COMMISSION_PRICES: 'Commission Prices',
+  LOANS: 'Loans',
+  LOAN_PAYMENTS: 'Loan Payments',
 };
 
 export const MONTHS = [

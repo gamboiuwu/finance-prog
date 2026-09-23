@@ -275,3 +275,169 @@ export async function applyPlanToBudget(token, changes) {
   }
   return applied;
 }
+
+// ── Loans ─────────────────────────────────────────────────────────────────────
+// Two tabs: Loans holds one row per debt; Loan Payments is an append-only record
+// of every payment with its interest/principal split, so the Loans tab is always
+// reconstructable from the payment history rather than being a number we trust.
+//
+// Balances live on the loan row because a servicer is the source of truth for
+// them: the user re-reads the statement each quarter and corrects the row. The
+// payment log is what the app itself writes.
+const LOANS_SHEET = 'Loans';
+const LOAN_HEADER = [
+  'ID', 'Borrower', 'Servicer', 'Name', 'Principal', 'Accrued Interest', 'Rate',
+  'Status', 'Subsidized', 'Min Payment', 'Capitalizes On', 'Opened', 'Notes',
+];
+const LOAN_PAYMENTS_SHEET = 'Loan Payments';
+const LOAN_PAYMENT_HEADER = [
+  'Date', 'Loan ID', 'Loan Name', 'Amount', 'To Interest', 'To Principal',
+  'Balance After', 'Paid By', 'Note',
+];
+
+export async function ensureLoansSheet(token) {
+  await ensureSheetTab(token, LOANS_SHEET);
+  const head = await readRange(token, `${LOANS_SHEET}!A1:M1`, 'UNFORMATTED_VALUE').catch(() => []);
+  if (!(head.length && norm(head[0]?.[0]) === 'id')) {
+    await appendRow(token, `${LOANS_SHEET}!A1`, LOAN_HEADER);
+  }
+  return LOANS_SHEET;
+}
+
+export async function ensureLoanPaymentsSheet(token) {
+  await ensureSheetTab(token, LOAN_PAYMENTS_SHEET);
+  const head = await readRange(token, `${LOAN_PAYMENTS_SHEET}!A1:I1`, 'UNFORMATTED_VALUE').catch(() => []);
+  if (!(head.length && norm(head[0]?.[0]) === 'date')) {
+    await appendRow(token, `${LOAN_PAYMENTS_SHEET}!A1`, LOAN_PAYMENT_HEADER);
+  }
+  return LOAN_PAYMENTS_SHEET;
+}
+
+export async function readLoans(token) {
+  await ensureLoansSheet(token);
+  return readRange(token, `${LOANS_SHEET}!A:M`, 'UNFORMATTED_VALUE');
+}
+
+export async function readLoanPayments(token) {
+  await ensureLoanPaymentsSheet(token);
+  return readRange(token, `${LOAN_PAYMENTS_SHEET}!A:I`, 'UNFORMATTED_VALUE');
+}
+
+/** Sheet rows -> loan objects the engine in lib/loans.js understands. */
+export function parseLoans(rows) {
+  if (!rows || rows.length < 2) return [];
+  return rows.slice(1)
+    .filter(r => r && r[0])
+    .map(r => ({
+      id: String(r[0]),
+      borrower: r[1] || '',
+      servicer: r[2] || '',
+      name: r[3] || 'Loan',
+      principal: Number(r[4]) || 0,
+      accrued: Number(r[5]) || 0,
+      // Accepts a fraction (0.0754) or a percent (7.54) — statements print percents.
+      rate: (() => { const v = Number(r[6]) || 0; return v > 1 ? v / 100 : v; })(),
+      status: String(r[7] || 'deferred').toLowerCase(),
+      subsidized: String(r[8]).toLowerCase() === 'true' || String(r[8]).toLowerCase() === 'yes',
+      minPayment: Number(r[9]) || 0,
+      capitalizesOn: r[10] || '',
+      opened: r[11] || '',
+      notes: r[12] || '',
+    }));
+}
+
+function findLoanRow(rows, idOrName) {
+  const key = norm(idOrName);
+  for (let r = 1; r < rows.length; r++) {
+    if (norm(rows[r][0]) === key || (key && norm(rows[r][3]).includes(key))) return r;
+  }
+  return -1;
+}
+
+export async function saveLoan(token, l) {
+  const rows = await readLoans(token);
+  const id = l.id || `loan_${Date.now()}`;
+  const record = [
+    id,
+    l.borrower || 'Me',
+    l.servicer || '',
+    l.name || 'Loan',
+    round2(l.principal ?? 0),
+    round2(l.accrued ?? 0),
+    l.rate ?? 0,
+    l.status || 'deferred',
+    l.subsidized ? 'yes' : 'no',
+    round2(l.minPayment ?? 0),
+    l.capitalizesOn || '',
+    l.opened || new Date().toISOString().slice(0, 10),
+    l.notes || '',
+  ];
+  const rowIdx = l.id ? findLoanRow(rows, id) : -1;
+  if (rowIdx >= 0) {
+    await batchUpdateCells(token, record.map((value, i) => ({
+      range: `${LOANS_SHEET}!${colLetter(i)}${rowIdx + 1}`, value,
+    })));
+  } else {
+    await appendRow(token, `${LOANS_SHEET}!A:M`, record);
+  }
+  return id;
+}
+
+export async function deleteLoan(token, { id }) {
+  const rows = await readLoans(token);
+  const rowIdx = findLoanRow(rows, id);
+  if (rowIdx < 0) throw new Error(`No loan matching "${id}".`);
+  await clearRow(token, `${LOANS_SHEET}!A${rowIdx + 1}:M${rowIdx + 1}`);
+  return rows[rowIdx][3];
+}
+
+/**
+ * Record a payment: writes the Loan Payments row AND updates the loan's balances
+ * with the same split, so the two tabs cannot drift apart.
+ * The caller passes the split computed by lib/loans.js applyPayment().
+ */
+export async function logLoanPayment(token, { loan, amount, toInterest, toPrincipal, paidBy, note, date }) {
+  await ensureLoanPaymentsSheet(token);
+  const newAccrued = round2(Math.max(0, (Number(loan.accrued) || 0) - (Number(toInterest) || 0)));
+  const newPrincipal = round2(Math.max(0, (Number(loan.principal) || 0) - (Number(toPrincipal) || 0)));
+  const balanceAfter = round2(newAccrued + newPrincipal);
+
+  await appendRow(token, `${LOAN_PAYMENTS_SHEET}!A:I`, [
+    date || new Date().toISOString().slice(0, 10),
+    loan.id,
+    loan.name || '',
+    round2(amount),
+    round2(toInterest),
+    round2(toPrincipal),
+    balanceAfter,
+    paidBy || '',
+    note || '',
+  ]);
+
+  const rows = await readLoans(token);
+  const rowIdx = findLoanRow(rows, loan.id);
+  if (rowIdx < 0) throw new Error(`No loan matching "${loan.id}".`);
+  const sheetRow = rowIdx + 1;
+  await batchUpdateCells(token, [
+    { range: `${LOANS_SHEET}!E${sheetRow}`, value: newPrincipal },
+    { range: `${LOANS_SHEET}!F${sheetRow}`, value: newAccrued },
+    ...(balanceAfter <= 0 ? [{ range: `${LOANS_SHEET}!H${sheetRow}`, value: 'paid' }] : []),
+  ]);
+  return { balanceAfter, principal: newPrincipal, accrued: newAccrued };
+}
+
+/**
+ * Re-sync a loan to what the servicer's statement says. Quarterly statements are
+ * the source of truth; anything the app computed in between is an estimate.
+ */
+export async function reconcileLoan(token, { id, principal, accrued }) {
+  const rows = await readLoans(token);
+  const rowIdx = findLoanRow(rows, id);
+  if (rowIdx < 0) throw new Error(`No loan matching "${id}".`);
+  const sheetRow = rowIdx + 1;
+  await batchUpdateCells(token, [
+    { range: `${LOANS_SHEET}!E${sheetRow}`, value: round2(principal) },
+    { range: `${LOANS_SHEET}!F${sheetRow}`, value: round2(accrued) },
+  ]);
+  return { principal: round2(principal), accrued: round2(accrued) };
+}
