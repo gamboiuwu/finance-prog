@@ -304,3 +304,121 @@ test('a scheduled capitalization makes the projection cost more', async () => {
   assert.ok(cap.totalPaid > base.totalPaid);
   assert.ok(cap.totalInterest > base.totalInterest, 'capitalized interest still counts as interest');
 });
+
+// ── Envelope layer ───────────────────────────────────────────────────────────
+import {
+  loanNeed, sendPlan, requiredMonthly, inScope, minimumsDue, isLoanEnvelope, monthPayments,
+  dailyInterest, accrualSegments, accrueTo, interestHistory,
+} from '../src/lib/loans.js';
+
+test('loan envelope target is the plan, but never below minimums due', () => {
+  const r = rng(71);
+  for (let i = 0; i < 2000; i++) {
+    const loans = randomLoans(r);
+    const plan = Math.round(r() * 800 * 100) / 100;
+    const n = loanNeed(loans, { plan });
+    assert.equal(n.target, cents(Math.max(plan > 0 ? plan : n.hold, minimumsDue(loans))));
+    if (plan === 0) assert.ok(n.target >= n.hold);
+    assert.ok(n.target >= n.due);
+    if (n.tier === 'attack') assert.ok(plan >= n.hold);
+    if (n.tier === 'growing') assert.ok(plan < n.hold);
+  }
+});
+
+test('scope filters by borrower; Parent PLUS can be left out', () => {
+  const loans = [
+    { id: 'a', borrower: 'Me', principal: 100, accrued: 0, rate: 0.05, status: 'deferred' },
+    { id: 'b', borrower: 'Mom', principal: 100, accrued: 0, rate: 0.08, status: 'deferred' },
+  ];
+  assert.deepEqual(inScope(loans, 'Me').map(l => l.id), ['a']);
+  assert.equal(inScope(loans, 'all').length, 2);
+  assert.ok(isLoanEnvelope(' student loans '));
+});
+
+test('send plan never spends more than the cash, pays minimums first, loses nothing', () => {
+  const r = rng(72);
+  for (let i = 0; i < 3000; i++) {
+    const loans = randomLoans(r);
+    const cash = Math.round(r() * 3000 * 100) / 100;
+    const { lines, leftover } = sendPlan(loans, cash);
+    const sent = cents(lines.reduce((s, l) => s + l.amount, 0));
+    assert.equal(cents(sent + leftover), cents(cash));
+    for (const l of lines) assert.equal(cents(l.toInterest + l.toPrincipal), l.amount);
+    if (leftover > 0) assert.equal(sent, totalOwed(loans));
+    const due = minimumsDue(loans);
+    if (cash >= due) assert.equal(cents(lines.reduce((s, l) => s + l.required, 0)), due);
+  }
+});
+
+test('requiredMonthly clears within the months, and is tight', () => {
+  const r = rng(73);
+  for (let i = 0; i < 120; i++) {
+    const loans = randomLoans(r, 1 + Math.floor(r() * 3)).map(l => ({ ...l, minPayment: 0 }));
+    const months = 12 + Math.floor(r() * 120);
+    const b = requiredMonthly(loans, months);
+    if (b == null) continue;
+    const p = projectPayoff(loans, b, { maxMonths: months });
+    assert.ok(!p.neverClears && p.months <= months, `budget ${b} clears in ${p.months} > ${months}`);
+    const less = projectPayoff(loans, cents(b - 1), { maxMonths: months });
+    assert.ok(less.neverClears || less.months >= months - 1, 'a dollar less should not clear early');
+  }
+});
+
+test('monthPayments sums one month of the log', () => {
+  const pays = [
+    { Date: '2026-09-02', Amount: 50, 'To Interest': 30, 'To Principal': 20 },
+    { Date: '2026-09-20', Amount: 25, 'To Interest': 0, 'To Principal': 25 },
+    { Date: '2026-10-01', Amount: 99, 'To Interest': 99, 'To Principal': 0 },
+  ];
+  const m = monthPayments(pays, 2026, 9);
+  assert.deepEqual([m.count, m.paid, m.toInterest, m.toPrincipal], [2, 75, 30, 45]);
+});
+
+// ── Interest through time ───────────────────────────────────────────────────
+test('accrual splits at month ends and covers every day exactly once', () => {
+  const loan = { id: 'x', principal: 26187, accrued: 5587.91, rate: 0.0754, status: 'deferred', asOf: '2026-07-01' };
+  const segs = accrualSegments(loan, '2026-09-23');
+  assert.deepEqual(segs.map(s => s.month), ['2026-07', '2026-08', '2026-09']);
+  assert.deepEqual(segs.map(s => s.days), [31, 31, 22]);
+  assert.equal(segs[0].from, '2026-07-01'); assert.equal(segs.at(-1).to, '2026-09-23');
+  const { loan: after, interest } = accrueTo(loan, '2026-09-23');
+  assert.equal(after.asOf, '2026-09-23');
+  assert.equal(after.accrued, cents(5587.91 + interest));
+  // 84 days at 26187 x 7.54% / 365.25 = ~454.09
+  assert.ok(Math.abs(interest - 26187 * 0.0754 / 365.25 * 84) < 0.03);
+});
+
+test('accruing in pieces equals accruing at once (to within a cent per piece)', () => {
+  const r = rng(74);
+  for (let i = 0; i < 500; i++) {
+    const [l] = randomLoans(r, 1);
+    const loan = { ...l, asOf: '2026-01-15' };
+    const whole = accrueTo(loan, '2026-12-03').interest;
+    let step = loan, total = 0, pieces = 0;
+    for (const d of ['2026-03-02', '2026-03-02', '2026-06-30', '2026-12-03', '2026-11-01']) {
+      const res = accrueTo(step, d); step = res.loan; total = cents(total + res.interest); pieces += res.segments.length;
+    }
+    assert.ok(Math.abs(total - whole) <= 0.01 * pieces + 0.001, `${total} vs ${whole}`);
+    assert.equal(step.asOf, '2026-12-03');
+  }
+});
+
+test('subsidized deferred loans accrue nothing but still move asOf; no asOf means no accrual', () => {
+  const sub = { principal: 3500, accrued: 0, rate: 0.0499, status: 'deferred', subsidized: true, asOf: '2026-09-22' };
+  const r = accrueTo(sub, '2026-12-01');
+  assert.equal(r.interest, 0); assert.equal(r.loan.asOf, '2026-12-01');
+  assert.equal(dailyInterest(sub), 0);
+  assert.deepEqual(accrualSegments({ ...sub, asOf: '' }, '2026-12-01'), []);
+  assert.deepEqual(accrualSegments(sub, '2026-09-22'), []);
+});
+
+test('interest history groups by month with a running total', () => {
+  const h = interestHistory([
+    { Month: '2026-08', 'Loan ID': 'a', Interest: 10 },
+    { Month: '2026-07', 'Loan ID': 'a', Interest: 5 },
+    { Month: '2026-08', 'Loan ID': 'b', Interest: 2.5 },
+    { Month: 'junk', 'Loan ID': 'b', Interest: 99 },
+  ]);
+  assert.deepEqual(h.map(m => [m.month, m.interest, m.cumulative]), [['2026-07', 5, 5], ['2026-08', 12.5, 17.5]]);
+  assert.equal(interestHistory([{ Month: '2026-08', 'Loan ID': 'b', Interest: 3 }], { loanIds: new Set(['a']) }).length, 0);
+});

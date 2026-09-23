@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { appendRow, appendRows, readRange } from '../lib/sheets';
 import { calcDeposits, policyFor, monthsLeft, isGas, splitSurplus, planRows, UNASSIGNED, UNASSIGNED_ACCOUNT, pm } from '../lib/allocation';
+import { loanNeed as computeLoanNeed, isLoanEnvelope, LOAN_ENVELOPE, accrueTo } from '../lib/loans';
+import { parseLoans } from '../lib/sheetWrite';
 export { policyFor, monthsLeft };
 
 const ACCOUNT_ICONS = {
@@ -63,6 +65,10 @@ export default function ProcessIncome({ expenses, token, onClose, defaultIncome,
   // Plans tab rows by lower-cased name: { target, saved, perMonth, targetDate } - the source of
   // target-date policies. Loaded alongside the log; absent tab = no target-date envelopes.
   const [plansByName,   setPlansByName]  = useState({});
+  // The Student Loans envelope's need is computed from the Loans tab (lib/loans.js):
+  // minimums due, else the owner's plan (the envelope's allowance), else the month's
+  // interest. Read-only here - nothing is written until Process.
+  const [loanData,      setLoanData]     = useState(null);   // { loans, scope }
   const [histLoading,   setHistLoading]  = useState(true);
   const [dueDates] = useState(() => {
     try { return JSON.parse(localStorage.getItem('_fin_due_dates') || '{}'); } catch { return {}; }
@@ -117,6 +123,19 @@ export default function ProcessIncome({ expenses, token, onClose, defaultIncome,
     let types = {};
     try { types = JSON.parse(localStorage.getItem('_fin_budget_balance_type') || '{}'); } catch {}
     setBalTypes(types);
+
+    Promise.all([
+      readRange(token, 'Loans!A:N', 'UNFORMATTED_VALUE'),
+      readRange(token, 'Loan Plan!A:B', 'UNFORMATTED_VALUE').catch(() => []),
+    ])
+      .then(([loanRows, planRows_]) => {
+        const today = new Date().toISOString().slice(0, 10);
+        // Interest brought current in memory so the owed figure is today's, not the statement's.
+        const loans = parseLoans(loanRows).map(l => accrueTo(l, today).loan);
+        const kv = Object.fromEntries((planRows_ || []).slice(1).filter(r => r && r[0]).map(r => [String(r[0]).trim(), r[1]]));
+        setLoanData({ loans, scope: kv.scope || 'Me' });
+      })
+      .catch(() => {});
 
     readRange(token, 'Plans!A:K', 'UNFORMATTED_VALUE')
       .then(rows => {
@@ -188,11 +207,15 @@ export default function ProcessIncome({ expenses, token, onClose, defaultIncome,
   // `overrides` = { [type]: editedAmountString }. Off by default → pure auto-split.
   const [manualMode, setManualMode] = useState(false);
   const [overrides,  setOverrides]  = useState({});
+  const loanEnv = useMemo(() => expenses.find(e => isLoanEnvelope(e['Type'])), [expenses]);
+  const loanNeedNow = useMemo(() => (loanData && loanEnv
+    ? computeLoanNeed(loanData.loans, { plan: pm(loanEnv['Monthly Allowance ($)']), scope: loanData.scope })
+    : null), [loanData, loanEnv]);
   const policies = useMemo(() => {
     const out = {};
-    expenses.forEach(e => { out[e['Type'] || ''] = policyFor(e, plansByName, balTypes); });
+    expenses.forEach(e => { out[e['Type'] || ''] = policyFor(e, plansByName, balTypes, loanNeedNow); });
     return out;
-  }, [expenses, plansByName, balTypes]);
+  }, [expenses, plansByName, balTypes, loanNeedNow]);
   const baseDeposits   = useMemo(
     () => calcDeposits(expenses, amount, mode, alreadyByType, gasBalance, gasBudget, envStats, policies),
     [expenses, amount, mode, alreadyByType, gasBalance, gasBudget, envStats, policies]
@@ -297,6 +320,12 @@ export default function ProcessIncome({ expenses, token, onClose, defaultIncome,
     setSplits(prev => prev.filter(s => s.id !== id));
   }
 
+  // One tap: leftover income goes to the loans instead of sitting Unassigned.
+  const loanBucket = surplusItems.some(it => isLoanEnvelope(it.name));
+  function sweepToLoans() {
+    if (loanBucket) return;
+    setSurplusItems(prev => [...prev, { id: Math.random().toString(36).slice(2), name: LOAN_ENVELOPE, account: 'Outside Payment', weight: '1' }]);
+  }
   function addSurplusItem() {
     setSurplusItems(prev => [...prev, {
       id: Math.random().toString(36).slice(2),
@@ -393,7 +422,7 @@ export default function ProcessIncome({ expenses, token, onClose, defaultIncome,
   const deficitTotal = deposits.reduce((s, d) => s + (d.deficitPaid || 0), 0);
   const toEnvelopes  = totalDeposited - deficitTotal;
   const namedSurplus = surplusDeposits.filter(it => it.name?.trim() && it.deposit > 0.005);
-  const policyMark = (d) => d.policy === 'running' ? 'R' : d.policy === 'target-date' ? 'T' : '';
+  const policyMark = (d) => d.policy === 'running' ? 'R' : d.policy === 'target-date' ? 'T' : d.policy === 'loan' ? 'L' : '';
   const accountsInPlan = ACCOUNT_ORDER.filter(a => byAccount[a]).concat(Object.keys(byAccount).filter(a => !ACCOUNT_ORDER.includes(a)));
 
   return (
@@ -519,8 +548,8 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
                               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.priority === 1 ? 'bg-rose-400' : d.priority === 2 ? 'bg-amber-400' : 'bg-violet-400'}`} title={`P${d.priority} ${PRIORITY_LABEL[d.priority] || ''}`} />
                               <span className="text-slate-200 truncate">{d.type}</span>
                               {policyMark(d) && (
-                                <span className={`shrink-0 text-[9px] px-1 rounded ${d.policy === 'running' ? 'bg-sky-900/70 text-sky-300' : 'bg-fuchsia-900/70 text-fuchsia-300'}`}
-                                  title={d.policy === 'running' ? 'Running balance: the balance counts toward the total budget' : d.pace ? `${fmt(d.pace.remaining)} to collect for ${fmt(d.pace.target)} in ${d.pace.monthsLeft} month(s)` : 'Target by date'}>
+                                <span className={`shrink-0 text-[9px] px-1 rounded ${d.policy === 'running' ? 'bg-sky-900/70 text-sky-300' : d.policy === 'loan' ? 'bg-teal-900/70 text-teal-300' : 'bg-fuchsia-900/70 text-fuchsia-300'}`}
+                                  title={d.policy === 'running' ? 'Running balance: the balance counts toward the total budget' : d.loan ? `Loan need: ${d.loan.reason}` : d.pace ? `${fmt(d.pace.remaining)} to collect for ${fmt(d.pace.target)} in ${d.pace.monthsLeft} month(s)` : 'Target by date'}>
                                   {policyMark(d)}
                                 </span>
                               )}
@@ -530,6 +559,11 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
                             <div className="text-[9px] text-slate-500 truncate">
                               {d.priority === 1 ? 'P1' : d.priority === 2 ? 'P2' : 'P3'} · holds {money0(d.balance)}{d.policy === 'monthly' && d.monthlyAllowance > 0 && d.balance > 0 ? ` · ${(d.balance / d.monthlyAllowance).toFixed(1)}× mo` : ''}{d.spentMonth > 0 ? ` · spent ${money0(d.spentMonth)}` : ''}
                             </div>
+                            {d.loan && (
+                              <div className={`text-[9px] leading-snug whitespace-normal ${d.loan.tier === 'growing' || d.loan.tier === 'due' ? 'text-rose-300' : 'text-teal-300/80'}`}>
+                                {d.loan.reason}
+                              </div>
+                            )}
                           </td>
                           <td className="px-1 py-1.5 text-right font-mono text-slate-300 align-top">{money0(d.allowance)}</td>
                           <td className={`px-1 py-1.5 text-right font-mono align-top ${d.already < 0 ? 'text-rose-300' : 'text-slate-400'}`}>{d.already < 0 ? `(${money0(-d.already)})` : money(d.already)}</td>
@@ -566,7 +600,13 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
                   ))}
                   {unassigned >= 0.05 && (
                     <tr className="border-t border-slate-700/30">
-                      <td className="px-2 py-1.5 text-slate-200 truncate" title="No envelope needs it and no bucket claims it; logged so the month's income stays whole. Move it from the Budget page.">{UNASSIGNED} <span className="text-slate-500 text-[9px]">· {UNASSIGNED_ACCOUNT} · parked</span></td>
+                      <td className="px-2 py-1.5 text-slate-200 truncate" title="No envelope needs it and no bucket claims it; logged so the month's income stays whole. Move it from the Budget page.">{UNASSIGNED} <span className="text-slate-500 text-[9px]">· {UNASSIGNED_ACCOUNT} · parked</span>
+                        {loanEnv && !loanBucket && (
+                          <button onClick={sweepToLoans} className="ml-1 text-[9px] px-1 rounded bg-teal-900/60 text-teal-300 hover:bg-teal-800/70"
+                            title="Send leftover income to the Student Loans envelope instead of parking it (adds a surplus bucket; remove it under More)">
+                            → loans
+                          </button>
+                        )}</td>
                       <td colSpan={2}></td>
                       <td className="hidden sm:table-cell"></td>
                       <td className="px-1 py-1.5 text-right font-mono text-amber-300">{money0(unassigned)}</td>
@@ -587,7 +627,7 @@ Accrued toward targets <span className="text-slate-300 font-mono">{money0(totalA
               </tfoot>
             </table>
             <p className="px-2 py-1.5 text-[9px] text-slate-500 border-t border-slate-700/40 leading-snug">
-              Accrued = this calendar month's deposits (R = running: the balance itself; T = dated target, target is this month's share).
+              Accrued = this calendar month's deposits (R = running: the balance itself; T = dated target, target is this month's share; L = loans, target computed from the debt).
               A negative accrued is a deficit, repaid first in any mode. Need = target − accrued. After = holds + deposit.
             </p>
           </div>

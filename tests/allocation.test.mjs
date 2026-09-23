@@ -114,3 +114,22 @@ test('a plan that does not add up is refused, not written', () => {
   assert.throws(() => planRows({ deposits: [{ type: 'A', account: 'Checking', deposit: 10 }], surplusDeposits: [], unassigned: 0, amount: 12, date: 'd', desc: 'x' }), /short/);
   assert.throws(() => planRows({ deposits: [], surplusDeposits: [], unassigned: 0, amount: 0, date: 'd', desc: 'x' }), /nothing/);
 });
+
+// ── The Student Loans envelope (loan policy) ─────────────────────────────────
+test('the Student Loans envelope takes its need from the debt, not the sheet allowance', async () => {
+  const { policyFor, calcDeposits } = await import('../src/lib/allocation.js');
+  const env = { Type: 'Student Loans', Account: 'Outside Payment', Priority: '2', 'Monthly Allowance ($)': '$0.00' };
+  const food = { Type: 'Food', Account: 'Checking', Priority: '1', 'Monthly Allowance ($)': '$600.00' };
+  const need = { target: 226.29, due: 0, hold: 226.29, plan: 0, tier: 'hold', reason: 'x' };
+  const pol = { 'Student Loans': policyFor(env, {}, {}, need), Food: policyFor(food) };
+  assert.equal(pol['Student Loans'].policy, 'loan');
+  const out = calcDeposits([env, food], 1000, 'priority', { 'Student Loans': 26.29 }, null, null, {}, pol);
+  const loan = out.find(d => d.type === 'Student Loans');
+  assert.equal(loan.allowance, 226.29);
+  assert.equal(Math.round(loan.stillNeeds * 100) / 100, 200);   // already had 26.29 this month
+  assert.equal(Math.round(loan.deposit * 100) / 100, 200);
+  assert.equal(out.find(d => d.type === 'Food').deposit, 600);  // priority 1 filled first
+  // No need -> not eligible, never a zero row
+  const none = calcDeposits([env], 500, 'priority', {}, null, null, {}, { 'Student Loans': policyFor(env, {}, {}, { target: 0 }) });
+  assert.equal(none.length, 0);
+});

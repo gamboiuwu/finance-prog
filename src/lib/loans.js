@@ -294,3 +294,210 @@ export function capitalizeSchedule(loans, today = new Date()) {
   }
   return out;
 }
+
+// ── The loan envelope ────────────────────────────────────────────────────────
+// Loans are funded like every other envelope: a "Student Loans" row in Monthly
+// Expenses, filled when income is processed, spent when a payment goes out. What
+// makes it different is that its need is COMPUTED from the debt, in three layers:
+//
+//   due     minimums on loans in repayment. Missing one is delinquency, so this
+//           is never optional and overrides a smaller plan.
+//   hold    the freeze line. Below it the balance grows however much is sent.
+//   attack  the owner's committed monthly plan, beyond the two above.
+//
+// The envelope's target is max(plan, due). The hold line is reported, not forced:
+// forcing it would silently take money from food and gas, and that is the owner's
+// call to make on the Loans page, not the engine's.
+export const LOAN_ENVELOPE = 'Student Loans';
+export const isLoanEnvelope = (type) => String(type || '').trim().toLowerCase() === LOAN_ENVELOPE.toLowerCase();
+
+/** Loans the plan covers: 'all', or one borrower's (Parent PLUS loans are the parent's). */
+export function inScope(loans, scope = 'all') {
+  const live = (loans || []).filter(l => l.status !== STATUS.PAID && loanBalance(l) > 0);
+  if (!scope || scope === 'all') return live;
+  return live.filter(l => String(l.borrower || '').toLowerCase() === String(scope).toLowerCase());
+}
+
+/** Minimum payments actually due this month. */
+export function minimumsDue(loans) {
+  return cents((loans || []).reduce((s, l) => (
+    l.status === STATUS.REPAYMENT && loanBalance(l) > 0 ? s + Math.min(Number(l.minPayment) || 0, loanBalance(l)) : s
+  ), 0));
+}
+
+/**
+ * What the loan envelope needs this month. `plan` is the envelope's Monthly
+ * Allowance. Returns the target plus the layers and a one-line reason the Process
+ * screen prints under the envelope.
+ */
+export function loanNeed(loans, { plan = 0, scope = 'all' } = {}) {
+  const set = inScope(loans, scope);
+  const due = minimumsDue(set);
+  const hold = freezeLine(set);
+  const p = cents(Math.max(0, Number(plan) || 0));
+  // No plan set: default to the interest line, so the envelope at least stops the
+  // debt growing. Anything above that is a choice the owner makes on the Loans page.
+  const target = cents(Math.max(p > 0 ? p : hold, due));
+  const owed = totalOwed(set);
+  let tier, reason;
+  if (owed <= 0) { tier = 'clear'; reason = 'No loans outstanding.'; }
+  else if (due > Math.max(p, p > 0 ? 0 : hold)) { tier = 'due'; reason = `${due.toFixed(2)} in minimum payments is due - more than the plan.`; }
+  else if (p === 0) { tier = 'hold'; reason = `No plan set - covering this month's ${hold.toFixed(2)} of interest so the balance stops growing.`; }
+  else if (p < hold) { tier = 'growing'; reason = `Plan is ${cents(hold - p).toFixed(2)} under the ${hold.toFixed(2)} monthly interest - balances still grow.`; }
+  else { tier = 'attack'; reason = `${cents(p - hold).toFixed(2)} a month past the interest goes to principal.`; }
+  return { target, due, hold, plan: p, owed, tier, reason, count: set.length };
+}
+
+/**
+ * Where the money sitting in the envelope should go right now: minimums first,
+ * then the strategy's target, rolling on as each clears. Each line is a payment
+ * the owner makes to a servicer, with the split it will get.
+ */
+export function sendPlan(loans, cash, strategy = 'avalanche') {
+  let left = cents(Math.max(0, Number(cash) || 0));
+  const state = (loans || []).map(l => ({ ...l }));
+  const lines = {};
+  const pay = (i, amt) => {
+    const r = applyPayment(state[i], amt);
+    if (r.applied <= 0) return 0;
+    state[i] = r.loan;
+    left = cents(left - r.applied);
+    const k = state[i].id;
+    const ln = lines[k] || (lines[k] = { id: k, name: state[i].name, servicer: state[i].servicer, amount: 0, toInterest: 0, toPrincipal: 0, required: 0 });
+    ln.amount = cents(ln.amount + r.applied);
+    ln.toInterest = cents(ln.toInterest + r.toInterest);
+    ln.toPrincipal = cents(ln.toPrincipal + r.toPrincipal);
+    return r.applied;
+  };
+  state.forEach((l, i) => {
+    if (left <= 0 || l.status !== STATUS.REPAYMENT) return;
+    const due = cents(Math.min(Number(l.minPayment) || 0, loanBalance(l), left));
+    const got = due > 0 ? pay(i, due) : 0;
+    if (got) lines[l.id].required = cents(got);
+  });
+  for (const t of payoffOrder(state, strategy)) {
+    if (left <= 0) break;
+    pay(state.findIndex(l => l.id === t.id), left);
+  }
+  return { lines: Object.values(lines), leftover: left };
+}
+
+/**
+ * The smallest monthly budget that clears these loans within `months`. Binary
+ * search over projectPayoff, rounded up to the cent. null when nothing is owed.
+ */
+export function requiredMonthly(loans, months, opts = {}) {
+  const n = Math.max(1, Math.floor(Number(months) || 0));
+  const owed = totalOwed(inScope(loans));
+  if (owed <= 0) return null;
+  const fits = (b) => { const p = projectPayoff(loans, b, { ...opts, maxMonths: n }); return !p.neverClears && p.months <= n; };
+  let lo = freezeLine(loans), hi = cents(owed * 2 + 1);
+  if (!fits(hi)) return null;
+  for (let i = 0; i < 40 && hi - lo > 0.005; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) hi = mid; else lo = mid;
+  }
+  let b = Math.ceil(hi * 100) / 100;
+  while (!fits(b)) b = cents(b + 0.01);
+  return b;
+}
+
+/** Month offset -> 'Mon YYYY' label, counting from `today`. */
+export function monthLabel(offset, today = new Date()) {
+  if (offset == null) return '-';
+  const d = new Date(today.getFullYear(), today.getMonth() + Number(offset), 1);
+  return d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+}
+
+/**
+ * One month of the Loan Payments log, for statements: what was paid, how it split.
+ * `payments` are header-keyed objects from the tab.
+ */
+export function monthPayments(payments, year, month) {
+  const rows = (payments || []).filter(p => {
+    const m = /^(\d{4})-(\d{2})/.exec(String(p['Date'] || ''));
+    return m && Number(m[1]) === year && Number(m[2]) === month;
+  });
+  const sum = (k) => cents(rows.reduce((s, p) => s + (Number(p[k]) || 0), 0));
+  return { count: rows.length, paid: sum('Amount'), toInterest: sum('To Interest'), toPrincipal: sum('To Principal'), rows };
+}
+
+// ── Interest through time ────────────────────────────────────────────────────
+// Interest accrues DAILY on principal: principal x rate / 365.25 per day, simple,
+// the daily-interest factor federal Direct Loan servicers print on statements.
+// Each loan carries an `asOf` date: the day its Accrued figure was last true. The
+// accrual ledger (Loan Interest tab) records every stretch from asOf forward, split
+// at month ends so each calendar month's interest is its own exact line, and
+// asOf moves forward. The same rule runs in the app (before a payment is split)
+// and in LIZA's nightly job, so whichever runs first writes it and the other finds
+// nothing left to do.
+export const DAY_BASIS = 365.25;
+
+/** Daily interest a loan charges right now (0 for subsidized while deferred). */
+export function dailyInterest(loan) {
+  if (!loan || loan.status === STATUS.PAID) return 0;
+  if (loan.subsidized && loan.status === STATUS.DEFERRED) return 0;
+  return (Number(loan.principal) || 0) * (Number(loan.rate) || 0) / DAY_BASIS;
+}
+
+const isoDay = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || '')); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : NaN; };
+const toIso = (t) => new Date(t).toISOString().slice(0, 10);
+const DAY_MS = 86400000;
+
+/**
+ * The accrual stretches from loan.asOf up to (not including) `toDate`, one per
+ * calendar month touched. Each: { from, to, days, interest, month:'YYYY-MM' }.
+ * `to` is exclusive and becomes the next asOf. No asOf, or toDate not after it,
+ * gives [] - never guess a start date.
+ */
+export function accrualSegments(loan, toDate) {
+  const a = isoDay(loan?.asOf), b = isoDay(toDate);
+  if (isNaN(a) || isNaN(b) || b <= a) return [];
+  const perDay = dailyInterest(loan);
+  const out = [];
+  let t = a;
+  while (t < b) {
+    const d = new Date(t);
+    const next = Math.min(b, Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+    const days = Math.round((next - t) / DAY_MS);
+    out.push({ from: toIso(t), to: toIso(next), days, interest: cents(perDay * days), month: toIso(t).slice(0, 7) });
+    t = next;
+  }
+  return out;
+}
+
+/** Bring a loan's accrued interest current to `toDate`. Pure. */
+export function accrueTo(loan, toDate) {
+  const segments = accrualSegments(loan, toDate);
+  if (!segments.length) return { loan: { ...loan }, segments, interest: 0 };
+  const interest = cents(segments.reduce((s, g) => s + g.interest, 0));
+  return {
+    loan: { ...loan, accrued: cents((Number(loan.accrued) || 0) + interest), asOf: segments[segments.length - 1].to },
+    segments,
+    interest,
+  };
+}
+
+/**
+ * Interest history from the Loan Interest ledger: per month, what accrued, and the
+ * running total. rows are header-keyed objects ({Month, Loan ID, Interest}).
+ * Returns [{ month, interest, cumulative, byLoan }] in month order.
+ */
+export function interestHistory(rows, { loanIds = null } = {}) {
+  const by = {};
+  for (const r of rows || []) {
+    const month = String(r['Month'] || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) continue;
+    const id = String(r['Loan ID'] || '');
+    if (loanIds && !loanIds.has(id)) continue;
+    const v = Number(r['Interest']) || 0;
+    const m = by[month] || (by[month] = { month, interest: 0, byLoan: {} });
+    m.interest = cents(m.interest + v);
+    m.byLoan[id] = cents((m.byLoan[id] || 0) + v);
+  }
+  let run = 0;
+  return Object.values(by).sort((x, y) => x.month.localeCompare(y.month)).map(m => {
+    run = cents(run + m.interest);
+    return { ...m, cumulative: run };
+  });
+}

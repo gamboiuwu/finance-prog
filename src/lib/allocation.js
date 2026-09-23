@@ -8,6 +8,8 @@
 // refuses and says why. Silently dropping surplus is what cost $945.33 in May and
 // September before this existed.
 
+import { isLoanEnvelope } from './loans.js';
+
 export const UNASSIGNED = 'Unassigned';
 export const UNASSIGNED_ACCOUNT = 'Checking';
 
@@ -33,12 +35,17 @@ export const isGas = (type) => String(type || '').trim().toLowerCase() === 'gas'
 //                (target - balance) / months left until the date. Comes from a Plans
 //                row whose Name matches the envelope (Target, Target Date), or an
 //                explicit policy. Prepared now, activates when such a row exists.
-// Resolution order: a `Policy` column in Monthly Expenses (monthly|running|target),
-// else Gas -> running, else a matching Plan with a target date -> target-date, else
-// the legacy per-device 'running' flag from the Budget page, else monthly.
-export function policyFor(e, plansByName = {}, balTypes = {}) {
+//   loan         the Student Loans envelope. accrued = deposits this month; target =
+//                the need lib/loans.js loanNeed() computes from the debt itself
+//                (minimums due, else the owner's plan, else the monthly interest).
+// Resolution order: a `Policy` column in Monthly Expenses (monthly|running|target|loan),
+// else the Student Loans envelope -> loan, else Gas -> running, else a matching Plan
+// with a target date -> target-date, else the legacy per-device 'running' flag from
+// the Budget page, else monthly.
+export function policyFor(e, plansByName = {}, balTypes = {}, loanNeed = null) {
   const type = String(e['Type'] || '').trim();
   const col  = String(e['Policy'] || '').trim().toLowerCase();
+  if (col === 'loan' || (!col && isLoanEnvelope(type))) return { policy: 'loan', need: loanNeed };
   if (col === 'running' || col === 'monthly') return { policy: col };
   if (col === 'target' || col === 'target-date') return { policy: 'target-date', plan: plansByName[type.toLowerCase()] || null };
   if (isGas(type)) return { policy: 'running' };
@@ -63,7 +70,9 @@ export function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBala
     // allowance is 0/stale — the real target comes from the gas price.
     .filter(e => pm(e['Monthly Allowance ($)']) > 0 || (isGas(e['Type']) && isGasDynamic)
       // A target-date envelope is defined by its plan, not by a monthly allowance.
-      || (policies[e['Type'] || '']?.policy === 'target-date' && policies[e['Type'] || '']?.plan))
+      || (policies[e['Type'] || '']?.policy === 'target-date' && policies[e['Type'] || '']?.plan)
+      // A loan envelope is defined by the debt: it is eligible whenever the debt needs money.
+      || (policies[e['Type'] || '']?.policy === 'loan' && policies[e['Type'] || '']?.need?.target > 0))
     .map(e => {
       // Gas uses the live dynamic budget (scales with gas price) instead of the
       // static sheet allowance, so the target is the ~$185 reserve, not $120.
@@ -89,6 +98,9 @@ export function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBala
         pace   = { monthsLeft: ml, perMonth, remaining, target: pol.plan.target, targetDate: pol.plan.targetDate };
         target = Math.min(remaining, Math.max(perMonth, 0));   // this month's share of the target
         already = funded;                                      // what went in this month toward it
+      } else if (pol.policy === 'loan' && pol.need) {
+        target  = pol.need.target;                             // computed from the loans
+        already = funded;                                      // deposited this month
       }
       const stillNeeds = Math.max(0, target - already);
       const deficit    = pol.policy === 'running' && balance < 0 ? -balance : 0;
@@ -104,6 +116,7 @@ export function calcDeposits(expenses, income, mode, alreadyByType = {}, gasBala
         stillNeeds,
         policy:      pol.policy,
         pace,
+        loan:        pol.policy === 'loan' ? pol.need : null,
         balance,
         fundedMonth: funded,
         spentMonth:  stats.spentMonth,

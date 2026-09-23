@@ -285,3 +285,16 @@ different sheets/purposes — but they're where "the numbers don't tie out" ques
 8. **ErrorBoundary `localStorage.clear()`** is total — consider clearing only volatile caches.
 </content>
 </invoke>
+
+## Student loans (2026-09-23)
+- Tabs: `Loans` (one row per debt; balances true as of the `As Of` column), `Loan Payments`
+  (append-only, interest/principal split), `Loan Interest` (append-only accrual ledger, daily
+  simple interest `principal x rate / 365.25`, one row per loan per calendar month), `Loan Plan`
+  (key/value: scope, strategy, debtFreeBy).
+- Envelope: `Student Loans` row in Monthly Expenses, policy `loan` (`allocation.js policyFor`).
+  Target = `lib/loans.js loanNeed()`: max(minimums due, the envelope's Monthly Allowance), or the
+  month's interest when no allowance is set. Accrued = deposits this calendar month.
+- Payment (`sheetWrite.logLoanPayment`): accrue to the payment date, split interest-first, write
+  Loan Payments + the loan row + a negative `Student Loans` row in Allocation Transactions.
+- LIZA runs `homeserver/finance/loan-accrue.mjs` nightly with the same engine; books and the
+  monthly statement PDFs read the ledger (homeserver/finance README, audit control C17).

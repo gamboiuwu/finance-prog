@@ -4,7 +4,7 @@
 // runtime, rather than trusting fixed positions — so a reordered or renamed sheet
 // fails loudly (throws) instead of silently writing into the wrong column. Shared
 // by the one-time Data Repair tool and by Ledger's write tools.
-import { readRange, batchUpdateCells, clearRow, appendRow, ensureSheetTab } from './sheets';
+import { readRange, batchUpdateCells, clearRow, appendRow, appendRows, ensureSheetTab } from './sheets';
 import { SHEETS } from '../config';
 
 const SUBSCRIPTIONS_SHEET = 'Subscriptions';
@@ -277,45 +277,67 @@ export async function applyPlanToBudget(token, changes) {
 }
 
 // ── Loans ─────────────────────────────────────────────────────────────────────
-// Two tabs: Loans holds one row per debt; Loan Payments is an append-only record
-// of every payment with its interest/principal split, so the Loans tab is always
-// reconstructable from the payment history rather than being a number we trust.
-//
-// Balances live on the loan row because a servicer is the source of truth for
-// them: the user re-reads the statement each quarter and corrects the row. The
-// payment log is what the app itself writes.
+// Four tabs:
+//   Loans           one row per debt. Principal/Accrued are true AS OF the row's
+//                   As Of date; the servicer's statement is the source of truth and
+//                   "From statement" re-anchors both.
+//   Loan Payments   append-only: every payment with its interest/principal split.
+//   Loan Interest   append-only accrual ledger: every stretch of daily interest,
+//                   one row per loan per calendar month touched. The history of
+//                   what the debt has cost, month by month.
+//   Loan Plan       key/value settings shared by every device (scope, strategy,
+//                   debt-free-by goal). The monthly amount is NOT here: it is the
+//                   Student Loans envelope's Monthly Allowance, so Process Income
+//                   and the Loans page read one number.
+import {
+  accrueTo, applyPayment, LOAN_ENVELOPE, loanBalance,
+} from './loans.js';
+
 const LOANS_SHEET = 'Loans';
 const LOAN_HEADER = [
   'ID', 'Borrower', 'Servicer', 'Name', 'Principal', 'Accrued Interest', 'Rate',
-  'Status', 'Subsidized', 'Min Payment', 'Capitalizes On', 'Opened', 'Notes',
+  'Status', 'Subsidized', 'Min Payment', 'Capitalizes On', 'Opened', 'Notes', 'As Of',
 ];
 const LOAN_PAYMENTS_SHEET = 'Loan Payments';
 const LOAN_PAYMENT_HEADER = [
   'Date', 'Loan ID', 'Loan Name', 'Amount', 'To Interest', 'To Principal',
   'Balance After', 'Paid By', 'Note',
 ];
+const LOAN_INTEREST_SHEET = 'Loan Interest';
+const LOAN_INTEREST_HEADER = [
+  'Month', 'Loan ID', 'Loan Name', 'From', 'To', 'Days', 'Principal', 'Rate',
+  'Interest', 'Accrued After', 'Source',
+];
+const LOAN_PLAN_SHEET = 'Loan Plan';
+const LOAN_PLAN_DEFAULTS = { scope: 'Me', strategy: 'avalanche', debtFreeBy: '' };
 
-export async function ensureLoansSheet(token) {
-  await ensureSheetTab(token, LOANS_SHEET);
-  const head = await readRange(token, `${LOANS_SHEET}!A1:M1`, 'UNFORMATTED_VALUE').catch(() => []);
-  if (!(head.length && norm(head[0]?.[0]) === 'id')) {
-    await appendRow(token, `${LOANS_SHEET}!A1`, LOAN_HEADER);
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const mdy = (iso) => { const [y, m, d] = String(iso).split('-'); return `${Number(m)}/${Number(d)}/${y}`; };
+
+async function ensureHeader(token, sheet, header) {
+  await ensureSheetTab(token, sheet);
+  const last = colLetter(header.length - 1);
+  const head = await readRange(token, `${sheet}!A1:${last}1`, 'UNFORMATTED_VALUE').catch(() => []);
+  if (!head.length || !head[0]?.[0]) {
+    await batchUpdateCells(token, header.map((h, i) => ({ range: `${sheet}!${colLetter(i)}1`, value: h })));
+    return;
   }
-  return LOANS_SHEET;
+  // A column added later (Loans: As Of) is written onto an existing header row.
+  const have = head[0].map(norm);
+  const missing = header.map((h, i) => ({ h, i })).filter(({ h, i }) => norm(have[i]) !== norm(h) && !have.includes(norm(h)));
+  if (missing.length) await batchUpdateCells(token, missing.map(({ h, i }) => ({ range: `${sheet}!${colLetter(i)}1`, value: h })));
 }
 
-export async function ensureLoanPaymentsSheet(token) {
-  await ensureSheetTab(token, LOAN_PAYMENTS_SHEET);
-  const head = await readRange(token, `${LOAN_PAYMENTS_SHEET}!A1:I1`, 'UNFORMATTED_VALUE').catch(() => []);
-  if (!(head.length && norm(head[0]?.[0]) === 'date')) {
-    await appendRow(token, `${LOAN_PAYMENTS_SHEET}!A1`, LOAN_PAYMENT_HEADER);
-  }
-  return LOAN_PAYMENTS_SHEET;
-}
+export const ensureLoansSheet = (token) => ensureHeader(token, LOANS_SHEET, LOAN_HEADER);
+export const ensureLoanPaymentsSheet = (token) => ensureHeader(token, LOAN_PAYMENTS_SHEET, LOAN_PAYMENT_HEADER);
+export const ensureLoanInterestSheet = (token) => ensureHeader(token, LOAN_INTEREST_SHEET, LOAN_INTEREST_HEADER);
 
 export async function readLoans(token) {
   await ensureLoansSheet(token);
-  return readRange(token, `${LOANS_SHEET}!A:M`, 'UNFORMATTED_VALUE');
+  return readRange(token, `${LOANS_SHEET}!A:N`, 'UNFORMATTED_VALUE');
 }
 
 export async function readLoanPayments(token) {
@@ -323,12 +345,41 @@ export async function readLoanPayments(token) {
   return readRange(token, `${LOAN_PAYMENTS_SHEET}!A:I`, 'UNFORMATTED_VALUE');
 }
 
+export async function readLoanInterest(token) {
+  await ensureLoanInterestSheet(token);
+  return readRange(token, `${LOAN_INTEREST_SHEET}!A:K`, 'UNFORMATTED_VALUE');
+}
+
+/** Header row + rows -> objects keyed by header. */
+export function loanRowsToObjects(rows) {
+  if (!rows || rows.length < 2) return [];
+  const head = rows[0].map(h => String(h || '').trim());
+  return rows.slice(1).filter(r => r && r.some(c => c !== '' && c != null))
+    .map(r => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ''])));
+}
+
+// Sheets hands a date back as a serial with UNFORMATTED_VALUE; the engine wants ISO.
+function isoDate(v) {
+  if (v == null || v === '') return '';
+  const n = Number(v);
+  if (!isNaN(n) && n > 1000 && !String(v).includes('-') && !String(v).includes('/')) {
+    return new Date(Math.round((n - 25569) * 86400000)).toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const p = s.split('/');
+  if (p.length === 3) return `${p[2]}-${String(p[0]).padStart(2, '0')}-${String(p[1]).padStart(2, '0')}`;
+  return '';
+}
+
 /** Sheet rows -> loan objects the engine in lib/loans.js understands. */
 export function parseLoans(rows) {
   if (!rows || rows.length < 2) return [];
   return rows.slice(1)
-    .filter(r => r && r[0])
-    .map(r => ({
+    .map((r, i) => ({ r, row: i + 2 }))
+    .filter(({ r }) => r && r[0])
+    .map(({ r, row }) => ({
+      row,
       id: String(r[0]),
       borrower: r[1] || '',
       servicer: r[2] || '',
@@ -340,9 +391,10 @@ export function parseLoans(rows) {
       status: String(r[7] || 'deferred').toLowerCase(),
       subsidized: String(r[8]).toLowerCase() === 'true' || String(r[8]).toLowerCase() === 'yes',
       minPayment: Number(r[9]) || 0,
-      capitalizesOn: r[10] || '',
-      opened: r[11] || '',
+      capitalizesOn: isoDate(r[10]),
+      opened: isoDate(r[11]) || r[11] || '',
       notes: r[12] || '',
+      asOf: isoDate(r[13]),
     }));
 }
 
@@ -369,8 +421,9 @@ export async function saveLoan(token, l) {
     l.subsidized ? 'yes' : 'no',
     round2(l.minPayment ?? 0),
     l.capitalizesOn || '',
-    l.opened || new Date().toISOString().slice(0, 10),
+    l.opened || todayIso(),
     l.notes || '',
+    l.asOf || todayIso(),
   ];
   const rowIdx = l.id ? findLoanRow(rows, id) : -1;
   if (rowIdx >= 0) {
@@ -378,7 +431,7 @@ export async function saveLoan(token, l) {
       range: `${LOANS_SHEET}!${colLetter(i)}${rowIdx + 1}`, value,
     })));
   } else {
-    await appendRow(token, `${LOANS_SHEET}!A:M`, record);
+    await appendRow(token, `${LOANS_SHEET}!A:N`, record);
   }
   return id;
 }
@@ -387,50 +440,84 @@ export async function deleteLoan(token, { id }) {
   const rows = await readLoans(token);
   const rowIdx = findLoanRow(rows, id);
   if (rowIdx < 0) throw new Error(`No loan matching "${id}".`);
-  await clearRow(token, `${LOANS_SHEET}!A${rowIdx + 1}:M${rowIdx + 1}`);
+  await clearRow(token, `${LOANS_SHEET}!A${rowIdx + 1}:N${rowIdx + 1}`);
   return rows[rowIdx][3];
 }
 
 /**
- * Record a payment: writes the Loan Payments row AND updates the loan's balances
- * with the same split, so the two tabs cannot drift apart.
- * The caller passes the split computed by lib/loans.js applyPayment().
+ * Bring every loan's interest current to `toDate` (default today): append the
+ * Loan Interest rows, then move each loan's Accrued and As Of forward in one
+ * write. Idempotent - a second call the same day finds nothing to accrue. Loans
+ * with no As Of are skipped (no start date is ever guessed).
+ * Returns the loans as they now stand.
  */
-export async function logLoanPayment(token, { loan, amount, toInterest, toPrincipal, paidBy, note, date }) {
-  await ensureLoanPaymentsSheet(token);
-  const newAccrued = round2(Math.max(0, (Number(loan.accrued) || 0) - (Number(toInterest) || 0)));
-  const newPrincipal = round2(Math.max(0, (Number(loan.principal) || 0) - (Number(toPrincipal) || 0)));
-  const balanceAfter = round2(newAccrued + newPrincipal);
-
-  await appendRow(token, `${LOAN_PAYMENTS_SHEET}!A:I`, [
-    date || new Date().toISOString().slice(0, 10),
-    loan.id,
-    loan.name || '',
-    round2(amount),
-    round2(toInterest),
-    round2(toPrincipal),
-    balanceAfter,
-    paidBy || '',
-    note || '',
-  ]);
-
-  const rows = await readLoans(token);
-  const rowIdx = findLoanRow(rows, loan.id);
-  if (rowIdx < 0) throw new Error(`No loan matching "${loan.id}".`);
-  const sheetRow = rowIdx + 1;
-  await batchUpdateCells(token, [
-    { range: `${LOANS_SHEET}!E${sheetRow}`, value: newPrincipal },
-    { range: `${LOANS_SHEET}!F${sheetRow}`, value: newAccrued },
-    ...(balanceAfter <= 0 ? [{ range: `${LOANS_SHEET}!H${sheetRow}`, value: 'paid' }] : []),
-  ]);
-  return { balanceAfter, principal: newPrincipal, accrued: newAccrued };
+export async function accrueLoans(token, loans, { toDate = todayIso(), source = 'app' } = {}) {
+  const out = [];
+  const ledger = [];
+  const cells = [];
+  for (const l of loans) {
+    const res = accrueTo(l, toDate);
+    out.push(res.loan);
+    if (!res.segments.length) continue;
+    let acc = Number(l.accrued) || 0;
+    for (const g of res.segments) {
+      acc = round2(acc + g.interest);
+      if (g.interest > 0) ledger.push([g.month, l.id, l.name, g.from, g.to, g.days, round2(l.principal), l.rate, g.interest, acc, source]);
+    }
+    cells.push({ range: `${LOANS_SHEET}!F${l.row}`, value: res.loan.accrued });
+    cells.push({ range: `${LOANS_SHEET}!N${l.row}`, value: res.loan.asOf });
+  }
+  if (!cells.length) return out;
+  await ensureLoanInterestSheet(token);
+  // Subsidized loans in school accrue nothing: their As Of still moves, no ledger row.
+  // Ledger first: if the second write fails, a re-run sees the old As Of and would
+  // double-count, so the ledger rows carry From/To and the nightly check (audit C17)
+  // flags any overlap.
+  if (ledger.length) await appendRows(token, `${LOAN_INTEREST_SHEET}!A:K`, ledger);
+  await batchUpdateCells(token, cells);
+  return out;
 }
 
 /**
- * Re-sync a loan to what the servicer's statement says. Quarterly statements are
- * the source of truth; anything the app computed in between is an estimate.
+ * Record a payment. The loan's interest is first brought current to the payment
+ * date (so the split is what the servicer will do), then the payment is split
+ * interest-first, then three writes: the Loan Payments row, the loan's balances,
+ * and - when the money came out of the Student Loans envelope - a spend row in
+ * Allocation Transactions, exactly like any other envelope spend.
  */
-export async function reconcileLoan(token, { id, principal, accrued }) {
+export async function logLoanPayment(token, { loan, amount, paidBy, note, date, fromEnvelope = true, account = 'Outside Payment' }) {
+  const day = date || todayIso();
+  const [current] = await accrueLoans(token, [loan], { toDate: day, source: 'payment' });
+  const split = applyPayment(current, amount);
+  if (split.applied <= 0) throw new Error('Nothing to apply - this loan is already paid.');
+  const after = split.loan;
+  const balanceAfter = loanBalance(after);
+
+  await ensureLoanPaymentsSheet(token);
+  await appendRow(token, `${LOAN_PAYMENTS_SHEET}!A:I`, [
+    day, loan.id, loan.name || '', round2(split.applied), split.toInterest, split.toPrincipal,
+    balanceAfter, paidBy || '', note || '',
+  ]);
+  await batchUpdateCells(token, [
+    { range: `${LOANS_SHEET}!E${loan.row}`, value: after.principal },
+    { range: `${LOANS_SHEET}!F${loan.row}`, value: after.accrued },
+    ...(balanceAfter <= 0 ? [{ range: `${LOANS_SHEET}!H${loan.row}`, value: 'paid' }] : []),
+  ]);
+  if (fromEnvelope) {
+    await appendRow(token, `${SHEETS.ALLOCATION_TRANSACTIONS}!A:F`, [
+      mdy(day), LOAN_ENVELOPE, -round2(split.applied),
+      `Loan payment: ${loan.servicer ? loan.servicer + ' ' : ''}${loan.name} (interest ${split.toInterest.toFixed(2)}, principal ${split.toPrincipal.toFixed(2)})`,
+      account, true,
+    ]);
+  }
+  return { ...split, balanceAfter, unused: split.unused };
+}
+
+/**
+ * Re-anchor a loan to a servicer statement: principal and unpaid interest as
+ * printed, true as of the statement date. Accrual resumes from that date.
+ */
+export async function reconcileLoan(token, { id, principal, accrued, asOf }) {
   const rows = await readLoans(token);
   const rowIdx = findLoanRow(rows, id);
   if (rowIdx < 0) throw new Error(`No loan matching "${id}".`);
@@ -438,6 +525,57 @@ export async function reconcileLoan(token, { id, principal, accrued }) {
   await batchUpdateCells(token, [
     { range: `${LOANS_SHEET}!E${sheetRow}`, value: round2(principal) },
     { range: `${LOANS_SHEET}!F${sheetRow}`, value: round2(accrued) },
+    { range: `${LOANS_SHEET}!N${sheetRow}`, value: asOf || todayIso() },
   ]);
   return { principal: round2(principal), accrued: round2(accrued) };
+}
+
+// ── Loan Plan settings ──────────────────────────────────────────────────────
+export async function readLoanPlan(token) {
+  await ensureHeader(token, LOAN_PLAN_SHEET, ['Key', 'Value']);
+  const rows = await readRange(token, `${LOAN_PLAN_SHEET}!A:B`, 'UNFORMATTED_VALUE').catch(() => []);
+  const out = { ...LOAN_PLAN_DEFAULTS };
+  rows.slice(1).forEach(r => { if (r && r[0]) out[String(r[0]).trim()] = r[1] ?? ''; });
+  if (out.debtFreeBy) out.debtFreeBy = isoDate(out.debtFreeBy);
+  return out;
+}
+
+export async function saveLoanPlan(token, patch) {
+  await ensureHeader(token, LOAN_PLAN_SHEET, ['Key', 'Value']);
+  const rows = await readRange(token, `${LOAN_PLAN_SHEET}!A:B`, 'UNFORMATTED_VALUE').catch(() => []);
+  const cells = [];
+  const append = [];
+  for (const [k, v] of Object.entries(patch)) {
+    const i = rows.findIndex((r, j) => j > 0 && norm(r?.[0]) === norm(k));
+    if (i > 0) cells.push({ range: `${LOAN_PLAN_SHEET}!B${i + 1}`, value: v ?? '' });
+    else append.push([k, v ?? '']);
+  }
+  if (cells.length) await batchUpdateCells(token, cells);
+  if (append.length) await appendRows(token, `${LOAN_PLAN_SHEET}!A:B`, append);
+}
+
+// ── The Student Loans envelope ──────────────────────────────────────────────
+/**
+ * Make sure Monthly Expenses has the Student Loans envelope, built with the same
+ * formulas as its neighbours so the sheet's own columns (share of income, balance
+ * to deposit, remaining) keep working. Returns { row, allowance, created }.
+ */
+export async function ensureLoanEnvelope(token, { allowance = 0 } = {}) {
+  const sheet = SHEETS.MONTHLY_EXPENSES;
+  const rows = await readRange(token, `${sheet}!A:J`, 'UNFORMATTED_VALUE');
+  const i = rows.findIndex((r, j) => j > 0 && norm(r?.[0]) === norm(LOAN_ENVELOPE));
+  if (i > 0) return { row: i + 1, allowance: Number(String(rows[i][9] ?? '').replace(/[$,]/g, '')) || 0, created: false };
+  const n = rows.length + 1;
+  await appendRow(token, `${sheet}!A:S`, [
+    LOAN_ENVELOPE, 'Outside Payment', 'Monthly', 'Stability', '2',
+    `=Q${n}*UnclaimedIncome`, `=H${n}*7`, `=F${n}/DaysApplicableforCI`, `=Q${n}*ProcessedIncome`,
+    round2(allowance), '', '', '', '', '0', `=J${n}-O${n}`, `=J${n}/ALLOWANCE_SUM()`, '', `=(R${n}/J${n})`,
+  ]);
+  return { row: n, allowance: round2(allowance), created: true };
+}
+
+/** The monthly plan IS the envelope's allowance. */
+export async function setLoanPlanAmount(token, amount) {
+  await ensureLoanEnvelope(token);
+  return updateBudgetAllowance(token, { type: LOAN_ENVELOPE, monthlyAllowance: round2(amount) });
 }
