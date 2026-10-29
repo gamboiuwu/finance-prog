@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { appendRow, readRange } from '../lib/sheets';
 
 const ACCOUNT_ICONS = {
@@ -107,6 +107,17 @@ function CoverageChip({ coverage }) {
 
 export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, onClose, defaultIncome, onProcessed, gasBalance, gasBudget = null }) {
   const [income,        setIncome]       = useState(defaultIncome > 0 ? String(defaultIncome.toFixed(2)) : '');
+  // `income` is seeded once from defaultIncome. But defaultIncome can arrive/grow AFTER
+  // mount — e.g. the Business page opens this modal while its transactions are still
+  // reloading from a just-recorded deposit, so netProfit lands a tick later. Without a
+  // re-sync the pre-filled "total amount" stays stale and ignores the income the user
+  // just brought in from today's business deposits (2026-09-16 feedback). Re-sync to a
+  // changing defaultIncome, but never clobber a value the user has typed or chosen.
+  const incomeTouched = useRef(false);
+  useEffect(() => {
+    if (incomeTouched.current) return;
+    if (defaultIncome > 0) setIncome(String(defaultIncome.toFixed(2)));
+  }, [defaultIncome]);
   const [source,        setSource]       = useState('');
   const [mode,          setMode]         = useState('priority');
   const [logging,       setLogging]      = useState(false);
@@ -586,7 +597,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                   ) : (
                     <button
                       key={t.id}
-                      onClick={() => setIncome(String(t.amount.toFixed(2)))}
+                      onClick={() => { incomeTouched.current = true; setIncome(String(t.amount.toFixed(2))); }}
                       className="shrink-0 px-3 py-1.5 rounded-full bg-blue-900/40 border border-blue-800/50 text-blue-300 text-xs font-medium hover:bg-blue-800/60 active:scale-95 transition-all whitespace-nowrap"
                     >
                       {t.name} · {fmt(t.amount)}
@@ -633,7 +644,7 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
               <input
                 type="number" step="0.01" min="0"
                 value={income}
-                onChange={e => setIncome(e.target.value)}
+                onChange={e => { incomeTouched.current = true; setIncome(e.target.value); }}
                 placeholder="0.00"
                 autoFocus
                 className="w-full bg-slate-800 text-white text-2xl font-bold rounded-xl pl-9 pr-4 py-3.5 outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
@@ -644,10 +655,10 @@ export default function ProcessIncome({ expenses, token, alreadyProcessed = 0, o
                 type="button"
                 className={`mt-2 w-full flex items-center justify-between px-4 py-2.5 rounded-xl border transition-colors ${gasBalance > 0 ? 'bg-emerald-900/30 border-emerald-800/40 hover:bg-emerald-900/50' : gasBalance < 0 ? 'bg-rose-900/20 border-rose-800/30' : 'bg-slate-800 border-slate-700'}`}
                 onClick={() => {
-                  if (gasBalance > 0) setIncome(prev => {
+                  if (gasBalance > 0) { incomeTouched.current = true; setIncome(prev => {
                     const cur = parseFloat(prev) || 0;
                     return String((cur + gasBalance).toFixed(2));
-                  });
+                  }); }
                 }}
                 title={gasBalance > 0 ? 'Click to add gas savings to this income deposit' : undefined}
               >
