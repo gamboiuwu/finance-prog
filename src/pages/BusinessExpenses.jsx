@@ -1375,6 +1375,12 @@ function SalesView({ token, products }) {
   }
 
   function handleProcessAsIncome() {
+    // Kick a fresh transactions pull at open so netProfit reflects any deposits
+    // made since the last 30s tick (which is paused while a modal is open — Task
+    // 213). The reload runs without a spinner (firstLoad guard), so it can't blank
+    // the view, and the pre-filled income re-syncs to the updated netProfit (Task
+    // 443) — unless the user has already typed a value.
+    setRefreshCount(c => c + 1);
     if (budgetExpenses.length > 0) { setShowProcess(true); return; }
     setExpLoading(true);
     readRange(token, 'Monthly Expenses!A1:T40')
